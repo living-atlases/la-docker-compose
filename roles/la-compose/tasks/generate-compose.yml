@@ -133,7 +133,7 @@
 # Load common role variables early for common.yml tasks
 - name: Load common role variables
   include_vars:
-    file: "{{ playbook_dir }}/roles/common/vars/main.yml"
+    file: "{{ playbook_dir }}/../../ala-install/ansible/roles/common/vars/main.yml"
   tags:
     - docker-compose
 
@@ -174,38 +174,13 @@
     - docker-compose
 
 
-- name: Determine Java versions for services
-  include_tasks: determine-java-versions.yml
-  tags:
-    - always
-    - only
-    - docker-compose
-    - build
-
-# Create clean dictionaries for easy access to software and Java versions
+# Create clean dictionaries for easy access to software versions
 # Uses version_variable from docker_services_desc dynamically
 - name: Build service versions dictionary from docker_services_desc
   set_fact:
     service_versions_dict: "{{ service_versions_dict | default({}) | combine({item.key: vars[item.value.version_variable] | default('develop')}) }}"
   loop: "{{ docker_services_desc | dict2items }}"
   when: item.value.version_variable is defined
-  loop_control:
-    label: "{{ item.key }}"
-  tags:
-    - always
-    - only
-    - docker-compose
-    - build
-
-- name: Build Java versions dictionary from determined java versions
-  set_fact:
-    service_java_dict: >-
-      {{
-        service_java_dict | default({}) | combine({
-          item.key: vars.get(item.key.replace('-', '_') + '_java_version', item.value.get('java_version', '11'))
-        })
-      }}
-  loop: "{{ docker_services_desc | dict2items }}"
   loop_control:
     label: "{{ item.key }}"
   tags:
@@ -361,14 +336,14 @@
 
 - name: Load nginx role defaults
   include_vars:
-    file: "../../nginx/defaults/main.yml"
+    file: "{{ playbook_dir }}/../../ala-install/ansible/roles/nginx/defaults/main.yml"
   when: "'nginx' in services_enabled"
   tags:
     - docker-compose
 
 - name: Generate nginx.conf
   template:
-    src: "../../nginx/templates/nginx.conf.j2"
+    src: "{{ playbook_dir }}/../../ala-install/ansible/roles/nginx/templates/nginx.conf.j2"
     dest: "{{ nginx_conf_dir }}/nginx.conf"
     mode: '0644'
     owner: "{{ docker_compose_userid }}"
@@ -433,7 +408,7 @@
 
 - name: Load collectory role variables if needed
   include_vars:
-    file: "{{ playbook_dir }}/roles/collectory/vars/main.yml"
+    file: "{{ playbook_dir }}/../../ala-install/ansible/roles/collectory/vars/main.yml"
   when: "'collectory' in group_names"
   tags:
     - docker-compose
@@ -981,7 +956,7 @@
 
 - name: Copy Solr configuration files from solrcloud_config role
   copy:
-    src: "{{ playbook_dir }}/roles/solrcloud_config/files/"
+    src: "{{ playbook_dir }}/../../ala-install/ansible/roles/solrcloud_config/files/"
     dest: "{{ docker_compose_data_dir }}/solr/init/"
     mode: '0644'
     owner: "{{ docker_compose_userid }}"
@@ -993,7 +968,7 @@
 
 - name: Copy Cassandra schema from biocache3-db role
   copy:
-    src: "{{ playbook_dir }}/roles/biocache3-db/files/cassandra/cassandra3-schema.txt"
+    src: "{{ playbook_dir }}/../../ala-install/ansible/roles/biocache3-db/files/cassandra/cassandra3-schema.txt"
     dest: "{{ docker_compose_data_dir }}/cassandra/init/schema.cql"
     mode: '0644'
     owner: "{{ docker_compose_userid }}"

@@ -8,28 +8,102 @@
     docker_compose_usergid: "{{ ansible_user_gid }}"
   tags:
     - always
+    - only
     - docker-compose
   become: false
 
-- name: "Deployment preparation: Ensure log directories"
-  file:
-    path: "{{ data_dir | default('/data') }}/logs"
-    state: directory
-    mode: "0755"
-    owner: "{{ docker_compose_userid }}"
-    group: "{{ docker_compose_usergid }}"
+- name: Load variables from collectory group
+  include_vars:
+    file: "{{ playbook_dir }}/../../ala-install/ansible/roles/collectory/vars/main.yml"
+  when: "'collectory' in group_names"
   tags:
     - always
-    - docker-compose
+    - only
 
-- name: "Deployment preparation: Setup deployment facts"
-  include_tasks: setup-facts.yml
+- name: Load variables from cas group
+  include_vars:
+    file: "{{ playbook_dir }}/../../ala-install/ansible/roles/cas5/vars/main.yml"
+  when: "'cas-servers' in group_names"
   tags:
     - always
-    - docker-compose
+    - only
 
-- name: Include generate-compose tasks
-  include_tasks: generate-compose.yml
+- name: Calculate collectory_app based on version
+  set_fact:
+    collectory_app: "{{ 'collectory' if collectory_version is version('3', '>=') else 'ala-collectory' }}"
+  when: "'collectory' in group_names and collectory_version is defined"
   tags:
     - always
-    - docker-compose
+    - only
+
+- name: Generate and Deploy Docker Compose
+  when: "inventory_hostname in groups['docker_compose']"
+  block:
+    - name: Create dockerfiles subdirectory in output
+      file:
+        path: "{{ docker_compose_data_dir }}/dockerfiles"
+        state: directory
+        mode: "0755"
+        owner: "{{ docker_compose_userid }}"
+        group: "{{ docker_compose_usergid }}"
+      become: true
+      tags:
+        - always
+        - only
+        - docker-compose
+        - build
+
+    - name: Copy static docker files to output (builders)
+      copy:
+        src: "docker/"
+        dest: "{{ docker_compose_data_dir }}/dockerfiles/"
+        mode: preserve
+        owner: "{{ docker_compose_userid }}"
+        group: "{{ docker_compose_usergid }}"
+      become: true
+      tags:
+        - always
+        - only
+        - docker-compose
+        - build
+
+    - name: "Deployment preparation: Ensure log directories"
+      file:
+        path: "{{ data_dir }}/logs"
+        state: directory
+        mode: "0755"
+        owner: "{{ docker_compose_userid }}"
+        group: "{{ docker_compose_usergid }}"
+      tags:
+        - always
+        - docker-compose
+
+    - name: "Deployment preparation: Setup deployment facts"
+      include_tasks: setup-facts.yml
+      tags:
+        - always
+        - docker-compose
+
+    - name: "Deployment preparation: Ensure database volumes exist (external)"
+      include_tasks: ensure-db-volumes.yml
+      tags:
+        - always
+        - docker-volumes
+
+    - name: Include generate-compose tasks
+      include_tasks: generate-compose.yml
+      tags:
+        - always
+        - only
+        - docker-compose
+
+    - name: Start Docker Compose services
+      command: docker compose up -d
+      args:
+        chdir: "{{ docker_compose_data_dir }}"
+      become: true
+      when:
+        - auto_deploy | default(true) | bool
+      tags:
+        - docker-compose
+        - deploy

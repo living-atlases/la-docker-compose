@@ -1,0 +1,18 @@
+# Ansible
+*.retry
+ansible.log
+.ansible_cache
+
+# Generated output
+docker-compose-output/
+tmp/
+
+# OS files
+.DS_Store
+Thumb.db
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo

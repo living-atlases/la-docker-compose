@@ -1,0 +1,36 @@
+---
+# Build and pull Docker images
+# This task file is included when build_images is true
+
+- name: Display build information
+  debug:
+    msg:
+      - "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      - "Preparing images"
+      - "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      - "  Configuration:"
+      - "    - Registry: {{ docker_registry | default('(local)') }}"
+      - "    - Services: {{ services_enabled | join(', ') }}"
+      - "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+- name: Build site-specific branding locally
+  shell: >
+    docker compose build branding-init
+  args:
+    chdir: "{{ docker_compose_data_dir }}"
+  register: build_branding
+  changed_when: true
+  when:
+    - "'branding' in services_enabled"
+
+- name: Pull Docker images
+  command: docker compose pull
+  args:
+    chdir: "{{ docker_compose_data_dir }}"
+  become: true
+  when:
+    - docker_registry | default('') != ''
+
+  tags:
+    - build
+    - docker-compose

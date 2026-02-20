@@ -19,6 +19,8 @@ auto_deploy: true
 # Skip handlers as we're generating docker-compose files, not deploying to VMs
 skip_handlers: true
 
+supported_ansible_version: { full: 2.17.3, major: 2, minor: 17, revision: 3 }
+
 # ============================================
 # i18n Configuration
 # ============================================

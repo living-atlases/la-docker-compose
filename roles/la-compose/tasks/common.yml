@@ -1,0 +1,30 @@
+---
+
+- name: ensure gatus configuration directory exists on gatus host
+  file:
+    path: "{{ hostvars[item]['gatus_config_dir'] | default(gatus_config_dir) }}"
+    state: directory
+    owner: "{{ hostvars[item]['docker_compose_userid'] | default(docker_compose_userid) }}"
+    group: "{{ hostvars[item]['docker_compose_usergid'] | default(docker_compose_usergid) }}"
+  loop: "{{ groups['gatus'] | default([]) }}"
+  delegate_to: "{{ item }}"
+  run_once: true
+  when: 
+    - "'gatus' in group_names"
+    - groups['gatus'] is defined and groups['gatus'] | length > 0
+  tags:
+    - docker-compose
+    - gatus
+
+- name: ensure nginx directories exist for docker vhost generation
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  with_items:
+    - "{{ nginx_conf_dir }}/conf.d"
+    - "{{ nginx_conf_dir }}/sites-enabled"
+    - "{{ nginx_conf_dir }}/sites-available"
+  tags:
+    - docker-compose

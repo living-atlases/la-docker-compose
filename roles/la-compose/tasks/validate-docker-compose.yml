@@ -1,0 +1,136 @@
+---
+# Validate docker-compose generation
+# Tests performed offline before containers are started
+# Similar to what the shell script does but from Ansible
+
+- name: "Validation: Check docker-compose.yml exists"
+  stat:
+    path: "{{ docker_compose_data_dir }}/docker-compose.yml"
+  register: compose_file
+
+- name: "Validation: Fail if docker-compose.yml doesn't exist"
+  fail:
+    msg: "docker-compose.yml not found at {{ docker_compose_data_dir }}/docker-compose.yml"
+  when: not compose_file.stat.exists
+
+- name: "Validation: Check YAML syntax"
+  shell: |
+    cd "{{ docker_compose_data_dir }}" && docker compose config
+  become: true
+  changed_when: false
+  register: compose_syntax
+
+- name: "Validation: Build list of expected infrastructure files based on enabled services"
+  set_fact:
+    expected_infra_files: >-
+      {{ ['nginx.yml'] +
+         (['db-backup.yml'] if (enable_mysql | default(false) | bool or enable_postgres | default(false) | bool or enable_mongo | default(false) | bool) else []) +
+         (['mysql.yml'] if enable_mysql | default(false) | bool else []) +
+         (['postgres.yml'] if enable_postgres | default(false) | bool else []) +
+         (['mongodb.yml'] if enable_mongo | default(false) | bool else []) }}
+
+- name: "Validation: DEBUG - Show expected infrastructure files"
+  debug:
+    msg:
+      - "enable_mysql: {{ enable_mysql | default(false) }}"
+      - "enable_postgres: {{ enable_postgres | default(false) }}"
+      - "enable_mongo: {{ enable_mongo | default(false) }}"
+      - "Expected infrastructure files: {{ expected_infra_files }}"
+
+- name: "Validation: Check infrastructure files exist"
+  stat:
+    path: "{{ docker_compose_data_dir }}/infrastructure/{{ item }}"
+  register: infra_file_check
+  loop: "{{ expected_infra_files }}"
+
+- name: "Validation: Fail if any infrastructure file is missing"
+  fail:
+    msg: "Infrastructure file missing: {{ item.item }}"
+  when: not item.stat.exists
+  loop: "{{ infra_file_check.results }}"
+
+- name: "Validation: Check .env file exists and has passwords"
+  stat:
+    path: "{{ docker_compose_data_dir }}/.env"
+  register: env_file
+
+- name: "Validation: Fail if .env doesn't exist"
+  fail:
+    msg: ".env file not found at {{ docker_compose_data_dir }}/.env"
+  when: not env_file.stat.exists
+
+- name: "Validation: Check .env contains required passwords"
+  shell: |
+    grep -E "MYSQL_ROOT_PASSWORD|POSTGRES_PASSWORD|MONGODB_ROOT_PASSWORD" "{{ docker_compose_data_dir }}/.env"
+  changed_when: false
+  register: env_passwords
+
+- name: "Validation: Build list of expected log directories based on services_enabled"
+  set_fact:
+    expected_log_dirs: >-
+      {{ (['cas', 'userdetails', 'apikey', 'cas-management'] if 'cas' in services_enabled else []) +
+         (['collectory'] if 'collectory' in services_enabled else []) +
+         (['species-list'] if 'species_lists' in services_enabled else []) }}
+
+- name: "Validation: Check logs directories created"
+  stat:
+    path: "{{ data_dir }}/logs/{{ item }}"
+  register: log_dir_check
+  loop: "{{ expected_log_dirs }}"
+  when: expected_log_dirs | length > 0
+
+- name: "Validation: Fail if any log directory is missing"
+  fail:
+    msg: "Log directory missing: {{ item.item }}"
+  when:
+    - expected_log_dirs | length > 0
+    - not item.stat.exists
+  loop: "{{ log_dir_check.results }}"
+
+- name: "Validation: Build expected volumes list based on enabled databases"
+  set_fact:
+    expected_volumes: >-
+      {{ (['mysql'] if enable_mysql | default(false) | bool else []) +
+         (['postgres'] if enable_postgres | default(false) | bool else []) +
+         (['mongodb'] if enable_mongo | default(false) | bool else []) +
+         (['gatus'] if 'gatus' in services_enabled else []) }}
+
+- name: "Validation: Check database volumes are external"
+  shell: |
+    grep -A2 "la_{{ item }}-data:" "{{ docker_compose_data_dir }}/docker-compose.yml" | grep -q "external: true" || echo "NOT_EXTERNAL"
+  loop: "{{ expected_volumes }}"
+  changed_when: false
+  register: external_volumes
+  failed_when: "'NOT_EXTERNAL' in external_volumes.stdout"
+
+- name: "Validation: Check Docker daemon availability"
+  shell: |
+    docker ps > /dev/null 2>&1
+  become: true
+  changed_when: false
+  register: docker_daemon_check
+  failed_when: false
+
+- name: "Validation: Check if external volumes actually exist"
+  shell: |
+    docker volume ls | grep -q "la_{{ item }}-data" && echo "EXISTS" || echo "MISSING"
+  become: true
+  loop: "{{ expected_volumes }}"
+  changed_when: false
+  register: volume_exists_check
+  failed_when: "'MISSING' in volume_exists_check.stdout"
+  when: docker_daemon_check.rc == 0
+
+- name: "Validation Summary"
+  debug:
+    msg: |
+      ✅ All validation tests passed!
+
+      Generated files:
+        ✓ docker-compose.yml (valid YAML syntax)
+        ✓ .env (with database passwords)
+        ✓ infrastructure/*.yml files
+        ✓ logs/ directories
+
+      Configuration:
+        ✓ External volumes configured
