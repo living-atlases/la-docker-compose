@@ -1,0 +1,29 @@
+  # Elasticsearch - Search and analytics engine
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.10.0
+    container_name: la_elasticsearch
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    restart: unless-stopped
+    expose:
+      - 9200
+      - 9300
+    environment:
+      TZ: {{ server_tz | default('UTC') }}
+      discovery.type: "single-node"
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx2g"
+      indices.memory.index_buffer_size: "30%"
+    volumes:
+      - la_elasticsearch-data:/usr/share/elasticsearch/data
+    networks:
+      default: {}
+      {{ docker_network | default('internal') }}:
+        aliases:
+          - elasticsearch
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:9200/_cluster/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s

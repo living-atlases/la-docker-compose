@@ -1,0 +1,26 @@
+---
+dependency:
+  name: galaxy
+driver:
+  name: docker
+platforms:
+  - name: la-test
+    image: geerlingguy/docker-ubuntu2204-ansible
+    privileged: true
+    volume_mounts:
+      - "/sys/fs/cgroup:/sys/fs/cgroup:rw"
+    command: /lib/systemd/systemd
+    groups:
+      - docker_compose
+      - cas-servers
+      - mysql
+      - mongodb
+provisioner:
+  name: ansible
+  inventory:
+    links:
+      group_vars: ../../../../../inventories/local/group_vars
+  options:
+    v: true
+verifier:
+  name: ansible

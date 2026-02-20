@@ -1,0 +1,23 @@
+  # Gatus Health Monitoring Dashboard
+services:
+  gatus:
+    container_name: la_gatus_service
+    image: twinproduction/gatus:latest
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    volumes:
+      - ../gatus/config:/config
+      - la_gatus-data:/data
+    environment:
+      TZ: {{ server_tz | default('UTC') }}
+      GATUS_CONFIG_PATH: /config
+    expose:
+      - 8080
+    networks:
+      default: {}
+      {{ docker_network | default('internal') }}:
+        aliases:
+          - {{ gatus_hostname | default('gatus') }}
+          - la_gatus_service
+    restart: unless-stopped
+
+

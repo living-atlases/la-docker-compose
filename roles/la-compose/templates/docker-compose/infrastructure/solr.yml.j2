@@ -1,0 +1,82 @@
+  # Solr - Search engine for indexing
+services:
+  solr:
+    image: solr:{{ solrcloud_version | default('9.4') }}
+    container_name: la_solr
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    restart: unless-stopped
+    expose:
+      - 8983
+    environment:
+      TZ: {{ server_tz | default('UTC') }}
+      SOLR_JAVA_MEM: "-Xms512m -Xmx2g"
+    volumes:
+      - la_solr-data:/var/solr
+    networks:
+      default: {}
+      {{ docker_network | default('internal') }}:
+        aliases:
+          - solr
+          - la_solr
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8983/solr/admin/info/system"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  solr-init:
+    image: solr:{{ solrcloud_version | default('9.4') }}
+    container_name: la_solr_init
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    restart: "no"
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        set -e
+        echo "Waiting for Solr..."
+        while ! curl -s http://solr:8983/solr/admin/info/system > /dev/null; do sleep 2; done
+        echo "Solr is up!"
+
+        # Define ZK host
+        ZK_HOST="solr:9983"
+
+        # Helper function for zkcli
+        function run_zkcli() {
+          if [ -f "/opt/solr/server/scripts/cloud-scripts/zkcli.sh" ]; then
+             /opt/solr/server/scripts/cloud-scripts/zkcli.sh "$@"
+          elif [ -f "/opt/bitnami/solr/server/scripts/cloud-scripts/zkcli.sh" ]; then
+             /opt/bitnami/solr/server/scripts/cloud-scripts/zkcli.sh "$@"
+          else
+             echo "zkcli.sh not found!"
+             exit 1
+          fi
+        }
+
+        echo "Uploading configsets..."
+        # Upload biocache config
+        run_zkcli -cmd upconfig -zkhost $$ZK_HOST -confname biocache -solrhome /var/solr/data -confdir /var/solr/init/biocache/conf
+
+        # Upload bie config
+        run_zkcli -cmd upconfig -zkhost $$ZK_HOST -confname bie -solrhome /var/solr/data -confdir /var/solr/init/bie/conf
+
+        echo "Creating collections..."
+        # Create biocache collection
+        curl -X POST "http://solr:8983/solr/admin/collections?action=CREATE&name=biocache&collection.configName=biocache&numShards=1&replicationFactor=1" || true
+
+        # Create bie collection
+        curl -X POST "http://solr:8983/solr/admin/collections?action=CREATE&name=bie&collection.configName=bie&numShards=1&replicationFactor=1" || true
+
+        # Create bie-offline collection
+        curl -X POST "http://solr:8983/solr/admin/collections?action=CREATE&name=bie-offline&collection.configName=bie&numShards=1&replicationFactor=1" || true
+
+        echo "Initialization complete!"
+    volumes:
+      - {{ data_dir }}/solr/init:/var/solr/init:ro
+    networks:
+      {{ docker_network | default('internal') }}:
+    depends_on:
+      solr:
+        condition: service_healthy
+

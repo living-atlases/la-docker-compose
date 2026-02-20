@@ -1,0 +1,21 @@
+# Biocache Hub - Records search frontend
+services:
+  biocache-hub:
+    image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}ala-hub:{{ biocache_hub_version | default('latest') }}
+    container_name: la_biocache-hub
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    restart: unless-stopped
+    expose:
+      - 8080
+    environment:
+      TZ: {{ server_tz | default('UTC') }}
+      JAVA_OPTS: ${BIOCACHE_HUB_JAVA_OPTS}
+    networks:
+      default: {}
+      {{ docker_network | default('internal') }}:
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:8080/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s

@@ -1,0 +1,35 @@
+---
+# Docker Compose Role - Main Tasks
+# Orchestrates docker-compose generation and deployment for Living Atlas
+
+- name: Capture original user details for file ownership
+  set_fact:
+    docker_compose_userid: "{{ ansible_user_id }}"
+    docker_compose_usergid: "{{ ansible_user_gid }}"
+  tags:
+    - always
+    - docker-compose
+  become: false
+
+- name: "Deployment preparation: Ensure log directories"
+  file:
+    path: "{{ data_dir | default('/data') }}/logs"
+    state: directory
+    mode: "0755"
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  tags:
+    - always
+    - docker-compose
+
+- name: "Deployment preparation: Setup deployment facts"
+  include_tasks: setup-facts.yml
+  tags:
+    - always
+    - docker-compose
+
+- name: Include generate-compose tasks
+  include_tasks: generate-compose.yml
+  tags:
+    - always
+    - docker-compose

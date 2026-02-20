@@ -1,0 +1,1337 @@
+---
+# Generate docker-compose.yml from templates
+# Using existing ala-install variables
+
+- name: Ensure docker_compose_data_dir is set
+  set_fact:
+    docker_compose_data_dir: "{{ docker_compose_data_dir | default('/data/docker-compose') }}"
+  tags:
+    - always
+    - only
+    - docker-compose
+    - build
+
+- name: Ensure nginx_docker_internal_aliases is a list
+  set_fact:
+    nginx_docker_internal_aliases: "{{ nginx_docker_internal_aliases | from_json if nginx_docker_internal_aliases is string else (nginx_docker_internal_aliases | default([])) }}"
+  tags:
+    - always
+    - docker-compose
+
+- name: Ensure docker_extra_hosts is a list
+  set_fact:
+    docker_extra_hosts: "{{ docker_extra_hosts | from_json if docker_extra_hosts is string else (docker_extra_hosts | default([])) }}"
+  tags:
+    - always
+    - docker-compose
+
+- name: Create docker_extra_hosts_dict mapping
+  set_fact:
+    docker_extra_hosts_dict: >-
+      {%- set result = {} -%}
+      {%- for entry in docker_extra_hosts -%}
+        {%- set parts = entry.split(':', 1) -%}
+        {%- if parts | length == 2 -%}
+          {%- set _ = result.update({parts[0]: parts[1]}) -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ result }}
+  tags:
+    - always
+    - docker-compose
+
+- name: Set docker facts for all services
+  set_fact:
+    # Core user variables for all services
+    tomcat_user: "{{ docker_compose_userid | default(ansible_env.SUDO_USER) | default(docker_compose_userid) }}"
+    nginx_user: "{{ docker_compose_userid | default(ansible_env.SUDO_USER) | default(docker_compose_userid) }}"
+  tags:
+    - always
+    - docker-compose
+
+- name: Set docker facts for cas services
+  set_fact:
+    cas_user: "{{ docker_compose_userid | default(ansible_env.SUDO_USER) | default(docker_compose_userid) }}"
+    collectory_user: "{{ docker_compose_userid | default(ansible_env.SUDO_USER) | default(docker_compose_userid) }}"
+    userdetails_user: "{{ docker_compose_userid | default(ansible_env.SUDO_USER) | default(docker_compose_userid) }}"
+    apikey_user: "{{ docker_compose_userid | default(ansible_env.SUDO_USER) | default(docker_compose_userid) }}"
+    cas_add_mongo_users: "{{ cas_add_mongo_users | default(true) }}"
+  tags:
+    - always
+    - docker-compose 
+  when: "'cas-servers' in group_names"
+
+- name: Set docker facts for namematching service
+  set_fact:
+    namematching_user: "{{ docker_compose_userid | default(ansible_env.SUDO_USER) | default(docker_compose_userid) }}"
+  tags:
+    - always
+    - docker-compose    
+  when: "'namematching-service' in group_names"
+
+- name: Set docker facts for sensitive data service
+  set_fact:
+    sensitive_data_user: "{{ docker_compose_userid | default(ansible_env.SUDO_USER) | default(docker_compose_userid) }}"
+  tags:
+    - always
+    - docker-compose
+  when: "'sensitive-data-service' in group_names"
+
+- name: Set docker facts for collectory service
+  set_fact:
+    collectory_docker_data_dir: "/data/collectory"
+  tags:
+    - always
+    - docker-compose
+  when: "'collectory' in group_names"
+
+- name: Set nginx Docker resolver configuration
+  set_fact:
+    nginx_docker_internal_resolver: "{{ (deployment_type in ['swarm', 'container']) | bool }}"
+  tags:
+    - docker-compose
+
+- name: Set docker service container names (used in proxy_pass for nginx)
+  set_fact:
+    # Convention: la_<service> - these are the container service names in docker-compose
+    # Only used when deployment_type is 'container' or 'swarm'
+    # Can be overridden in inventory for custom naming
+    cas_docker_host: "{{ cas_docker_host | default('la_cas', true) }}"
+    cas_management_docker_host: "{{ cas_management_docker_host | default('la_cas_management', true) }}"
+    apikey_docker_host: "{{ apikey_docker_host | default('la_apikey', true) }}"
+    userdetails_docker_host: "{{ userdetails_docker_host | default('la_userdetails', true) }}"
+    species_list_docker_host: "{{ species_list_docker_host | default('la_species_list', true) }}"
+    collectory_docker_host: "{{ collectory_docker_host | default('la_collectory', true) }}"
+    biocache_service_docker_host: "{{ biocache_service_docker_host | default('la_biocache_service', true) }}"
+    bie_hub_docker_host: "{{ bie_hub_docker_host | default('la_bie_hub', true) }}"
+    bie_index_docker_host: "{{ bie_index_docker_host | default('la_bie_index', true) }}"
+    biocache_hub_docker_host: "{{ biocache_hub_docker_host | default('la_biocache_hub', true) }}"
+    image_service_docker_host: "{{ image_service_docker_host | default('la_image_service', true) }}"
+    logger_service_docker_host: "{{ logger_service_docker_host | default('la_logger_service', true) }}"
+    namematching_service_docker_host: "{{ namematching_service_docker_host | default('la_namematching_service', true) }}"
+    doi_service_docker_host: "{{ doi_service_docker_host | default('la_doi_service', true) }}"
+    sensitive_data_service_docker_host: "{{ sensitive_data_service_docker_host | default('la_sensitive_data_service', true) }}"
+    gatus_docker_host: "{{ gatus_docker_host | default('la_gatus', true) }}"
+  tags:
+    - always
+    - only
+    - docker-compose
+
+- name: Debug - Docker user configuration
+  debug:
+    msg: |
+      Docker users - tomcat: {{ tomcat_user }}, nginx: {{ nginx_user }}, cas: {{ cas_user }}, collectory: {{ collectory_user }}, userdetails: {{ userdetails_user }}, apikey: {{ apikey_user }}
+      Nginx Docker Internal Resolver: {{ nginx_docker_internal_resolver }}
+      Deployment Type: {{ deployment_type }}
+  tags:
+    - always
+    - only
+    - docker-compose
+
+
+
+# Load common role variables early for common.yml tasks
+- name: Load common role variables
+  include_vars:
+    file: "{{ playbook_dir }}/roles/common/vars/main.yml"
+  tags:
+    - docker-compose
+
+# Create common directories BEFORE any role tries to use them
+- name: Run common directory and config setup
+  include_tasks: common.yml
+  tags:
+    - docker-compose
+
+- name: Ensure output directory exists
+  file:
+    path: "{{ docker_compose_data_dir }}"
+    state: directory
+    mode: '0755'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  tags:
+    - docker-compose
+
+- name: Ensure cert-validator directory exists
+  file:
+    path: "{{ docker_compose_data_dir }}/cert-validator"
+    state: directory
+    mode: '0755'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  tags:
+    - docker-compose
+
+- name: Copy cert-validator script
+  template:
+    src: cert-validator.sh
+    dest: "{{ docker_compose_data_dir }}/cert-validator/cert-validator.sh"
+    mode: '0755'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  tags:
+    - docker-compose
+
+
+- name: Determine Java versions for services
+  include_tasks: determine-java-versions.yml
+  tags:
+    - always
+    - only
+    - docker-compose
+    - build
+
+# Create clean dictionaries for easy access to software and Java versions
+# Uses version_variable from docker_services_desc dynamically
+- name: Build service versions dictionary from docker_services_desc
+  set_fact:
+    service_versions_dict: "{{ service_versions_dict | default({}) | combine({item.key: vars[item.value.version_variable] | default('develop')}) }}"
+  loop: "{{ docker_services_desc | dict2items }}"
+  when: item.value.version_variable is defined
+  loop_control:
+    label: "{{ item.key }}"
+  tags:
+    - always
+    - only
+    - docker-compose
+    - build
+
+- name: Build Java versions dictionary from determined java versions
+  set_fact:
+    service_java_dict: >-
+      {{
+        service_java_dict | default({}) | combine({
+          item.key: vars.get(item.key.replace('-', '_') + '_java_version', item.value.get('java_version', '11'))
+        })
+      }}
+  loop: "{{ docker_services_desc | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  tags:
+    - always
+    - only
+    - docker-compose
+    - build
+
+- name: Fetch latest ala-i18n version from apt.gbif.es repository
+  block:
+    - name: Download Packages.gz and extract version
+      shell: |
+        curl -s https://apt.gbif.es/dists/unstable/main/binary-amd64/Packages.gz | \
+        gunzip | \
+        awk '/^Package: ala-i18n$/{p=1; next} p && /^Version:/{print $2; p=0}' | \
+        sort -V | \
+        tail -1 | \
+        sed 's/~.*//' | \
+        sed 's/+.*//'
+      register: gbif_i18n_version
+      changed_when: false
+      failed_when: false
+
+    - name: Set i18n_version from apt.gbif.es
+      set_fact:
+        i18n_version: "{{ gbif_i18n_version.stdout | trim }}"
+      when: gbif_i18n_version.stdout | length > 0
+
+    - name: Display fetched i18n version
+      debug:
+        msg: "Latest ala-i18n version from apt.gbif.es: {{ i18n_version | default('unable to fetch') }}"      
+  tags:
+    - docker-compose
+
+
+- name: DEBUG - Show physical server groups
+  debug:
+    msg:
+      - "Physical Server: {{ hostvars[inventory_hostname].get('ansible_host', inventory_hostname) }}"
+      - "Groups on this server: {{ physical_server_groups }}"
+  tags:
+    - docker-compose
+
+
+- name: DEBUG - Inspect services detection
+  debug:
+    msg: 
+      - "Host: {{ inventory_hostname }}"
+      - "Group Names: {{ group_names }}"
+      - "Physical Server Groups: {{ physical_server_groups }}"
+      - "Services Enabled: {{ services_enabled }}"
+      - "Enable MySQL (before calculation): {{ enable_mysql | default('undefined') }}"
+      - "Services Desc MySQL group: {{ docker_services_desc['collectory'].group }}"
+  tags:
+    - docker-compose
+
+
+# Debug after detecting services
+- name: "DEBUG: Show services_enabled after detection"
+  debug:
+    msg: |
+      Services detected after Detect enabled services task:
+      {{ services_enabled }}
+  tags:
+    - docker-compose
+
+
+# Always add nginx and ensure unique services
+- name: Add nginx and ensure unique services list
+  set_fact:
+    services_enabled: "{{ (['nginx'] + services_enabled) | unique }}"
+  tags:
+    - always
+    - docker-compose
+
+- name: Debug - Show services configuration
+  debug:
+    msg: "Services enabled: {{ services_enabled }}"
+  tags:
+    - always
+    - docker-compose
+    - build
+
+- name: Determine services present in the inventory (cluster-wide)
+  set_fact:
+    cluster_services: >-
+      {{
+        (cluster_services | default([])) +
+        ([item.key] if (item.value.group in groups and (groups[item.value.group] | length > 0)) else [])
+      }}
+  loop: "{{ docker_services_desc | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  tags: [always, only, docker-compose, build]
+
+- name: Add non-standard services to cluster_services
+  set_fact:
+    cluster_services: >-
+      {{
+        (cluster_services | default([])) +
+        (['branding'] if ('branding' in groups and (groups['branding'] | length > 0)) else []) +
+        (['ala-i18n'] if (i18n.enabled | default(false)) else [])
+      }}
+  tags: [always, only, docker-compose, build]
+
+- name: Set services to build on this host
+  set_fact:
+    services_to_build: "{{ cluster_services | unique if (inventory_hostname == (groups['docker_compose'] | first)) else services_enabled }}"
+  tags: [always, only, docker-compose, build]
+
+- name: Debug - Show services to build
+  debug:
+    msg: "Services to build on this host: {{ services_to_build }}"
+  tags:
+    - always
+    - only
+    - docker-compose
+    - build
+
+# Create nginx directories BEFORE any role tries to use nginx_vhost
+- name: Ensure nginx config directory exists
+  file:
+    path: "{{ nginx_conf_dir }}"
+    state: directory
+    mode: '0755'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'nginx' in services_enabled"
+  tags:
+    - docker-compose
+
+- name: Ensure nginx conf.d directory exists
+  file:
+    path: "{{ nginx_conf_dir }}/conf.d"
+    state: directory
+    mode: '0755'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'nginx' in services_enabled"
+  tags:
+    - docker-compose
+
+- name: Ensure nginx sites-enabled directory exists
+  file:
+    path: "{{ nginx_conf_dir }}/sites-enabled"
+    state: directory
+    mode: '0755'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'nginx' in services_enabled"
+  tags:
+    - docker-compose
+
+- name: Load nginx role defaults
+  include_vars:
+    file: "../../nginx/defaults/main.yml"
+  when: "'nginx' in services_enabled"
+  tags:
+    - docker-compose
+
+- name: Generate nginx.conf
+  template:
+    src: "../../nginx/templates/nginx.conf.j2"
+    dest: "{{ nginx_conf_dir }}/nginx.conf"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'nginx' in services_enabled"
+  tags:
+    - docker-compose
+
+
+
+
+- name: Run cas configuration generation
+  include_role:
+    name: cas5
+  vars:
+    deployment_type: container
+  when:
+    - "'cas' in services_enabled"
+    - "'cas-servers' in group_names"
+  tags:
+    - cas
+    - config
+
+- name: Run userdetails configuration generation
+  include_role:
+    name: userdetails
+  vars:
+    deployment_type: container
+  when:
+    - "'userdetails' in services_enabled"
+    - "'cas-servers' in group_names"        
+  tags:
+    - userdetails
+    - config
+
+- name: Run apikey configuration generation
+  include_role:
+    name: apikey
+  vars:
+    deployment_type: container
+  when:
+    - "'apikey' in services_enabled"
+    - "'cas-servers' in group_names"        
+  tags:
+    - apikey
+    - config
+
+- name: Run cas-management configuration generation
+  include_role:
+    name: cas-management
+  vars:
+    deployment_type: container
+  when:
+    - "'cas_management' in services_enabled"
+    - "'cas-servers' in group_names"        
+  tags:
+    - cas-management
+    - config
+
+
+
+
+- name: Load collectory role variables if needed
+  include_vars:
+    file: "{{ playbook_dir }}/roles/collectory/vars/main.yml"
+  when: "'collectory' in group_names"
+  tags:
+    - docker-compose
+
+# Ensure database password variables have values (from inventory or defaults)
+# These are critical for docker-compose .env generation
+- name: Ensure database password variables are set
+  set_fact:
+    mysql_root_password: "{{ mysql_root_password | default('generated_mysql_password') }}"
+    collectory_db_password: "{{ collectory_db_password | default('generated_collectory_password') }}"
+    mongodb_root_password: "{{ mongodb_root_password | default('generated_mongodb_password') }}"
+    mongodb_root_username: "{{ mongodb_root_username | default('admin') }}"
+    postgresql_password: "{{ postgresql_password | default('generated_postgres_password') }}"
+  tags:
+    - docker-compose
+
+# Now run collectory and other services
+- name: Run collectory configuration generation (asset copy, config templates)
+  include_role:
+    name: collectory
+  vars:
+    deployment_type: container
+    nginx_vhost_fast_mode: true
+  when: 
+    - "'collectory' in services_enabled"
+    - "'collectory' in group_names"
+  tags:
+    - collectory
+    - config
+
+- name: Run species-list configuration generation (asset copy, config templates)
+  include_role:
+    name: species-list
+  vars:
+    deployment_type: container
+    nginx_vhost_fast_mode: true
+  when: 
+    - "'species_lists' in services_enabled"
+    - "'species-list' in group_names"
+  tags:
+    - species-list
+    - config
+
+- name: Run bie-hub configuration generation
+  include_role:
+    name: bie-hub
+  vars:
+    deployment_type: container
+    bie_hub_docker_host: la_bie-hub
+    nginx_vhost_fast_mode: true
+  when: 
+    - "'ala_bie' in services_enabled"
+    - "'bie-hub' in group_names"
+  tags:
+    - bie-hub
+    - config
+
+- name: Run bie-index configuration generation
+  include_role:
+    name: bie-index
+  vars:
+    deployment_type: container
+    bie_index_docker_host: la_bie-index
+    nginx_vhost_fast_mode: true
+  when: 
+    - "'bie_index' in services_enabled"
+    - "'bie-index' in group_names"
+  tags:
+    - bie-index
+    - config
+
+- name: Run biocache-hub configuration generation
+  include_role:
+    name: biocache-hub
+  vars:
+    deployment_type: container
+    biocache_hub_docker_host: la_biocache-hub
+    nginx_vhost_fast_mode: true
+  when:
+    - "'ala_hub' in services_enabled"
+    - "'biocache-hub' in group_names"
+  tags:
+    - biocache-hub
+    - config
+
+- name: Run biocache-service properties generation
+  include_role:
+    name: biocache3-properties
+  vars:
+    deployment_type: container
+    biocache_service_docker_host: la_biocache-service
+    biocache_db_host: la_cassandra
+    nginx_vhost_fast_mode: true
+  when:
+    - "'biocache_service' in services_enabled"
+    - "'biocache-service-clusterdb' in group_names"
+  tags:
+    - biocache-service
+    - config
+    - only
+
+- name: Run biocache-service configuration generation
+  include_role:
+    name: biocache3-service
+  vars:
+    deployment_type: container
+    biocache_service_docker_host: la_biocache-service
+    biocache_db_host: la_cassandra
+    nginx_vhost_fast_mode: true
+  when:
+    - "'biocache_service' in services_enabled"
+    - "'biocache-service-clusterdb' in group_names"
+  tags:
+    - biocache-service
+    - config
+
+- name: Ensure database init directories exist with correct permissions
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  loop:
+    - "{{ docker_compose_data_dir }}/db-backups"
+    - "{{ docker_compose_data_dir }}/mysql/init"
+    - "{{ docker_compose_data_dir }}/mongodb/init"
+    - "{{ docker_compose_data_dir }}/var-log-atlas/cas"
+    - "{{ docker_compose_data_dir }}/var-log-atlas/cas-management"
+    - "{{ docker_compose_data_dir }}/var-log-atlas/apikey"
+    - "{{ docker_compose_data_dir }}/var-log-atlas/userdetails"
+    - "{{ docker_compose_data_dir }}/var-log-atlas/image-service"
+  tags:
+    - docker-compose
+
+- name: Set CAS database variables from inventories for MongoDB initialization
+  set_fact:
+    cas_tickets_username: "{{ cas_tickets_username | default('cas-ticket-user') }}"
+    cas_tickets_password: "{{ cas_tickets_password | default(lookup('password', '/dev/null length=20')) }}"
+    cas_tickets_db: "{{ cas_tickets_db | default('cas-ticket-registry') }}"
+    cas_services_username: "{{ cas_services_username | default('cas-services-user') }}"
+    cas_services_password: "{{ cas_services_password | default(lookup('password', '/dev/null length=20')) }}"
+    cas_services_db: "{{ cas_services_db | default('cas-service-registry') }}"
+    cas_audit_username: "{{ cas_audit_username | default('cas-audit-user') }}"
+    cas_audit_password: "{{ cas_audit_password | default(lookup('password', '/dev/null length=20')) }}"
+    cas_audit_db: "{{ cas_audit_db | default('cas-audit-repository') }}"
+    cas_spring_session_username: "{{ cas_spring_session_username | default('cas-session-user') }}"
+    cas_spring_session_password: "{{ cas_spring_session_password | default(lookup('password', '/dev/null length=20')) }}"
+    spring_session_mongo_collection: "{{ spring_session_mongo_collection | default('spring-sessions') }}"
+  when: "'cas' in services_enabled"
+  tags:
+    - docker-compose
+
+# Build JAVA_OPTS for each service from inventory variables
+- name: Initialize temp_java_opts variable
+  set_fact:
+    temp_java_opts: {}
+  tags:
+    - docker-compose
+
+- name: Build JAVA_OPTS strings for each service
+  set_fact:
+    temp_java_opts: "{{ temp_java_opts | default({}) | combine({
+      item: '-Djava.awt.headless=true -Xmx' +
+            (vars.get(item.replace('-', '_') + '_max_memory', '2g')) +
+            ' -Xms' +
+            (vars.get(item.replace('-', '_') + '_min_memory', '1g')) +
+            ' ' +
+            (vars.get('java_security_opts', '-Dlog4j2.formatMsgNoLookups=true'))
+    }) }}"
+  loop: "{{ services_enabled | difference(['nginx', 'gatus', 'mysql', 'mongodb']) }}"
+
+# Build service_extra_params dict for templates
+- name: Initialize service_extra_params variable
+  set_fact:
+    service_extra_params: {}
+  tags:
+    - docker-compose
+
+- name: Build extra_params dict for services
+  set_fact:
+    service_extra_params: "{{ service_extra_params | default({}) | combine({
+      item: docker_services_desc.get(item, {}).get('extra_params', [])
+    }) }}"
+  loop: "{{ services_enabled | difference(['nginx', 'gatus', 'mysql', 'mongodb']) }}"
+
+- name: Set service_java_opts_dict from temp_java_opts
+  set_fact:
+    service_java_opts_dict: "{{ temp_java_opts }}"
+  tags:
+    - docker-compose
+
+- name: Debug - Show service_extra_params (extra JVM parameters defined per service)
+  debug:
+    msg: |
+      Services with extra_params that will be concatenated in .env:
+      {% for service, extras in service_extra_params.items() %}
+      {% if extras %}
+        {{ service }}: {{ extras | map(attribute='key') | list | join(', ') }}
+      {% endif %}
+      {% endfor %}
+  tags:
+    - docker-compose
+
+- name: Debug - Show generated JAVA_OPTS for services (BASE - extras added in template)
+  debug:
+    msg: "{{ service_java_opts_dict }}"
+  tags:
+    - docker-compose
+
+- name: Generate .env file with database passwords from inventories
+  template:
+    src: docker-compose.env.j2
+    dest: "{{ docker_compose_data_dir }}/.env"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  tags:
+    - docker-compose
+
+- name: Generate docker-compose.yml
+  template:
+    src: docker-compose/base.yml.j2
+    dest: "{{ docker_compose_data_dir }}/docker-compose.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  tags:
+    - docker-compose
+
+# Create subdirectories for organized service files
+- name: Create infrastructure directory for docker-compose files
+  file:
+    path: "{{ docker_compose_data_dir }}/infrastructure"
+    state: directory
+    mode: '0755'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  tags:
+    - always
+    - docker-compose
+
+- name: Create services directory for docker-compose files
+  file:
+    path: "{{ docker_compose_data_dir }}/services"
+    state: directory
+    mode: '0755'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  tags:
+    - always
+    - docker-compose
+
+
+# Generate infrastructure service files
+- name: Generate i18n.yml if enabled
+  template:
+    src: docker-compose/infrastructure/i18n.yml.j2
+    dest: "{{ docker_compose_data_dir }}/infrastructure/i18n.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  tags:
+    - i18n
+    - docker-compose
+
+- name: Generate nginx.yml
+  template:
+    src: docker-compose/infrastructure/nginx.yml.j2
+    dest: "{{ docker_compose_data_dir }}/infrastructure/nginx.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'nginx' in services_enabled"
+  tags:
+    - always
+    - nginx
+    - docker-compose
+
+# Branding preparation and generation
+
+- name: Detect if branding_source is a git URL
+  set_fact:
+    branding_is_git_url: "{{ branding_source is defined and branding_source is match('^(https?://|git@).*') }}"
+    branding_build_source: "{{ 'git' if (branding_source is defined and branding_source is match('^(https?://|git@).*')) else 'local' }}"
+  when: "'branding' in services_to_build"
+  tags:
+    - branding
+
+- name: Set branding source path for local builds
+  set_fact:
+    branding_source_path: >-
+      {%- if branding_is_git_url | default(false) -%}
+        /tmp/branding-git-checkout
+      {%- elif branding_source is match('^/') -%}
+        {{ branding_source }}
+      {%- else -%}
+        {{ inventory_dir }}/{{ branding_source }}
+      {%- endif -%}
+  when: "'branding' in services_to_build"
+  tags:
+    - branding
+
+- name: Debug branding source path
+  debug:
+    msg: "Branding source path: [{{ branding_source_path }}]"
+  when: "'branding' in services_to_build"
+  tags:
+    - branding
+
+- name: Ensure branding build directory exists
+  file:
+    path: "{{ docker_compose_data_dir }}/dockerfiles/branding"
+    state: directory
+    mode: '0755'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'branding' in services_to_build"
+  tags:
+    - branding
+
+- name: Clone branding from git repository (if git URL)
+  git:
+    repo: "{{ branding_source }}"
+    dest: "{{ branding_source_path }}"
+    version: "{{ branding_git_ref | default('master') }}"
+    update: yes
+    force: yes
+    recursive: yes
+  become: false
+  when: "'branding' in services_to_build and branding_is_git_url | bool"
+  tags:
+    - branding
+
+- name: Copy branding source to build directory
+  synchronize:
+    src: "{{ branding_source_path }}/"
+    dest: "{{ docker_compose_data_dir }}/dockerfiles/branding/"
+    delete: no
+    recursive: yes
+    rsync_opts:
+      - "--exclude=node_modules"
+      - "--exclude=.git"
+      - "--exclude=public"
+      - "--exclude=dist"
+  when: "'branding' in services_to_build"
+  tags:
+    - branding
+
+- name: Copy branding Dockerfile to build directory
+  copy:
+    src: "docker/branding/Dockerfile"
+    dest: "{{ docker_compose_data_dir }}/dockerfiles/branding/Dockerfile"
+    mode: '0644'
+  when: "'branding' in services_to_build"
+  tags:
+    - branding
+
+- name: Copy branding nginx.conf
+  copy:
+    src: "docker/branding/nginx.conf"
+    dest: "{{ docker_compose_data_dir }}/dockerfiles/branding/nginx.conf"
+    mode: '0644'
+  when: "'branding' in services_to_build"
+  tags:
+    - branding
+
+- name: Generate branding.yml
+  template:
+    src: docker-compose/infrastructure/branding.yml.j2
+    dest: "{{ docker_compose_data_dir }}/infrastructure/branding.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'branding' in group_names or 'branding' in physical_server_groups"
+  tags:
+    - branding
+    - docker-compose
+
+- name: Add branding hostname to nginx_docker_internal_aliases
+  set_fact:
+    nginx_docker_internal_aliases: "{{ nginx_docker_internal_aliases | default([]) | union([branding_url]) | unique }}"
+  when: "'branding' in group_names and branding_url is defined"
+  tags:
+    - branding
+
+- name: Add mailhog hostname to nginx_docker_internal_aliases
+  set_fact:
+    nginx_docker_internal_aliases: "{{ nginx_docker_internal_aliases | default([]) | union([docker_mail_development_url]) | unique }}"
+  when: docker_mail_development_mode | default(false) | bool and docker_mail_development_url is defined
+  tags:
+    - mail
+
+- name: Set mail configuration variables when docker_mail_development_mode is enabled
+  set_fact:
+    docker_mail_development_url: "{{ docker_mail_development_url | default('mailhog.l-a.site') }}"
+    mail_smtp_host: mailhog
+    mail_smtp_port: 1025
+    mail_http_port: 8025
+    mail_host: mailhog
+  when: docker_mail_development_mode | default(false) | bool
+  tags:
+    - mail
+
+- name: Set mail configuration variables when docker_mail_development_mode is disabled
+  set_fact:
+    mail_smtp_host: postfix
+    mail_smtp_port: 25
+    mail_host: postfix
+  when: not (docker_mail_development_mode | default(false) | bool)
+  tags:
+    - mail
+
+- name: Configure mailhog nginx vhost (Docker development mode)
+  block:
+    - name: Create mailhog nginx vhost using nginx_vhost role
+      include_role:
+        name: nginx_vhost
+      vars:
+        appname: "mailhog"
+        hostname: "{{ docker_mail_development_url }}"
+        context_path: "/"
+        nginx_root: "/srv/{{ docker_mail_development_url }}/www/"
+        use_gatus: true
+        nginx_vhost_fast_mode: true
+        nginx_paths:
+          - path: "/"
+            sort_label: "1"
+            is_proxy: true
+            is_proxy_rewrite: false
+            proxy_pass: "http://{{ mail_host | default('mailhog') }}:{{ mail_http_port | default('8025') }}/"
+  when:
+    - docker_mail_development_mode | default(false) | bool
+    - docker_mail_development_url is defined
+  tags:
+    - mail
+    - nginx_vhost
+    - config
+    - config-docker
+
+- name: Generate mongodb.yml
+  template:
+    src: docker-compose/infrastructure/mongodb.yml.j2
+    dest: "{{ docker_compose_data_dir }}/infrastructure/mongodb.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: enable_mongo | bool
+  tags:
+    - docker-compose
+
+- name: Generate solr.yml
+  template:
+    src: docker-compose/infrastructure/solr.yml.j2
+    dest: "{{ docker_compose_data_dir }}/infrastructure/solr.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  tags:
+    - solr
+    - docker-compose
+
+- name: Generate cassandra.yml
+  template:
+    src: docker-compose/infrastructure/cassandra.yml.j2
+    dest: "{{ docker_compose_data_dir }}/infrastructure/cassandra.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  tags:
+    - cassandra
+    - docker-compose
+
+- name: Generate elasticsearch.yml
+  template:
+    src: docker-compose/infrastructure/elasticsearch.yml.j2
+    dest: "{{ docker_compose_data_dir }}/infrastructure/elasticsearch.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  tags:
+    - elasticsearch
+    - docker-compose
+  when: "'cas' in services_enabled"
+
+- name: Generate mysql.yml
+  template:
+    src: docker-compose/infrastructure/mysql.yml.j2
+    dest: "{{ docker_compose_data_dir }}/infrastructure/mysql.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: enable_mysql | bool
+  tags:
+    - docker-compose
+
+- name: Generate postgres.yml
+  template:
+    src: docker-compose/infrastructure/postgres.yml.j2
+    dest: "{{ docker_compose_data_dir }}/infrastructure/postgres.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: enable_postgres | bool
+  tags:
+    - docker-compose
+
+- name: Generate db-backup.yml
+  template:
+    src: docker-compose/infrastructure/db-backup.yml.j2
+    dest: "{{ docker_compose_data_dir }}/infrastructure/db-backup.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: enable_mysql | default(false) | bool or enable_postgres | default(false) | bool or enable_mongo | default(false) | bool
+  tags:
+    - docker-compose
+
+- name: Generate gatus.yml
+  template:
+    src: docker-compose/infrastructure/gatus.yml.j2
+    dest: "{{ docker_compose_data_dir }}/infrastructure/gatus.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'gatus' in services_enabled or gatus_enabled | default(true)"
+  tags:
+    - docker-compose
+
+- name: Create initialization directories for Solr and Cassandra
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  loop:
+    - "{{ docker_compose_data_dir }}/solr/init"
+    - "{{ docker_compose_data_dir }}/cassandra/init"
+  tags:
+    - solr
+    - cassandra
+    - docker-compose-docker
+    - docker-compose
+
+- name: Copy Solr configuration files from solrcloud_config role
+  copy:
+    src: "{{ playbook_dir }}/roles/solrcloud_config/files/"
+    dest: "{{ docker_compose_data_dir }}/solr/init/"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  tags:
+    - solr
+    - docker-compose-docker
+    - docker-compose
+
+- name: Copy Cassandra schema from biocache3-db role
+  copy:
+    src: "{{ playbook_dir }}/roles/biocache3-db/files/cassandra/cassandra3-schema.txt"
+    dest: "{{ docker_compose_data_dir }}/cassandra/init/schema.cql"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  tags:
+    - cassandra
+    - docker-compose-docker
+    - docker-compose
+
+
+- name: Generate mailhog.yml
+  template:
+    src: docker-compose/infrastructure/mailhog.yml.j2
+    dest: "{{ docker_compose_data_dir }}/infrastructure/mailhog.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: docker_mail_development_mode | default(false) | bool
+  tags:
+    - mail
+    - docker-compose
+
+- name: Generate postfix.yml
+  template:
+    src: docker-compose/infrastructure/postfix.yml.j2
+    dest: "{{ docker_compose_data_dir }}/infrastructure/postfix.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: not (docker_mail_development_mode | default(false) | bool)
+  tags:
+    - mail
+    - docker-compose
+
+- name: Generate cas.yml
+  template:
+    src: docker-compose/services/cas.yml.j2
+    dest: "{{ docker_compose_data_dir }}/services/cas.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'cas' in services_enabled or groups['cas-servers'] is defined"
+  tags:
+    - docker-compose
+
+- name: Generate userdetails.yml
+  template:
+    src: docker-compose/services/userdetails.yml.j2
+    dest: "{{ docker_compose_data_dir }}/services/userdetails.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'cas' in services_enabled or groups['cas-servers'] is defined"
+  tags:
+    - docker-compose
+
+- name: Generate apikey.yml
+  template:
+    src: docker-compose/services/apikey.yml.j2
+    dest: "{{ docker_compose_data_dir }}/services/apikey.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'cas' in services_enabled"
+  tags:
+    - docker-compose
+
+- name: Generate cas-management.yml
+  template:
+    src: docker-compose/services/cas-management.yml.j2
+    dest: "{{ docker_compose_data_dir }}/services/cas-management.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'cas' in services_enabled"
+  tags:
+    - docker-compose
+
+- name: Generate species-list.yml
+  template:
+    src: docker-compose/services/species-list.yml.j2
+    dest: "{{ docker_compose_data_dir }}/services/species-list.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'species_lists' in services_enabled"
+  tags:
+    - docker-compose
+
+- name: Generate collectory.yml
+  template:
+    src: docker-compose/services/collectory.yml.j2
+    dest: "{{ docker_compose_data_dir }}/services/collectory.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'collectory' in services_enabled"
+  tags:
+    - docker-compose
+
+- name: Generate bie-hub.yml
+  template:
+    src: docker-compose/services/bie-hub.yml.j2
+    dest: "{{ docker_compose_data_dir }}/services/bie-hub.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'ala_bie' in services_enabled"
+  tags:
+    - bie-hub
+    - docker-compose
+
+- name: Generate bie-index.yml
+  template:
+    src: docker-compose/services/bie-index.yml.j2
+    dest: "{{ docker_compose_data_dir }}/services/bie-index.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'bie_index' in services_enabled"
+  tags:
+    - bie-index
+    - docker-compose
+
+- name: Generate biocache-hub.yml
+  template:
+    src: docker-compose/services/biocache-hub.yml.j2
+    dest: "{{ docker_compose_data_dir }}/services/biocache-hub.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'ala_hub' in services_enabled"
+  tags:
+    - biocache-hub
+    - docker-compose
+
+- name: Generate biocache-service.yml
+  template:
+    src: docker-compose/services/biocache-service.yml.j2
+    dest: "{{ docker_compose_data_dir }}/services/biocache-service.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'biocache_service' in services_enabled"
+  tags:
+    - biocache-service
+    - docker-compose
+
+- name: Generate pipelines.yml
+  template:
+    src: docker-compose/services/pipelines.yml.j2
+    dest: "{{ docker_compose_data_dir }}/services/pipelines.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'pipelines' in services_enabled"
+  tags:
+    - pipelines
+    - docker-compose
+
+# Paths are now correctly set to dockerfiles/ in templates, no fix needed
+
+# Create directories for all services that HAVE a build tool in the description
+# Create directories for services
+
+- name: Include build-images tasks
+  include_tasks: build-images.yml
+  when: build_images | default(false)
+  tags:
+    - docker-compose
+    - build
+
+# ============================================================================
+# Final Validation and Health Checks (AFTER all generation)
+# ============================================================================
+
+- name: "Ensure database volumes exist (external)"
+  include_tasks: ensure-db-volumes.yml
+  tags:
+    - validate
+    - docker-volumes
+
+- name: "Validate docker-compose generation"
+  include_tasks: validate-docker-compose.yml
+  tags:
+    - validate
+    - docker-compose
+
+- name: "Display generated compose file location"
+  debug:
+    msg: |
+      ✅ Docker Compose configuration successfully generated and validated!
+      Location: {{ docker_compose_data_dir }}/
+      
+      Files created:
+        ✓ docker-compose.yml (v3.8)
+        ✓ .env (with database credentials)
+        ✓ infrastructure/ directory with all services
+        ✓ services/ directory with service configs
+        ✓ logs/ directory with service subdirectories
+        ✓ External volumes created (mysql-data, postgres-data, mongodb-data)
+      
+      Next steps:
+        1. Review configuration: cat {{ data_dir }}/docker-compose.yml
+        2. Start services: docker-compose -f {{ data_dir }}/docker-compose.yml up -d
+        3. Access Gatus monitoring: http://your-domain/gatus/
+  tags:
+    - docker-compose
+
+- name: "SSL Certificates: Start nginx to validate local certificates"
+  shell: |
+    cd "{{ docker_compose_data_dir }}" && docker compose up -d nginx 2>&1 || true
+  environment:
+    DOCKER_HOST: "{{ docker_socket }}"
+  become: true
+  when: not use_la_site_certs | bool
+  tags:
+    - nginx-validation
+
+- name: "SSL Certificates: Wait briefly and check nginx is running"
+  shell: |
+    sleep 5 && docker ps | grep -q la_nginx && echo "nginx running"
+  become: true
+  when: not use_la_site_certs | bool
+  register: nginx_check
+  tags:
+    - nginx-validation
+
+- name: "SSL Certificates: Verify certificate file exists in host"
+  stat:
+    path: "{{ inventory_dir }}/certs/letsencrypt/live/l-a.site/{{ ssl_cert_file }}"
+  register: cert_file_stat
+  when: not use_la_site_certs | bool
+  tags:
+    - nginx-validation
+
+- name: "SSL Certificates: Assert certificate file exists"
+  assert:
+    that:
+      - cert_file_stat.stat.exists
+    fail_msg: "Certificate file not found: {{ inventory_dir }}/certs/letsencrypt/live/l-a.site/{{ ssl_cert_file }}"
+    success_msg: "Certificate file exists: {{ ssl_cert_file }}"
+  when: not use_la_site_certs | bool
+  tags:
+    - nginx-validation
+
+- name: "SSL Certificates: Verify key file exists in host"
+  stat:
+    path: "{{ inventory_dir }}/certs/letsencrypt/live/l-a.site/{{ ssl_key_file }}"
+  register: key_file_stat
+  when: not use_la_site_certs | bool
+  tags:
+    - nginx-validation
+
+- name: "SSL Certificates: Assert key file exists"
+  assert:
+    that:
+      - key_file_stat.stat.exists
+    fail_msg: "Key file not found: {{ inventory_dir }}/certs/letsencrypt/live/l-a.site/{{ ssl_key_file }}"
+    success_msg: "Key file exists: {{ ssl_key_file }}"
+  when: not use_la_site_certs | bool
+  tags:
+    - nginx-validation
+
+- name: "SSL Certificates: Display validation success for local certs"
+  debug:
+    msg: |
+      ✅ SSL Local Certificates Validated Successfully!
+      
+      Configuration:
+      - Source: Local inventory directory
+      - Certificate directory: {{ ssl_certificate_server_dir }}
+      - Certificate file: {{ ssl_cert_file }}
+      - Key file: {{ ssl_key_file }}
+      
+      Status:
+      ✓ Certificate file found in nginx
+      ✓ Key file found in nginx
+      ✓ Nginx container running with SSL enabled
+  when: not use_la_site_certs | bool
+  tags:
+    - nginx-validation
+
+- name: "SSL Certificates: Display info for Docker image certs"
+  debug:
+    msg: |
+      ℹ️  Using Docker Image Certificates
+      
+      Configuration:
+      - Source: Docker image livingatlases/l-a-site-certs:latest
+      - Certificates will be provided by the Docker image
+      - Configure ssl_certificate_server_dir to match image certificate location
+      
+      Note: Certificate validation skipped (using Docker image source)
+  when: use_la_site_certs | bool
+  tags:
+    - nginx-validation
+
+# ============================================================================
+# Final Validation - Check for ala-install references
+# ============================================================================
+
+# This is a check for any remaining ala-install absolute paths in the generated files
+# that will cause runtime issues in containers
+- name: "Validation: Check for ala-install references in generated files"
+  shell: |
+    set -o pipefail
+    cd {{ docker_compose_data_dir }}
+    # Search for ala-install in generated files, excluding comments and specific files
+    grep -r "ala-install" . 2>/dev/null | grep -v "# Generated" | grep -v "dockerfiles/branding/deploy.sh" || true
+  args:
+    executable: /bin/bash
+  register: ala_install_check
+  changed_when: false
+  tags:
+    - validate
+    - docker-compose
+
+- name: "Display final validation summary"
+  debug:
+    msg: |
+      ✅ Docker Compose generation completed successfully!
+      
+      📋 Validation checks passed:
+        ✓ Docker daemon available
+        ✓ Database volumes created (external)
+        ✓ Log directories created
+        {% if ala_install_check.stdout %}
+        ⚠️  WARNING: Found 'ala-install' references in generated files:
+        {{ ala_install_check.stdout }}
+        {% else %}
+        ✓ No 'ala-install' references in generated files
+        {% endif %}
+      
+      📁 Location: {{ data_dir }}/
+      
+      🚀 Ready to deploy with:
+         docker-compose up -d
+  tags:
+    - validate
+    - docker-compose

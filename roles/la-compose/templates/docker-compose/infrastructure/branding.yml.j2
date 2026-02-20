@@ -1,0 +1,45 @@
+services:
+  # Branding builder - builds and extracts assets to volume
+  # This is an init container that runs once to populate the volume
+  branding-init:
+    container_name: la_branding-init
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+{% if build_images is defined and (build_images | bool or build_images == 'true') %}
+    # Build from source when build_images is enabled
+    image: branding-builder:{{ branding_version | default('latest') }}
+    pull_policy: never
+    build:
+      context: {{ docker_compose_data_dir }}/dockerfiles/branding
+      dockerfile: Dockerfile
+      target: builder-production
+      args:
+        BUILD_SOURCE: {{ branding_build_source }}
+{% if branding_build_source == 'git' %}
+        GIT_URL: {{ branding_source }}
+        GIT_REF: {{ branding_git_ref | default('master') }}
+{% endif %}
+        NODE_VERSION: {{ branding_node_version | default('18') }}
+{% else %}
+    # Use site-specific branding image
+    image: branding-builder:{{ branding_version | default('latest') }}
+    pull_policy: never
+{% endif %}
+    volumes:
+      - la_branding-assets:/output
+    command: >
+      sh -c "
+        echo '📦 Copying branding assets to volume...' &&
+        ls -la /build/public/ &&
+        cp -rv /build/public/* /output/ &&
+        echo '✅ Branding assets copied successfully!' &&
+        ls -la /output/
+      "
+    environment:
+      TZ: {{ server_tz | default('UTC') }}
+    restart: "no"
+    healthcheck:
+      test: ["CMD", "test", "-f", "/output/index.html"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 2s

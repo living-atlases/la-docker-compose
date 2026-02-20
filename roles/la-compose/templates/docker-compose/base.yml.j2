@@ -1,0 +1,126 @@
+---
+# Docker Compose Base Template - Main Orchestrator
+# This file includes all service definitions from separate files
+# Services are organized by function: infrastructure/ and services/
+
+name: la
+
+# Combine standard Ansible groups with physical server detection groups
+{% set all_groups = group_names | union(physical_server_groups | default([])) %}
+
+include:
+{% if i18n.enabled and i18n.strategy == 'volume' and i18n.volume.source == 'init-container' %}
+  - ./infrastructure/i18n.yml
+{% endif %}
+{% if 'nginx' in services_enabled %}
+  - ./infrastructure/nginx.yml
+{% endif %}
+{% if 'branding' in all_groups %}
+  - ./infrastructure/branding.yml
+{% endif %}
+{% if docker_mail_development_mode | default(false) %}
+  - ./infrastructure/mailhog.yml
+{% else %}
+  - ./infrastructure/postfix.yml
+{% endif %}
+{% if 'cas-servers' in all_groups or 'collectory' in all_groups or 'species-list' in all_groups or 'logger-service' in all_groups or 'alerts-service' in all_groups %}
+  - ./infrastructure/mysql.yml
+{% endif %}
+{% if 'spatial' in all_groups or 'image-service' in all_groups or 'doi-service' in all_groups or 'data_quality_filter_service' in all_groups %}
+  - ./infrastructure/postgres.yml
+{% endif %}
+{% if 'cas-servers' in all_groups or 'ecodata' in all_groups %}
+  - ./infrastructure/mongodb.yml
+{% endif %}
+{% if 'solrcloud' in all_groups or 'solr' in all_groups %}
+  - ./infrastructure/solr.yml
+{% endif %}
+{% if 'cassandra5' in all_groups or 'cassandra3' in all_groups or 'cassandra' in all_groups %}
+  - ./infrastructure/cassandra.yml
+{% endif %}
+{% if 'image-service' in all_groups or 'events' in all_groups or 'doi-service' in all_groups or 'ecodata' in all_groups %}
+  - ./infrastructure/elasticsearch.yml
+{% endif %}
+{% if enable_mysql | default(false) | bool or enable_postgres | default(false) | bool or enable_mongo | default(false) | bool %}
+  - ./infrastructure/db-backup.yml
+{% endif %}
+{% if 'cas' in services_enabled %}
+  - ./services/cas.yml
+  - ./services/userdetails.yml
+  - ./services/apikey.yml
+  - ./services/cas-management.yml
+{% endif %}
+{% if 'species_lists' in services_enabled %}
+  - ./services/species-list.yml
+{% endif %}
+{% if 'collectory' in services_enabled %}
+  - ./services/collectory.yml
+{% endif %}
+{% if 'ala_bie' in services_enabled %}
+  - ./services/bie-hub.yml
+{% endif %}
+{% if 'bie_index' in services_enabled %}
+  - ./services/bie-index.yml
+{% endif %}
+{% if 'ala_hub' in services_enabled %}
+  - ./services/biocache-hub.yml
+{% endif %}
+{% if 'biocache_service' in services_enabled %}
+  - ./services/biocache-service.yml
+{% endif %}
+{% if 'pipelines' in services_enabled %}
+  - ./services/pipelines.yml
+{% endif %}
+{% if 'gatus' in all_groups %}
+  - ./infrastructure/gatus.yml
+{% endif %}
+
+# Global networks and volumes
+networks:
+  {{ docker_network | default('internal') }}:
+{% if deployment_type == 'swarm' %}
+    external: true
+{% else %}
+    driver: bridge
+{% endif %}
+
+volumes:
+{% if i18n.enabled and i18n.strategy == 'volume' %}
+  {{ i18n.volume.name }}:
+{% endif %}
+{% if use_la_site_certs | default(false) %}
+  la-site-certs:
+    external: true
+{% endif %}
+{% if 'cas-servers' in all_groups or 'collectory' in all_groups or 'species-list' in all_groups or 'logger-service' in all_groups or 'alerts-service' in all_groups %}
+  la_mysql-data:
+    external: true
+{% endif %}
+{% if 'spatial' in all_groups or 'image-service' in all_groups or 'doi-service' in all_groups or 'data_quality_filter_service' in all_groups %}
+  la_postgres-data:
+    external: true
+{% endif %}
+{% if 'cas-servers' in all_groups or 'ecodata' in all_groups %}
+  la_mongodb-data:
+    external: true
+{% endif %}
+{% if 'solrcloud' in all_groups or 'solr' in all_groups %}
+  la_solr-data:
+    external: true
+{% endif %}
+{% if 'cassandra5' in all_groups or 'cassandra3' in all_groups or 'cassandra' in all_groups %}
+  la_cassandra-data:
+    external: true
+{% endif %}
+{% if 'image-service' in all_groups or 'events' in all_groups or 'doi-service' in all_groups or 'ecodata' in all_groups %}
+  la_elasticsearch-data:
+    external: true
+{% endif %}
+{% if 'gatus' in all_groups %}
+  la_gatus-data:
+    external: true
+{% endif %}
+{% if 'branding' in all_groups %}
+  la_branding-assets:
+    external: true
+{% endif %}

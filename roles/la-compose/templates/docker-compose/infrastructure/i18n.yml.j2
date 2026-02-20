@@ -1,0 +1,31 @@
+services:
+  # i18n initialization container
+  # Uses pre-built ala-i18n image
+  i18n-init:
+    # container_name: la_i18n-init
+    container_name: la_i18n-init
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+{% if build_images | default(false) %}
+    # Using pre-built image
+    image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}ala-i18n:latest
+{% else %}
+    image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}ala-i18n:latest
+{% endif %}
+    volumes:
+      - {{ i18n.volume.name }}:/opt/atlas/i18n/
+    command: >
+      sh -c "
+        echo '✅ ala-i18n data available in volume' &&
+        ls -la /opt/atlas/i18n/ | head -10 &&
+        echo 'ℹ️  Volume will persist this data for other containers'
+      "
+    healthcheck:
+      test: ["CMD", "test", "-d", "/opt/atlas/i18n"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 2s
+    restart: "no"
+    environment:
+      TZ: {{ server_tz | default('UTC') }}
+

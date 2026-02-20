@@ -1,0 +1,25 @@
+services:
+  postfix:
+    container_name: la_postfix
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    image: boky/postfix
+    restart: unless-stopped
+    ports:
+      - "25"
+    environment:
+      TZ: {{ server_tz | default('UTC') }}
+      HOSTNAME: {{ email_hostname | default('') }}
+      RELAYHOST: {{ email_sender_server | default('') }}
+      RELAYHOST_USERNAME: {{ email_sender | default('') }}
+      RELAYHOST_PASSWORD: {{ email_sender_password | default('') }}
+      ALLOWED_SENDER_DOMAINS: {{ email_allowed_domains | default('l-a.site') }}
+    networks:
+      default: {}
+      {{ docker_network | default('internal') }}:
+        aliases:
+          - {{ mail_host | default('postfix') }}
+    healthcheck:
+      test: [ "CMD-SHELL", "nc -z localhost 25" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3

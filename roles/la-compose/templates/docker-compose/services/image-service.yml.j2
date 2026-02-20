@@ -1,0 +1,27 @@
+# Image Service
+services:
+  image-service:
+    image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}image-service:{{ image_service_version | default('latest') }}
+    container_name: {{ image_service_docker_host | default('la_image-service') }}
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    restart: unless-stopped
+    expose:
+      - {{ image_service_port | default('8080') }}
+    environment:
+      TZ: {{ server_tz | default('UTC') }}
+      JAVA_OPTS: {{ image_service_java_opts | default('-Xmx1g -Xms1g') }}
+    volumes:
+      - {{ docker_compose_data_dir }}/image-service/config:/data/image-service/config
+      - {{ docker_compose_data_dir }}/image-service/store:/data/image-service/store
+      - {{ docker_compose_data_dir }}/image-service/incoming:/data/image-service/incoming
+      - {{ docker_compose_data_dir }}/image-service/exports:/data/image-service/exports
+      - {{ docker_compose_data_dir }}/image-service/bin:/data/image-service/bin
+    networks:
+      default: {}
+      {{ docker_network | default('internal') }}:
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:{{ image_service_port | default('8080') }}{{ image_service_context_path | default('') }}/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s

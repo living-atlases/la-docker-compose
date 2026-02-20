@@ -1,0 +1,21 @@
+  # BIE Index - Species web service
+services:
+  bie-index:
+    image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}bie-index:{{ bie_index_version | default('latest') }}
+    container_name: la_bie-index
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    restart: unless-stopped
+    expose:
+      - 8080
+    environment:
+      TZ: {{ server_tz | default('UTC') }}
+      JAVA_OPTS: ${BIE_INDEX_JAVA_OPTS}
+    networks:
+      default: {}
+      {{ docker_network | default('internal') }}:
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:8080/bie-index/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s

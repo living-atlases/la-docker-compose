@@ -1,0 +1,62 @@
+  # Cassandra - NoSQL database for biocache
+services:
+  cassandra:
+    image: cassandra:{{ cassandra_version | default('5.0.6') }}
+    container_name: la_cassandra
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    restart: unless-stopped
+    expose:
+      - 7000
+      - 7001
+      - 7199
+      - 9042
+      - 9160
+    environment:
+      TZ: {{ server_tz | default('UTC') }}
+      CASSANDRA_CLUSTER_NAME: "ala-cluster"
+      CASSANDRA_DC: "datacenter1"
+      CASSANDRA_RACK: "rack1"
+      CASSANDRA_SEEDS: "cassandra"
+      CASSANDRA_START_RPC: "true"
+      HEAP_NEWSIZE: "256m"
+      MAX_HEAP_SIZE: "2g"
+    volumes:
+      - la_cassandra-data:/var/lib/cassandra
+    networks:
+      default: {}
+      {{ docker_network | default('internal') }}:
+        aliases:
+          - cassandra
+    healthcheck:
+      test: ["CMD", "nodetool", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
+  cassandra-load-keyspace:
+    image: cassandra:{{ cassandra_version | default('5.0.6') }}
+    container_name: la_cassandra_init
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    restart: "no"
+    command:
+      - /bin/bash
+      - -c
+      - |
+        echo "Waiting for Cassandra..."
+        # Wait using cqlsh
+        while ! cqlsh cassandra -e "describe keyspaces" > /dev/null 2>&1; do
+            echo "Cassandra not ready yet..."
+            sleep 5
+        done
+        echo "Cassandra is up! Loading schema..."
+        cqlsh cassandra -f /docker-entrypoint-initdb.d/schema.cql
+        echo "Schema loaded!"
+    volumes:
+      - {{ data_dir }}/cassandra/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      {{ docker_network | default('internal') }}:
+    depends_on:
+      cassandra:
+        condition: service_healthy
+

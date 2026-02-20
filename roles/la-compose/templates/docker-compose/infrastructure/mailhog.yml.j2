@@ -1,0 +1,26 @@
+  # MailHog - Development email testing service
+{% if docker_mail_development_mode | default(false) | bool %}
+services:
+  mailhog:
+    container_name: la_mailhog
+    image: mailhog/mailhog:latest
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    restart: unless-stopped
+    expose:
+      - "1025"  # SMTP port
+      - "8025"  # Web UI port
+    environment:
+      TZ: {{ server_tz | default('UTC') }}
+      MH_HOSTNAME: {{ docker_mail_development_url | default('mailhog.l-a.site') }}
+    networks:
+      default: {}
+      {{ docker_network | default('internal') }}:
+        aliases:
+          - {{ mail_host | default('mailhog') }}
+    healthcheck:
+      test: [ "CMD-SHELL", "nc -z localhost 8025" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+{% endif %}

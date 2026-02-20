@@ -1,0 +1,38 @@
+  # User Details Service
+services:
+  userdetails:
+    container_name: la_userdetails
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}userdetails:{{ user_details_version | default('3.2.1') }}
+    volumes:
+      - {{ data_dir }}/userdetails:/data/userdetails
+      # - {{ docker_compose_data_dir }}/var-log-atlas/userdetails:/var/log/atlas/userdetails
+{% include '_i18n_volumes.yml.j2' %}
+    environment:
+      TZ: {{ server_tz | default('UTC') }}
+      JAVA_OPTS: ${USERDETAILS_JAVA_OPTS}
+    expose:
+      - {{ userdetails_port | default('9001') }}
+    networks:
+      default: {}
+      {{ docker_network | default('internal') }}:
+    depends_on:
+{% if i18n.enabled and i18n.strategy == 'volume' and i18n.volume.source == 'init-container' %}
+      i18n-init:
+        condition: service_completed_successfully
+{% endif %}
+{% if enable_mysql | default(false) | bool %}
+      mysql:
+        condition: service_healthy
+{% endif %}
+      cas:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:{{ userdetails_port | default('9001') }}/userdetails/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+
+

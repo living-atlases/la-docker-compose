@@ -1,0 +1,17 @@
+---
+- name: Molecule Converge
+  hosts: all
+  become: yes
+  vars:
+    # Disable actual starting of containers in CI tests (molecule environment)
+    auto_deploy: false
+    # Molecule does not have a real cas5 role available from ala-install easily unless mapped in requirements
+    # Fake some vars to pass syntax checks if roles aren't present
+  tasks:
+    - name: Create docker-compose volumes
+      import_role:
+        name: la-volumes
+
+    - name: Generate docker-compose deployment files
+      import_role:
+        name: la-compose

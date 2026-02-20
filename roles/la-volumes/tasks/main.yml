@@ -1,0 +1,118 @@
+---
+# Ensure external named volumes exist for databases with la_ prefix
+# This prevents accidental deletion of database data
+
+- name: "Database volumes: Set Docker socket path"
+  set_fact:
+    docker_socket: "{{ lookup('env', 'DOCKER_HOST') | default('unix:///var/run/docker.sock') }}"
+  tags:
+    - db-init
+    - docker-volumes
+
+- name: "Database volumes: Create MySQL external volume"
+  docker_volume:
+    name: la_mysql-data
+    driver: local
+    docker_host: "{{ docker_socket }}"
+    state: present
+  become: true
+  tags:
+    - db-init
+    - docker-volumes
+  when: enable_mysql | default(false) | bool
+
+- name: "Database volumes: Create PostgreSQL external volume"
+  docker_volume:
+    name: la_postgres-data
+    driver: local
+    docker_host: "{{ docker_socket }}"
+    state: present
+  become: true
+  tags:
+    - db-init
+    - docker-volumes
+  when: enable_postgres | default(false) | bool
+
+- name: "Database volumes: Create MongoDB external volume"
+  docker_volume:
+    name: la_mongodb-data
+    driver: local
+    docker_host: "{{ docker_socket }}"
+    state: present
+  become: true
+  tags:
+    - db-init
+    - docker-volumes
+  when: enable_mongo | default(false) | bool
+    
+- name: "Database volumes: Create Gatus external volume"
+  docker_volume:
+    name: la_gatus-data
+    driver: local
+    docker_host: "{{ docker_socket }}"
+    state: present
+  become: true
+  tags:
+    - db-init
+    - docker-volumes
+  when: "'gatus' in physical_server_groups"
+
+- name: "Database volumes: Create Solr external volume"
+  docker_volume:
+    name: la_solr-data
+    driver: local
+    docker_host: "{{ docker_socket }}"
+    state: present
+  become: true
+  tags:
+    - db-init
+    - docker-volumes
+  when: "'solrcloud' in physical_server_groups or 'solr' in physical_server_groups"
+
+- name: "Database volumes: Create Cassandra external volume"
+  docker_volume:
+    name: la_cassandra-data
+    driver: local
+    docker_host: "{{ docker_socket }}"
+    state: present
+  become: true
+  tags:
+    - db-init
+    - docker-volumes
+  when: "'cassandra5' in physical_server_groups or 'cassandra3' in physical_server_groups or 'cassandra' in physical_server_groups"
+
+- name: "Database volumes: Create Elasticsearch external volume"
+  docker_volume:
+    name: la_elasticsearch-data
+    driver: local
+    docker_host: "{{ docker_socket }}"
+    state: present
+  become: true
+  tags:
+    - db-init
+    - docker-volumes
+  when: "'image-service' in physical_server_groups or 'events' in physical_server_groups or 'doi-service' in physical_server_groups or 'ecodata' in physical_server_groups"
+
+- name: "Database volumes: Create SSL certificates external volume"
+  docker_volume:
+    name: la-site-certs
+    driver: local
+    docker_host: "{{ docker_socket }}"
+    state: present
+  when: use_la_site_certs | default(false)
+  tags:
+    - db-init
+    - docker-volumes
+
+- name: "Database volumes: Create Branding external volume"
+  docker_volume:
+    name: la_branding-assets
+    driver: local
+    docker_host: "{{ docker_socket }}"
+    state: present
+  become: true
+  tags:
+    - db-init
+    - docker-volumes
+    - branding
+  when: "'branding' in physical_server_groups"

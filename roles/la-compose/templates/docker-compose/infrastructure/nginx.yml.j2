@@ -1,0 +1,99 @@
+services:
+  # Certificate initialization service (only if using Docker image certs) to allow demo sites using SSL from test
+  # domain l-a.site
+  # if not using this, mount your own certs from <inventories_dir>/certs/ into <ssl_certificate_server_dir>
+{% if use_la_site_certs %}
+  certs-init:
+    image: livingatlases/l-a-site-certs:latest
+    pull_policy: if_not_present
+    container_name: la_certs-init
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    entrypoint: /bin/sh
+    command: -c 'set -e && echo "[*] Checking source certificates in image..." && ls -lah /certs/ && test -f /certs/fullchain.pem && test -s /certs/fullchain.pem && test -f /certs/privkey.pem && test -s /certs/privkey.pem && echo "[OK] Source certificates validated" && echo "[*] Extracting certificates to volume..." && mkdir -p /out/l-a.site && cat /certs/fullchain.pem > /out/l-a.site/fullchain.pem && cat /certs/privkey.pem > /out/l-a.site/privkey.pem && cat /certs/chain.pem > /out/l-a.site/chain.pem 2>/dev/null || true && chmod 644 /out/l-a.site/*.pem && echo "[*] Extracted certificates:" && ls -lah /out/l-a.site/ && test -s /out/l-a.site/fullchain.pem && test -s /out/l-a.site/privkey.pem && echo "[SUCCESS] Certificates extracted successfully"'
+    volumes:
+      - la-site-certs:/out
+    networks:
+      default: {}
+      {{ docker_network | default('internal') }}:
+{% endif %}
+
+  # Certificate validator service - validates SSL certificates before nginx starts
+  # Checks: file existence, PEM format, expiration, and cert/key match
+  # before nginx starts to avoid runtime SSL errors
+  cert-validator:
+    image: alpine/openssl:latest
+    container_name: la_cert-validator
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    entrypoint: /bin/sh
+    command: /scripts/cert-validator.sh
+    volumes:
+{% if use_la_site_certs %}
+      - la-site-certs:/etc/letsencrypt/live:ro
+{% else %}
+      - "{{ inventory_dir }}/certs/:{{ ssl_certificate_server_dir }}:ro"
+{% endif %}
+      - ../cert-validator:/scripts:ro
+    environment:
+      SSL_CERT_DIR: "{{ ssl_certificate_server_dir }}"
+      SSL_CERT_FILE: "{{ ssl_cert_file }}"
+      SSL_KEY_FILE: "{{ ssl_key_file }}"
+    networks:
+      default: {}
+      {{ docker_network | default('internal') }}:
+    restart: "no"
+
+  # Nginx reverse proxy
+  nginx:
+    container_name: la_nginx
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    image: nginx:{{ docker_nginx_version | default('1.25') }}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /etc/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - /etc/nginx/conf.d:/etc/nginx/conf.d:ro
+      - /etc/nginx/sites-enabled:/etc/nginx/sites-enabled:ro
+      - /etc/nginx/sites-available:/etc/nginx/sites-available:ro
+{% if 'branding' in group_names %}
+      # Mount branding assets volume first (read-write for init container to populate)
+      - la_branding-assets:/srv/{{ branding_url | default('branding') }}/www:ro
+{% else %}
+      # Mount srv directory only if no branding (branding uses volume instead)
+      - ../srv:/srv:ro
+{% endif %}
+{% if use_la_site_certs %}
+      - la-site-certs:/etc/letsencrypt/live:ro
+{% else %}
+      - "{{ inventory_dir }}/certs/:{{ ssl_certificate_server_dir }}:ro"
+{% endif %}
+    depends_on:
+{% if use_la_site_certs %}
+      certs-init:
+        condition: service_completed_successfully
+{% endif %}
+      cert-validator:
+        condition: service_completed_successfully
+{% if 'branding' in group_names %}
+      branding-init:
+        condition: service_completed_successfully
+{% endif %}
+    networks:
+      default: {}
+      {{ docker_network | default('internal') }}:
+        aliases:
+{% for alias in nginx_docker_internal_aliases %}
+          - {{ alias }}
+{% endfor %}
+          # These aliases allow services to reach nginx on the internal network using vhost hostnames
+          # Example: service can resolve auth-es.l-a.site to nginx container internally
+    healthcheck:
+      test: ["CMD", "sh", "-c", "nc -z localhost 80 && nc -z localhost 443"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    environment:
+      TZ: {{ server_tz | default('UTC') }}
+

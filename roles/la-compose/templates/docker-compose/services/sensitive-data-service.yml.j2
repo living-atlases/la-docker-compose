@@ -1,0 +1,19 @@
+services:
+  sensitive-data-service:
+    container_name: la_sensitive_data_service
+    image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}ala-sensitive-data-server:{{ ala_sensitive_data_service_version }}
+    ports:
+      - "{{ sensitive_data_service_port }}:9189"
+      - "{{ sensitive_data_admin_port }}:9190"
+    environment:
+      - JAVA_OPTS=-Xmx2g -Xms1g
+      - SENSITIVE_DATA_SERVICE_JAVA_OPTS=-Xmx2g -Xms1g
+    volumes:
+      - "{{ data_dir }}/lucene/namematching-nm:/data/lucene/namematching-nm:ro"
+      - "{{ data_dir }}/sds:/data/sds:ro"
+      - "{{ data_dir }}/biocache/layers:/data/biocache/layers:ro"
+      - "{{ data_dir }}/ala-sensitive-data-service/config:/data/ala-sensitive-data-server/config:ro"
+    networks:
+      default: {}
+      {{ docker_network | default('internal') }}:
+    restart: unless-stopped

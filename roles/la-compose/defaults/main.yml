@@ -1,0 +1,186 @@
+---
+# Docker Compose Role Defaults
+# Variables for docker-compose deployment
+
+# ============================================
+# Core Configuration
+# ============================================
+
+# Deployment type and environment
+deployment_type: container # Fixed for docker-compose
+deployment_env: production # Options: dev, staging, production
+
+# Auto-deploy: Start services after generating config (like traditional ala-install)
+auto_deploy: true
+
+# User for docker operations (uses current user or 'ubuntu' for VM)
+# docker_default_user is now defined globally in the inventory [all:vars]
+
+# Skip handlers as we're generating docker-compose files, not deploying to VMs
+skip_handlers: true
+
+# ============================================
+# i18n Configuration
+# ============================================
+
+i18n:
+  enabled: true
+  strategy: volume
+  volume:
+    name: ala-i18n-data
+    source: init-container
+
+# ============================================
+# Docker Compose Container Names
+# ============================================
+
+# MySQL and MongoDB container names
+cas_db_hostname: mysql
+collectory_db_host_address: mysql
+collectory_db_host: mysql
+user_store_db_hostname: mysql
+apikey_db_hostname: mysql
+specieslist_db_hostname: mysql
+
+# MongoDB container names for CAS
+ticket_registry_db_hostname: mongodb
+cas_audit_host: mongodb
+cas_spring_session_host: mongodb
+cas_tickets_host: mongodb
+cas_services_host: mongodb
+
+# ============================================
+# Docker Users
+# ============================================
+
+tomcat_user: "{{ docker_default_user }}"
+cas_user: "{{ docker_default_user }}"
+collectory_user: "{{ docker_default_user }}"
+userdetails_user: "{{ docker_default_user }}"
+apikey_user: "{{ docker_default_user }}"
+species_list_user: "{{ docker_default_user }}"
+
+# ============================================
+# Directory Configuration
+# ============================================
+
+data_dir: /data
+docker_compose_data_dir: /data/docker-compose
+nginx_conf_dir: /etc/nginx
+docker_output_dir: "{{ docker_compose_output_dir | default('docker-compose-output') }}"
+
+# ============================================
+# Build Configuration
+# ============================================
+
+build_images: false
+docker_registry: ""
+docker_tag: "{{ collectory_branch | default(collectory_version | default('develop')) }}"
+docker_image_tag: "{{ docker_tag }}"
+docker_cache_tag: "buildcache"
+docker_build_cache_dir: "{{ ansible_env.HOME }}/.cache/docker-buildx"
+
+# ============================================
+# Network Configuration
+# ============================================
+
+docker_network: internal
+docker_network_mtu: 1500
+docker_extra_hosts: []
+
+# ============================================
+# Java Memory Configuration
+# ============================================
+
+tomcat_java_opts: "-Xmx2g -Xms2g -Xss512k -Djava.awt.headless=true"
+set_sql_mode: true
+
+# ============================================
+# Docker Service Internal Ports
+# ============================================
+
+cas_port: 9000
+cas_management_port: 8070
+userdetails_port: 9001
+apikey_port: 9002
+collectory_port: 8080
+bie_hub_port: 8080
+bie_index_port: 8080
+biocache_hub_port: 8080
+biocache_service_port: 8080
+image_service_port: 8080
+logger_service_port: 8080
+namematching_service_port: 8080
+doi_service_port: 8080
+sensitive_data_service_port: 8080
+species_list_port: 8080
+
+# ============================================
+# Docker Container Hostnames for Nginx
+# ============================================
+
+cas_docker_host: la_cas
+userdetails_docker_host: la_userdetails
+cas_management_docker_host: la_cas-management
+apikey_docker_host: la_apikey
+collectory_docker_host: la_collectory
+bie_hub_docker_host: la_bie-hub
+bie_index_docker_host: la_bie-index
+biocache_hub_docker_host: la_biocache-hub
+biocache_service_docker_host: la_biocache-service
+image_service_docker_host: la_image-service
+logger_service_docker_host: la_logger-service
+namematching_service_docker_host: la_namematching-service
+doi_service_docker_host: la_doi-service
+sensitive_data_service_docker_host: la_sensitive-data-service
+species_list_docker_host: la_species-list
+
+# ============================================
+# Service-Specific Configuration
+# ============================================
+
+biocache_hub: ala-hub
+grouped_facets_json: grouped_facets_ala.json
+biocache_hub_tomcat_server_address: "0.0.0.0"
+
+# ============================================
+# Services Configuration
+# ============================================
+
+services_enabled: []
+
+# ============================================
+# Nginx Configuration
+# ============================================
+
+docker_nginx_version: "1.25"
+
+# Nginx container paths (override host-specific paths from nginx role)
+nginx_user: nginx
+nginx_pidfile: /var/run/nginx.pid
+nginx_conf_path: /etc/nginx/conf.d
+nginx_vhost_path: /etc/nginx/sites-enabled
+nginx_mime_file_path: /etc/nginx/mime.types
+nginx_error_log: "/var/log/nginx/error.log notice"
+nginx_access_log: "/var/log/nginx/access.log main"
+
+# ============================================
+# Branding Configuration
+# ============================================
+
+use_branding: false
+branding_source: null
+branding_url: "branding"
+branding_node_version: "18"
+branding_version: "latest"
+branding_git_ref: "master"
+branding_dev_mode: false
+branding_dev_port: "3000"
+branding_git_watch: false
+branding_git_check_interval: "300"
+
+# ============================================
+# Monitoring
+# ============================================
+
+monitoring_enabled: false

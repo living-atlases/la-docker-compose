@@ -1,0 +1,24 @@
+# Logger Service
+services:
+  logger-service:
+    image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}logger-service:{{ logger_service_version | default('latest') }}
+    container_name: {{ logger_service_docker_host | default('la_logger-service') }}
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    restart: unless-stopped
+    expose:
+      - {{ logger_service_port | default('8080') }}
+    environment:
+      TZ: {{ server_tz | default('UTC') }}
+      JAVA_OPTS: {{ logger_service_java_opts | default('-Xmx1g -Xms1g') }}
+      SERVER_CONTEXT_PATH: {{ logger_context_path | default('/logger-service') }}
+    volumes:
+      - {{ docker_compose_data_dir }}/logger/config:/data/logger/config
+    networks:
+      default: {}
+      {{ docker_network | default('internal') }}:
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:{{ logger_service_port | default('8080') }}{{ logger_context_path | default('/logger-service') }}/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s

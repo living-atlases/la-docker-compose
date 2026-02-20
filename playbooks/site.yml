@@ -1,0 +1,12 @@
+---
+- hosts: docker_compose
+  gather_facts: yes
+  become: yes
+  tasks:
+    - name: Create docker-compose volumes
+      import_role:
+        name: la-volumes
+
+    - name: Generate docker-compose deployment files
+      import_role:
+        name: la-compose

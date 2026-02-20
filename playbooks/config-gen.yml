@@ -1,0 +1,13 @@
+---
+# Playbook to only generate configurations and docker-compose.yml
+# without starting the containers.
+
+- hosts: docker_compose
+  gather_facts: yes
+  become: yes
+  vars:
+    auto_deploy: false
+  tasks:
+    - name: Generate docker-compose deployment files
+      import_role:
+        name: la-compose

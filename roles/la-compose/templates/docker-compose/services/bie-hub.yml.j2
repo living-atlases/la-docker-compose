@@ -1,0 +1,21 @@
+  # BIE Hub - Species search frontend
+services:
+  bie-hub:
+    image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}ala-bie-hub:{{ bie_hub_version | default('latest') }}
+    container_name: la_bie-hub
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    restart: unless-stopped
+    expose:
+      - 8080
+    environment:
+      TZ: {{ server_tz | default('UTC') }}
+      JAVA_OPTS: ${BIE_HUB_JAVA_OPTS}
+    networks:
+      default: {}
+      {{ docker_network | default('internal') }}:
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:8080/bie-hub/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s

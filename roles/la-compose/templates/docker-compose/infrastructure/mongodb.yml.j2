@@ -1,0 +1,38 @@
+  # MongoDB for CAS (ticket registry, audit, sessions)
+services:
+  mongodb:
+    container_name: la_mongodb
+    image: mongo:7
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    volumes:
+      - la_mongodb-data:/data/db
+      - ../mongodb/init:/docker-entrypoint-initdb.d:ro
+    environment:
+      TZ: {{ server_tz | default('UTC') }}
+      MONGO_INITDB_ROOT_USERNAME: ${MONGODB_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_ROOT_PASSWORD}
+      MONGO_INITDB_DATABASE: {{ mongodb_cas_database | default('cas') }}
+      CAS_MONGO_PASSWORD: ${MONGODB_ROOT_PASSWORD}
+    expose:
+      - 27017
+{% if expose_db_ports_for_init | default(false) %}
+    ports:
+      - 127.0.0.1:27017:27017
+{% endif %}
+    networks:
+      default: {}
+      {{ docker_network | default('internal') }}:
+        aliases:
+{% set mongodb_name = mongodb_hostname | default('mongodb') %}
+{% if mongodb_name not in ['localhost', '127.0.0.1'] %}
+          - {{ mongodb_name }}
+{% endif %}
+          - la_mongodb
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval \"db.adminCommand('ping').ok\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+

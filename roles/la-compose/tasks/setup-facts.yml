@@ -1,0 +1,60 @@
+---
+# setup-facts.yml - Calculate deployment facts for docker-compose
+# Used by ensure-db-volumes.yml and generate-compose.yml
+
+- name: Include services descriptions
+  include_vars:
+    file: docker-services-desc.yaml
+  tags:
+    - always
+    - only
+    - docker-compose
+
+- name: Set docker_services_desc as a clean variable
+  set_fact:
+    docker_services_desc: "{{ docker_services_desc }}"
+  tags:
+    - always
+    - only
+    - docker-compose
+
+# Find all hosts that share the same physical server (ansible_host) as this docker_compose host
+- name: Find all service groups deployed on this physical server
+  set_fact:
+    physical_server_groups: >-
+      {%- set result = [] -%}
+      {%- for host in groups['all'] -%}
+        {%- if hostvars[host].get('ansible_host', host) == hostvars[inventory_hostname].get('ansible_host', inventory_hostname) -%}
+          {%- for group in hostvars[host].get('group_names', []) -%}
+            {%- if group not in ['all', 'docker_compose', 'docker-common', 'ungrouped'] and not group.endswith('_group') -%}
+              {%- set _ = result.append(group) -%}
+            {%- endif -%}
+          {%- endfor -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ result | unique | list }}
+  tags:
+    - always
+    - docker-compose
+
+- name: Detect enabled services from physical server groups (based on group defined in docker_services_desc)
+  set_fact:
+    services_enabled: "{{ services_enabled | default([]) + ([item.key] if (
+      (item.value.isSubService | default(false) and docker_services_desc[item.value.parentService].group in physical_server_groups) or
+      (not item.value.isSubService | default(false) and item.value.group in physical_server_groups)
+    ) else []) }}"
+  loop: "{{ docker_services_desc | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  tags:
+    - always
+    - docker-compose
+
+- name: Determine if MySQL is required
+  set_fact:
+    enable_mysql: "{{ 'mysql' in physical_server_groups or 'cas-servers' in physical_server_groups or 'collectory' in physical_server_groups or 'species-list' in physical_server_groups or 'logger-service' in physical_server_groups or 'alerts-service' in physical_server_groups }}"
+    enable_postgres: "{{ 'postgres' in physical_server_groups or 'spatial' in physical_server_groups or 'image-service' in physical_server_groups or 'doi-service' in physical_server_groups or 'data_quality_filter_service' in physical_server_groups }}"
+    enable_mongo: "{{ 'mongo' in physical_server_groups or 'mongodb' in physical_server_groups or 'cas-servers' in physical_server_groups or 'ecodata' in physical_server_groups }}"
+  tags:
+    - always
+    - docker-compose
