@@ -1,0 +1,103 @@
+---
+- name: "CAS and Sub-services Database Initialization (Docker Compose)"
+  hosts: docker_compose
+  vars:
+    # Force exposed ports for initialization if needed
+    expose_db_ports_for_init: true
+    # Avoid auto-starting all services
+    auto_deploy: false
+    # DB source host for permissions
+    db_src_host: "%"
+    # Connection target (usually localhost because we port-forward in init mode)
+    mysql_target_host: "127.0.0.1"
+    mongodb_target_host: "127.0.0.1"
+
+  tasks:
+    - name: "Ensure necessary tools are present for DB init"
+      package:
+        name:
+          - mysql-client
+          - python3-mysqldb
+          - python3-pymongo
+        state: present
+      become: true
+      ignore_errors: true
+
+    - name: "Identify the service host (usually localhost for this project)"
+      set_fact:
+        cas_server_host: "{{ inventory_hostname }}"
+
+    - name: "Load CAS variables"
+      include_vars:
+        file: "{{ playbook_dir }}/../../ala-install/ansible/roles/cas5/vars/main.yml"
+
+    - name: "Init: Start database containers"
+      command: docker compose up -d mysql mongodb
+      args:
+        chdir: "/data/docker-compose"
+      become: true
+
+    - name: "Init: Wait for MySQL to be healthy"
+      shell: |
+        docker inspect --format='{{ "{{" }}.State.Health.Status{{ "}}" }}' la_mysql
+      register: mysql_health
+      until: 'mysql_health.stdout == "healthy"'
+      retries: 30
+      delay: 5
+      become: true
+
+    - name: "Init: Wait for MongoDB to be healthy"
+      shell: |
+        docker inspect --format='{{ "{{" }}.State.Health.Status{{ "}}" }}' la_mongodb
+      register: mongodb_health
+      until: 'mongodb_health.stdout == "healthy"'
+      retries: 30
+      delay: 5
+      become: true
+
+    - name: "Init: Initialize databases and users from host"
+      import_role:
+        name: cas5-dbs
+      vars:
+        cas_db_hostname: "{{ mysql_target_host }}"
+        user_store_db_hostname: "{{ mysql_target_host }}"
+        apikey_db_hostname: "{{ mysql_target_host }}"
+        cas_tickets_host: "{{ mongodb_target_host }}"
+        cas_services_host: "{{ mongodb_target_host }}"
+        cas_audit_host: "{{ mongodb_target_host }}"
+        cas_spring_session_host: "{{ mongodb_target_host }}"
+        cas_mysql_src_host: "{{ db_src_host }}"
+        apikey_mysql_src_host: "{{ db_src_host }}"
+        cas_add_mongo_users: true
+      become: true
+
+    - name: "Init: Start CAS temporarily for Flyway migrations"
+      command: docker compose up -d cas
+      args:
+        chdir: "/data/docker-compose"
+      become: true
+
+    - name: "Init: Wait for CAS to be healthy (Flyway done)"
+      shell: |
+        docker inspect --format='{{ "{{" }}.State.Health.Status{{ "}}" }}' la_cas
+      register: cas_health
+      until: 'cas_health.stdout == "healthy"'
+      retries: 30
+      delay: 10
+      become: true
+
+    - name: "Init: Initialize CAS admin account"
+      include_tasks: "{{ playbook_dir }}/../../ala-install/ansible/roles/cas5/tasks/admin-account.yml"
+      vars:
+        cas_db_hostname: "{{ mysql_target_host }}"
+        cas_mysql_src_host: "{{ db_src_host }}"
+
+    - name: "Init: Register OIDC services"
+      include_tasks: "{{ playbook_dir }}/../../ala-install/ansible/roles/cas-management/tasks/oidc-tasks.yml"
+      vars:
+        cas_services_host: "{{ mongodb_target_host }}"
+        deployment_type: "vm"
+
+    - name: "Init: Final cleanup"
+      debug:
+        msg: "✅ Database initialization completed successfully!"

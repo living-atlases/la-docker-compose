@@ -53,6 +53,22 @@ This generates the configuration and automatically runs `docker compose up -d`:
 ansible-playbook playbooks/site.yml -i inventories/local/hosts.ini
 ```
 
+### 3. Database Initialization (CAS, Userdetails, Apikey)
+
+The first time you deploy, or if you wipe the volumes, you must initialize the databases and users:
+
+```bash
+ansible-playbook playbooks/db-init.yml -i inventories/local/hosts.ini
+```
+
+This playbook:
+
+- Starts MySQL and MongoDB.
+- Creates necessary databases and users.
+- Runs CAS for Flyway migrations.
+- Creates the default CAS admin account.
+- Registers OIDC services.
+
 ---
 
 ## Working in "dev-overlay" mode
