@@ -89,7 +89,8 @@
         - always
 
     - name: "Deployment preparation: Ensure database volumes exist (external)"
-      include_tasks: ensure-db-volumes.yml
+      include_role:
+        name: la-volumes
       when: auto_deploy | default(true) | bool
       tags:
         - always

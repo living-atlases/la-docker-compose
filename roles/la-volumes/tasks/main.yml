@@ -44,7 +44,7 @@
     - db-init
     - docker-volumes
   when: enable_mongo | default(false) | bool
-    
+
 - name: "Database volumes: Create Gatus external volume"
   docker_volume:
     name: la_gatus-data
@@ -55,7 +55,7 @@
   tags:
     - db-init
     - docker-volumes
-  when: "'gatus' in physical_server_groups"
+  when: "'gatus' in (physical_server_groups | default([]))"
 
 - name: "Database volumes: Create Solr external volume"
   docker_volume:
@@ -67,7 +67,7 @@
   tags:
     - db-init
     - docker-volumes
-  when: "'solrcloud' in physical_server_groups or 'solr' in physical_server_groups"
+  when: "'solrcloud' in (physical_server_groups | default([])) or 'solr' in (physical_server_groups | default([]))"
 
 - name: "Database volumes: Create Cassandra external volume"
   docker_volume:
@@ -79,7 +79,7 @@
   tags:
     - db-init
     - docker-volumes
-  when: "'cassandra5' in physical_server_groups or 'cassandra3' in physical_server_groups or 'cassandra' in physical_server_groups"
+  when: "'cassandra5' in (physical_server_groups | default([])) or 'cassandra3' in (physical_server_groups | default([])) or 'cassandra' in (physical_server_groups | default([]))"
 
 - name: "Database volumes: Create Elasticsearch external volume"
   docker_volume:
@@ -91,7 +91,7 @@
   tags:
     - db-init
     - docker-volumes
-  when: "'image-service' in physical_server_groups or 'events' in physical_server_groups or 'doi-service' in physical_server_groups or 'ecodata' in physical_server_groups"
+  when: "'image-service' in (physical_server_groups | default([])) or 'events' in (physical_server_groups | default([])) or 'doi-service' in (physical_server_groups | default([])) or 'ecodata' in (physical_server_groups | default([]))"
 
 - name: "Database volumes: Create SSL certificates external volume"
   docker_volume:
@@ -115,4 +115,4 @@
     - db-init
     - docker-volumes
     - branding
-  when: "'branding' in physical_server_groups"
+  when: "'branding' in (physical_server_groups | default([]))"
