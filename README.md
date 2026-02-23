@@ -1,4 +1,4 @@
-# Living Atlas Docker Compose (la-docker-compose)
+# Living Atlas Docker Compose
 
 This repository generates `docker-compose.yml` configurations and handles local deployments of the Living Atlas ecosystem. It bridges the gap between Ansible playbooks (designed for VMs) and containerized local development without duplicating configuration logic.
 

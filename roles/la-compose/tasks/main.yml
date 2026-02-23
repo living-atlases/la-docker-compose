@@ -12,33 +12,16 @@
     - docker-compose
   become: false
 
-- name: Load variables from collectory group
-  include_vars:
-    file: "{{ playbook_dir }}/../../ala-install/ansible/roles/collectory/vars/main.yml"
-  when: "'collectory' in group_names"
-  tags:
-    - always
-    - only
-
-- name: Load variables from cas group
-  include_vars:
-    file: "{{ playbook_dir }}/../../ala-install/ansible/roles/cas5/vars/main.yml"
-  when: "'cas-servers' in group_names"
-  tags:
-    - always
-    - only
-
-- name: Calculate collectory_app based on version
-  set_fact:
-    collectory_app: "{{ 'collectory' if collectory_version is version('3', '>=') else 'ala-collectory' }}"
-  when: "'collectory' in group_names and collectory_version is defined"
-  tags:
-    - always
-    - only
-
 - name: Generate and Deploy Docker Compose
   when: "inventory_hostname in groups['docker_compose']"
   block:
+    - name: Ensure Docker is installed
+      import_role:
+        name: docker
+      when: auto_deploy | default(true) | bool
+      tags:
+        - docker
+
     - name: Create dockerfiles subdirectory in output
       file:
         path: "{{ docker_compose_data_dir }}/dockerfiles"
@@ -84,8 +67,30 @@
         - always
         - docker-compose
 
+    - name: Load variables from collectory role if present on this server
+      include_vars:
+        file: "{{ playbook_dir }}/../../ala-install/ansible/roles/collectory/vars/main.yml"
+      when: "'collectory' in physical_server_groups"
+      tags:
+        - always
+
+    - name: Load variables from cas group role if present on this server
+      include_vars:
+        file: "{{ playbook_dir }}/../../ala-install/ansible/roles/cas5/vars/main.yml"
+      when: "'cas-servers' in physical_server_groups"
+      tags:
+        - always
+
+    - name: Calculate collectory_app based on version
+      set_fact:
+        collectory_app: "{{ 'collectory' if collectory_version | default('3') is version('3', '>=') else 'ala-collectory' }}"
+      when: "'collectory' in physical_server_groups"
+      tags:
+        - always
+
     - name: "Deployment preparation: Ensure database volumes exist (external)"
       include_tasks: ensure-db-volumes.yml
+      when: auto_deploy | default(true) | bool
       tags:
         - always
         - docker-volumes

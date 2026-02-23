@@ -3,6 +3,13 @@
   gather_facts: yes
   become: yes
   tasks:
+    - name: Ensure Docker is installed
+      import_role:
+        name: docker
+      tags:
+        - always
+        - docker
+
     - name: Create docker-compose volumes
       import_role:
         name: la-volumes
