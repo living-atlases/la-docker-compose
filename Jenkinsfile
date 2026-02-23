@@ -107,6 +107,7 @@ pipeline {
                                     fi
                                     sudo rm -rf /etc/docker /etc/systemd/system/docker.service.d || true
                                     sudo rm -f /var/run/docker.sock || true
+                                    sudo rm -f /etc/apt/sources.list.d/docker.list /etc/apt/keyrings/docker.asc /etc/apt/trusted.gpg.d/dowload.docker.com.asc /etc/apt/trusted.gpg.d/download.docker.com.asc || true
 EOF
                                 else
                                     cat <<'EOF' | ssh ${targetHost} bash -s
@@ -128,6 +129,7 @@ EOF
                                         fi
                                         sudo rm -rf /etc/docker /etc/systemd/system/docker.service.d || true
                                         sudo rm -f /var/run/docker.sock || true
+                                        sudo rm -f /etc/apt/sources.list.d/docker.list /etc/apt/keyrings/docker.asc /etc/apt/trusted.gpg.d/dowload.docker.com.asc /etc/apt/trusted.gpg.d/download.docker.com.asc || true
                                     else
                                         echo "WARNING: no passwordless sudo on \$(hostname)"
                                     fi
