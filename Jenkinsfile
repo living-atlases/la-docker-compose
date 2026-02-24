@@ -15,7 +15,7 @@ pipeline {
         // TARGET_HOSTS can be overridden in Jenkins job
         TARGET_HOSTS = "gbif-es-docker-cluster-2023-1 gbif-es-docker-cluster-2023-2 gbif-es-docker-cluster-2023-3"
 
-        BASE_DIR = "${env.HOME}/la-docker-compose-tests"
+        BASE_DIR = "${env.HOME}/ala-install-docker-tests"
         ALA_DIR = "${BASE_DIR}/ala-install"
         GENERATOR_DIR = "${BASE_DIR}/generator-living-atlas"
         
@@ -255,19 +255,14 @@ EOF
         stage('Regenerate inventories') {
             when { expression { env.DO_REDEPLOY == 'true' && !params.ONLY_CLEAN } }
             steps {
-                script {
-                    def replayFile = "${BASE_DIR}/living-atlas-replay.json"
-                    if (fileExists(replayFile)) {
-                        sh """
-                            set -eu
-                            cp "${replayFile}" "${INVENTORY_PARENT_DIR}/.yo-rc.json"
-                            cd "${INVENTORY_PARENT_DIR}"
-                            node "${GENERATOR_DIR}/node_modules/yo/lib/cli.js" living-atlas --replay-dont-ask --force
-                        """
-                    } else {
-                        echo "No replay file found at ${replayFile}, skipping Yeoman generation."
-                    }
-                }
+                sh """
+                    set -eu
+                    cd "${INVENTORY_PARENT_DIR}"
+
+                    node -v
+                    node "${GENERATOR_DIR}/node_modules/yo/lib/cli.js" --version
+                    node "${GENERATOR_DIR}/node_modules/yo/lib/cli.js" living-atlas --replay-dont-ask --force
+                """
             }
         }
 
@@ -295,7 +290,7 @@ EOF
                             export ANSIBLE_STDOUT_CALLBACK=yaml
                             export ANSIBLE_HOST_KEY_CHECKING=False
                             
-                            ansible-playbook ${playbook} ${inventoryArg} --extra-vars "auto_deploy=${params.AUTO_DEPLOY}" --limit "${currentHost}.docker_compose"
+                            ansible-playbook ${playbook} ${inventoryArg} --extra-vars "auto_deploy=${params.AUTO_DEPLOY}" --limit "${currentHost}"
                         """
                     }
                 }
