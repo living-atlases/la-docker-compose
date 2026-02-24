@@ -276,15 +276,24 @@ EOF
                         // Priority 1: Generated inventories in workspace (from stage Regenerate inventories)
                         // yo living-atlas usually generates them in ansible/inventories/
                         def workspaceInvDir = "${workspace}/ansible/inventories"
+                        def configInvDir = "/data/la-toolkit/config/lademo/lademo-inventories"
+                        
                         if (fileExists("${workspaceInvDir}/lademo-inventory.ini")) {
                             inventoryArg = "-i ${workspaceInvDir}/lademo-inventory.ini"
                             if (fileExists("${workspaceInvDir}/lademo-local-extras.ini")) inventoryArg += " -i ${workspaceInvDir}/lademo-local-extras.ini"
                             if (fileExists("${workspaceInvDir}/lademo-local-passwords.ini")) inventoryArg += " -i ${workspaceInvDir}/lademo-local-passwords.ini"
                             echo "Using generated inventories from ${workspaceInvDir}"
                         } 
-                        // Priority 2: Fallback/Temp remote inventory
+                        // Priority 2: Pre-existing inventories in config dir (manual management)
+                        else if (fileExists("${configInvDir}/lademo-inventory.ini")) {
+                            inventoryArg = "-i ${configInvDir}/lademo-inventory.ini"
+                            if (fileExists("${configInvDir}/lademo-local-extras.ini")) inventoryArg += " -i ${configInvDir}/lademo-local-extras.ini"
+                            if (fileExists("${configInvDir}/lademo-local-passwords.ini")) inventoryArg += " -i ${configInvDir}/lademo-local-passwords.ini"
+                            echo "Using config inventories from ${configInvDir}"
+                        }
+                        // Priority 3: Fallback/Temp remote inventory
                         else if (currentHost != 'localhost' && currentHost != '127.0.0.1') {
-                            sh "echo '[docker_compose]\n${currentHost}' > ${workspace}/temp_remote_inv.ini"
+                            sh "echo '[docker_compose]\n${currentHost}.docker_compose ansible_host=${currentHost}' > ${workspace}/temp_remote_inv.ini"
                             inventoryArg = "-i ${workspace}/temp_remote_inv.ini -i inventories/local/hosts.ini"
                             echo "Using temporary inventory for remote host: ${currentHost}"
                         }
@@ -295,7 +304,7 @@ EOF
                             export ANSIBLE_STDOUT_CALLBACK=yaml
                             export ANSIBLE_HOST_KEY_CHECKING=False
                             
-                            ansible-playbook ${playbook} ${inventoryArg} --extra-vars "auto_deploy=${params.AUTO_DEPLOY}" --limit "*${currentHost}.docker_compose*"
+                            ansible-playbook ${playbook} ${inventoryArg} --extra-vars "auto_deploy=${params.AUTO_DEPLOY}" --limit "${currentHost}.docker_compose"
                         """
                     }
                 }
