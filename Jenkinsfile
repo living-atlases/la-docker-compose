@@ -247,6 +247,7 @@ EOF
                     set -eu
                     cd "${GENERATOR_DIR}"
                     npm install --no-audit --no-fund
+                    # Also install yo and yeoman-generator here to have them ready
                     npm install --no-audit --no-fund yo yeoman-generator
                     echo "Generator version:"
                     node -e "console.log(require('./package.json').version)"
@@ -261,11 +262,12 @@ EOF
                     set -eu
                     cd "${INVENTORY_PARENT_DIR}"
                     
-                    # Install the generator from git folder locally to ensure 'yo' finds it
-                    npm install "${GENERATOR_DIR}" --no-save
-
-                    node -v
-                    ./node_modules/.bin/yo living-atlas --replay-dont-ask --force
+                    echo "Checking generator directory..."
+                    ls -lad "${GENERATOR_DIR}/node_modules" || echo "node_modules not found!"
+                    
+                    # Run the generator from its git checkout directory
+                    # We use the 'yo' installed in the generator's node_modules
+                    node "${GENERATOR_DIR}/node_modules/yo/lib/cli.js" "${GENERATOR_DIR}" --replay-dont-ask --force
                 """
             }
         }
