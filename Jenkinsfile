@@ -202,37 +202,39 @@ EOF
             when { expression { !params.ONLY_CLEAN } }
             steps {
                 script {
-                    if (params.FORCE_REDEPLOY) {
+                    def isManual = currentBuild.rawBuild.getCause(hudson.model.Cause$UserIdCause) != null
+                    def isCron = currentBuild.rawBuild.getCause(hudson.triggers.TimerTrigger$TimerTriggerCause) != null
+
+                    if (params.FORCE_REDEPLOY || (isManual && !isCron)) {
                         env.DO_REDEPLOY = 'true'
-                        echo 'FORCE_REDEPLOY is true.'
-                        return
+                        echo 'Force or Manual redeploy detected.'
+                    } else {
+                        def results = sh(
+                            script: """
+                                set -eu
+                                ALA_SHA=\$(cd "${ALA_DIR}" && git rev-parse HEAD)
+                                GEN_SHA=\$(cd "${GENERATOR_DIR}" && git rev-parse HEAD)
+                                SELF_SHA=\$(git rev-parse HEAD)
+                                
+                                ALA_FILE="${BASE_DIR}/.last_sha_ala"
+                                GEN_FILE="${BASE_DIR}/.last_sha_gen"
+                                SELF_FILE="${BASE_DIR}/.last_sha_self"
+                                
+                                CHANGED="false"
+                                if [ ! -f "\$ALA_FILE" ] || [ "\$(cat "\$ALA_FILE")" != "\$ALA_SHA" ]; then echo "\$ALA_SHA" > "\$ALA_FILE"; CHANGED="true"; fi
+                                if [ ! -f "\$GEN_FILE" ] || [ "\$(cat "\$GEN_FILE")" != "\$GEN_SHA" ]; then echo "\$GEN_SHA" > "\$GEN_FILE"; CHANGED="true"; fi
+                                if [ ! -f "\$SELF_FILE" ] || [ "\$(cat "\$SELF_FILE")" != "\$SELF_SHA" ]; then echo "\$SELF_SHA" > "\$SELF_FILE"; CHANGED="true"; fi
+                                
+                                echo "\$CHANGED|\$ALA_SHA|\$GEN_SHA|\$SELF_SHA"
+                            """,
+                            returnStdout: true
+                        ).trim().split('\\|')
+
+                        env.DO_REDEPLOY = (results[0] == 'true') ? 'true' : 'false'
+                        echo "ALA_SHA:  ${results[1]}"
+                        echo "GEN_SHA:  ${results[2]}"
+                        echo "SELF_SHA: ${results[3]}"
                     }
-
-                    def results = sh(
-                        script: """
-                            set -eu
-                            ALA_SHA=\$(cd "${ALA_DIR}" && git rev-parse HEAD)
-                            GEN_SHA=\$(cd "${GENERATOR_DIR}" && git rev-parse HEAD)
-                            SELF_SHA=\$(git rev-parse HEAD)
-                            
-                            ALA_FILE="${BASE_DIR}/.last_sha_ala"
-                            GEN_FILE="${BASE_DIR}/.last_sha_gen"
-                            SELF_FILE="${BASE_DIR}/.last_sha_self"
-                            
-                            CHANGED="false"
-                            if [ ! -f "\$ALA_FILE" ] || [ "\$(cat "\$ALA_FILE")" != "\$ALA_SHA" ]; then echo "\$ALA_SHA" > "\$ALA_FILE"; CHANGED="true"; fi
-                            if [ ! -f "\$GEN_FILE" ] || [ "\$(cat "\$GEN_FILE")" != "\$GEN_SHA" ]; then echo "\$GEN_SHA" > "\$GEN_FILE"; CHANGED="true"; fi
-                            if [ ! -f "\$SELF_FILE" ] || [ "\$(cat "\$SELF_FILE")" != "\$SELF_SHA" ]; then echo "\$SELF_SHA" > "\$SELF_FILE"; CHANGED="true"; fi
-                            
-                            echo "\$CHANGED|\$ALA_SHA|\$GEN_SHA|\$SELF_SHA"
-                        """,
-                        returnStdout: true
-                    ).trim().split('\\|')
-
-                    env.DO_REDEPLOY = (results[0] == 'true') ? 'true' : 'false'
-                    echo "ALA_SHA:  ${results[1]}"
-                    echo "GEN_SHA:  ${results[2]}"
-                    echo "SELF_SHA: ${results[3]}"
                     echo "Redeploy needed: ${env.DO_REDEPLOY}"
                 }
             }
@@ -258,10 +260,12 @@ EOF
                 sh """
                     set -eu
                     cd "${INVENTORY_PARENT_DIR}"
+                    
+                    # Install the generator from git folder locally to ensure 'yo' finds it
+                    npm install "${GENERATOR_DIR}" --no-save
 
                     node -v
-                    node "${GENERATOR_DIR}/node_modules/yo/lib/cli.js" --version
-                    node "${GENERATOR_DIR}/node_modules/yo/lib/cli.js" living-atlas --replay-dont-ask --force
+                    ./node_modules/.bin/yo living-atlas --replay-dont-ask --force
                 """
             }
         }
