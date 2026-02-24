@@ -13,14 +13,14 @@
 
 - name: Ensure nginx_docker_internal_aliases is a list
   set_fact:
-    nginx_docker_internal_aliases: "{{ nginx_docker_internal_aliases | from_json if nginx_docker_internal_aliases is string else (nginx_docker_internal_aliases | default([])) }}"
+    nginx_docker_internal_aliases: "{{ nginx_docker_internal_aliases | from_json if nginx_docker_internal_aliases is string else nginx_docker_internal_aliases }}"
   tags:
     - always
     - docker-compose
 
 - name: Ensure docker_extra_hosts is a list
   set_fact:
-    docker_extra_hosts: "{{ docker_extra_hosts | from_json if docker_extra_hosts is string else (docker_extra_hosts | default([])) }}"
+    docker_extra_hosts: "{{ docker_extra_hosts | from_json if docker_extra_hosts is string else docker_extra_hosts }}"
   tags:
     - always
     - docker-compose

@@ -272,11 +272,21 @@ EOF
                         echo "Targeting host: ${currentHost}"
                         
                         def inventoryArg = "-i inventories/local/hosts.ini"
-                        if (currentHost != 'localhost' && currentHost != '127.0.0.1') {
-                            // Create a temporary inventory to place the remote host in the correct group
-                            // so that playbooks filtering by 'hosts: docker_compose' actually run.
+                        
+                        // Priority 1: Generated inventories in workspace (from stage Regenerate inventories)
+                        // yo living-atlas usually generates them in ansible/inventories/
+                        def workspaceInvDir = "${workspace}/ansible/inventories"
+                        if (fileExists("${workspaceInvDir}/lademo-inventory.ini")) {
+                            inventoryArg = "-i ${workspaceInvDir}/lademo-inventory.ini"
+                            if (fileExists("${workspaceInvDir}/lademo-local-extras.ini")) inventoryArg += " -i ${workspaceInvDir}/lademo-local-extras.ini"
+                            if (fileExists("${workspaceInvDir}/lademo-local-passwords.ini")) inventoryArg += " -i ${workspaceInvDir}/lademo-local-passwords.ini"
+                            echo "Using generated inventories from ${workspaceInvDir}"
+                        } 
+                        // Priority 2: Fallback/Temp remote inventory
+                        else if (currentHost != 'localhost' && currentHost != '127.0.0.1') {
                             sh "echo '[docker_compose]\n${currentHost}' > ${workspace}/temp_remote_inv.ini"
                             inventoryArg = "-i ${workspace}/temp_remote_inv.ini -i inventories/local/hosts.ini"
+                            echo "Using temporary inventory for remote host: ${currentHost}"
                         }
 
                         sh """
@@ -285,7 +295,7 @@ EOF
                             export ANSIBLE_STDOUT_CALLBACK=yaml
                             export ANSIBLE_HOST_KEY_CHECKING=False
                             
-                            ansible-playbook ${playbook} ${inventoryArg} --extra-vars "auto_deploy=${params.AUTO_DEPLOY}" --limit "${currentHost}"
+                            ansible-playbook ${playbook} ${inventoryArg} --extra-vars "auto_deploy=${params.AUTO_DEPLOY}" --limit "*${currentHost}.docker_compose*"
                         """
                     }
                 }

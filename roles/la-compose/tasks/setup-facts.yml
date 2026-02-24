@@ -33,6 +33,7 @@
         {%- endif -%}
       {%- endfor -%}
       {{ result | unique | list }}
+
   tags:
     - always
     - docker-compose
