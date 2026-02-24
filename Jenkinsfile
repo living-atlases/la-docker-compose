@@ -34,7 +34,7 @@ pipeline {
         )
         booleanParam(
             name: 'CLEAN_MACHINE',
-            defaultValue: false,
+            defaultValue: true,
             description: 'Wipe /data (except lost+found) and purge Docker before running'
         )
         booleanParam(
@@ -203,7 +203,7 @@ EOF
                         return
                     }
 
-                    def changelog = sh(
+                    def results = sh(
                         script: """
                             set -eu
                             ALA_SHA=\$(cd "${ALA_DIR}" && git rev-parse HEAD)
@@ -219,12 +219,15 @@ EOF
                             if [ ! -f "\$GEN_FILE" ] || [ "\$(cat "\$GEN_FILE")" != "\$GEN_SHA" ]; then echo "\$GEN_SHA" > "\$GEN_FILE"; CHANGED="true"; fi
                             if [ ! -f "\$SELF_FILE" ] || [ "\$(cat "\$SELF_FILE")" != "\$SELF_SHA" ]; then echo "\$SELF_SHA" > "\$SELF_FILE"; CHANGED="true"; fi
                             
-                            echo "\$CHANGED"
+                            echo "\$CHANGED|\$ALA_SHA|\$GEN_SHA|\$SELF_SHA"
                         """,
                         returnStdout: true
-                    ).trim()
+                    ).trim().split('\\|')
 
-                    env.DO_REDEPLOY = (changelog == 'true') ? 'true' : 'false'
+                    env.DO_REDEPLOY = (results[0] == 'true') ? 'true' : 'false'
+                    echo "ALA_SHA:  ${results[1]}"
+                    echo "GEN_SHA:  ${results[2]}"
+                    echo "SELF_SHA: ${results[3]}"
                     echo "Redeploy needed: ${env.DO_REDEPLOY}"
                 }
             }
@@ -238,6 +241,8 @@ EOF
                     cd "${GENERATOR_DIR}"
                     npm install --no-audit --no-fund
                     npm install --no-audit --no-fund yo yeoman-generator
+                    echo "Generator version:"
+                    node -e "console.log(require('./package.json').version)"
                 """
             }
         }
