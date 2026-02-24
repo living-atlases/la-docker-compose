@@ -19,6 +19,9 @@ pipeline {
         ALA_DIR = "${BASE_DIR}/ala-install"
         GENERATOR_DIR = "${BASE_DIR}/generator-living-atlas"
         
+        INVENTORY_PARENT_DIR = "${BASE_DIR}/lademo"
+        INVENTORY_DIR = "${INVENTORY_PARENT_DIR}/lademo-inventories"
+
         VENV_DIR = "${BASE_DIR}/.venv-ansible"
         ANSIBLE_CONFIG = "${workspace}/ansible.cfg"
 
@@ -149,7 +152,7 @@ EOF
             steps {
                 sh """
                     set -eu
-                    mkdir -p "${BASE_DIR}" "${ALA_DIR}" "${GENERATOR_DIR}"
+                    mkdir -p "${BASE_DIR}" "${ALA_DIR}" "${GENERATOR_DIR}" "${INVENTORY_PARENT_DIR}" "${INVENTORY_DIR}"
                     if [ ! -d "${VENV_DIR}" ]; then
                         python3 -m venv "${VENV_DIR}"
                     fi
@@ -172,8 +175,9 @@ EOF
                             fi
                             cd "${ALA_DIR}"
                             git fetch --prune origin
-                            git checkout "${params.ALA_INSTALL_BRANCH}"
-                            git pull origin "${params.ALA_INSTALL_BRANCH}"
+                            git checkout -B "${params.ALA_INSTALL_BRANCH}" "origin/${params.ALA_INSTALL_BRANCH}"
+                            git reset --hard "origin/${params.ALA_INSTALL_BRANCH}"
+                            git clean -fdx
                         """
                     },
                     'Update generator-living-atlas': {
@@ -185,8 +189,9 @@ EOF
                             fi
                             cd "${GENERATOR_DIR}"
                             git fetch --prune origin
-                            git checkout "${params.GENERATOR_BRANCH}"
-                            git pull origin "${params.GENERATOR_BRANCH}"
+                            git checkout -B "${params.GENERATOR_BRANCH}" "origin/${params.GENERATOR_BRANCH}"
+                            git reset --hard "origin/${params.GENERATOR_BRANCH}"
+                            git clean -fdx
                         """
                     }
                 )
@@ -255,7 +260,8 @@ EOF
                     if (fileExists(replayFile)) {
                         sh """
                             set -eu
-                            cp "${replayFile}" "${workspace}/.yo-rc.json"
+                            cp "${replayFile}" "${INVENTORY_PARENT_DIR}/.yo-rc.json"
+                            cd "${INVENTORY_PARENT_DIR}"
                             node "${GENERATOR_DIR}/node_modules/yo/lib/cli.js" living-atlas --replay-dont-ask --force
                         """
                     } else {
@@ -276,32 +282,12 @@ EOF
                         def currentHost = h
                         echo "Targeting host: ${currentHost}"
                         
-                        def inventoryArg = "-i inventories/local/hosts.ini"
+                        // We strictly use the generated inventories in INVENTORY_DIR
+                        def inventoryArg = "-i ${INVENTORY_DIR}/lademo-inventory.ini"
+                        if (fileExists("${INVENTORY_DIR}/lademo-local-extras.ini")) inventoryArg += " -i ${INVENTORY_DIR}/lademo-local-extras.ini"
+                        if (fileExists("${INVENTORY_DIR}/lademo-local-passwords.ini")) inventoryArg += " -i ${INVENTORY_DIR}/lademo-local-passwords.ini"
                         
-                        // Priority 1: Generated inventories in workspace (from stage Regenerate inventories)
-                        // yo living-atlas usually generates them in ansible/inventories/
-                        def workspaceInvDir = "${workspace}/ansible/inventories"
-                        def configInvDir = "/data/la-toolkit/config/lademo/lademo-inventories"
-                        
-                        if (fileExists("${workspaceInvDir}/lademo-inventory.ini")) {
-                            inventoryArg = "-i ${workspaceInvDir}/lademo-inventory.ini"
-                            if (fileExists("${workspaceInvDir}/lademo-local-extras.ini")) inventoryArg += " -i ${workspaceInvDir}/lademo-local-extras.ini"
-                            if (fileExists("${workspaceInvDir}/lademo-local-passwords.ini")) inventoryArg += " -i ${workspaceInvDir}/lademo-local-passwords.ini"
-                            echo "Using generated inventories from ${workspaceInvDir}"
-                        } 
-                        // Priority 2: Pre-existing inventories in config dir (manual management)
-                        else if (fileExists("${configInvDir}/lademo-inventory.ini")) {
-                            inventoryArg = "-i ${configInvDir}/lademo-inventory.ini"
-                            if (fileExists("${configInvDir}/lademo-local-extras.ini")) inventoryArg += " -i ${configInvDir}/lademo-local-extras.ini"
-                            if (fileExists("${configInvDir}/lademo-local-passwords.ini")) inventoryArg += " -i ${configInvDir}/lademo-local-passwords.ini"
-                            echo "Using config inventories from ${configInvDir}"
-                        }
-                        // Priority 3: Fallback/Temp remote inventory
-                        else if (currentHost != 'localhost' && currentHost != '127.0.0.1') {
-                            sh "echo '[docker_compose]\n${currentHost}.docker_compose ansible_host=${currentHost}' > ${workspace}/temp_remote_inv.ini"
-                            inventoryArg = "-i ${workspace}/temp_remote_inv.ini -i inventories/local/hosts.ini"
-                            echo "Using temporary inventory for remote host: ${currentHost}"
-                        }
+                        echo "Using generated inventories from ${INVENTORY_DIR}"
 
                         sh """
                             export PATH="${VENV_DIR}/bin:\$PATH"
