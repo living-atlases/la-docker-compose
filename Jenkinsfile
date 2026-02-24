@@ -262,12 +262,18 @@ EOF
                     set -eu
                     cd "${INVENTORY_PARENT_DIR}"
                     
-                    echo "Checking generator directory..."
-                    ls -lad "${GENERATOR_DIR}/node_modules" || echo "node_modules not found!"
+                    echo "Linking local generator..."
+                    cd "${GENERATOR_DIR}"
+                    npm link --no-audit --no-fund
                     
-                    # Run the generator from its git checkout directory
-                    # We use the 'yo' installed in the generator's node_modules
-                    node "${GENERATOR_DIR}/node_modules/yo/lib/cli.js" "${GENERATOR_DIR}" --replay-dont-ask --force
+                    cd "${INVENTORY_PARENT_DIR}"
+                    npm link generator-living-atlas --no-audit --no-fund
+                    
+                    echo "Running generator..."
+                    ./node_modules/.bin/yo living-atlas --replay-dont-ask --force
+                    
+                    echo "Checking generated inventory..."
+                    ls -lh "${INVENTORY_DIR}/lademo-inventory.ini"
                 """
             }
         }
