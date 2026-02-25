@@ -1145,12 +1145,6 @@
 # Final Validation and Health Checks (AFTER all generation)
 # ============================================================================
 
-- name: "Ensure database volumes exist (external)"
-  include_tasks: ensure-db-volumes.yml
-  tags:
-    - validate
-    - docker-volumes
-
 - name: "Validate docker-compose generation"
   include_tasks: validate-docker-compose.yml
   tags:
