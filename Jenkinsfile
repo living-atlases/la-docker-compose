@@ -22,6 +22,7 @@ pipeline {
         INVENTORY_PARENT_DIR = "${BASE_DIR}/lademo"
         INVENTORY_DIR = "${INVENTORY_PARENT_DIR}/lademo-inventories"
 
+        RUNNER_DIR = "${BASE_DIR}/.runner"
         VENV_DIR = "${BASE_DIR}/.venv-ansible"
         ANSIBLE_CONFIG = "${workspace}/ansible.cfg"
 
@@ -152,7 +153,7 @@ EOF
             steps {
                 sh """
                     set -eu
-                    mkdir -p "${BASE_DIR}" "${ALA_DIR}" "${GENERATOR_DIR}" "${INVENTORY_PARENT_DIR}" "${INVENTORY_DIR}"
+                    mkdir -p "${BASE_DIR}" "${ALA_DIR}" "${GENERATOR_DIR}" "${INVENTORY_PARENT_DIR}" "${INVENTORY_DIR}" "${RUNNER_DIR}"
                     if [ ! -d "${VENV_DIR}" ]; then
                         python3 -m venv "${VENV_DIR}"
                     fi
@@ -246,10 +247,10 @@ EOF
                 sh """
                     set -eu
                     cd "${GENERATOR_DIR}"
-                    npm install --no-audit --no-fund
-                    # Also install yo and yeoman-generator here to have them ready
-                    npm install --no-audit --no-fund yo yeoman-generator
+                    # Install with ignore-scripts to avoid husky/please-upgrade-node failures
+                    npm install --no-audit --no-fund --ignore-scripts
                     echo "Generator version:"
+                    node -v
                     node -e "console.log(require('./package.json').version)"
                 """
             }
@@ -260,17 +261,16 @@ EOF
             steps {
                 sh """
                     set -eu
-                    cd "${INVENTORY_PARENT_DIR}"
+                    cd "${RUNNER_DIR}"
                     
-                    echo "Linking local generator..."
-                    cd "${GENERATOR_DIR}"
-                    npm link --no-audit --no-fund
-                    
-                    cd "${INVENTORY_PARENT_DIR}"
-                    npm link generator-living-atlas --no-audit --no-fund
+                    echo "Installing generator and runner locally in dedicated directory..."
+                    # We install yo and the generator as local tools to avoid link/global path issues
+                    npm install yo yeoman-generator "${GENERATOR_DIR}" --no-save --no-audit --no-fund --ignore-scripts
                     
                     echo "Running generator..."
-                    ./node_modules/.bin/yo living-atlas --replay-dont-ask --force
+                    # We execute yo pointing to the INVENTORY_PARENT_DIR where .yo-rc.json lives
+                    cd "${INVENTORY_PARENT_DIR}"
+                    "${RUNNER_DIR}/node_modules/.bin/yo" living-atlas --replay-dont-ask --force
                     
                     echo "Checking generated inventory..."
                     ls -lh "${INVENTORY_DIR}/lademo-inventory.ini"
