@@ -192,6 +192,13 @@ EOF
                             if [ ! -d "${ALA_DIR}/.git" ]; then
                                 rm -rf "${ALA_DIR}"
                                 git clone "${env.ALA_GIT_URL}" "${ALA_DIR}"
+                            else
+                                # Aggressively clean node_modules BEFORE git operations
+                                if [ -d "${ALA_DIR}/node_modules" ]; then
+                                    echo "Pre-cleaning node_modules in ala-install..."
+                                    chmod -R u+w "${ALA_DIR}/node_modules" 2>/dev/null || true
+                                    rm -rf "${ALA_DIR}/node_modules"
+                                fi
                             fi
                             cd "${ALA_DIR}"
                             git fetch --prune origin
@@ -206,19 +213,18 @@ EOF
                             if [ ! -d "${GENERATOR_DIR}/.git" ]; then
                                 rm -rf "${GENERATOR_DIR}"
                                 git clone "${env.GENERATOR_GIT_URL}" "${GENERATOR_DIR}"
+                            else
+                                # Aggressively clean node_modules BEFORE git operations
+                                if [ -d "${GENERATOR_DIR}/node_modules" ]; then
+                                    echo "Pre-cleaning node_modules in generator-living-atlas..."
+                                    chmod -R u+w "${GENERATOR_DIR}/node_modules" 2>/dev/null || true
+                                    rm -rf "${GENERATOR_DIR}/node_modules"
+                                fi
                             fi
                             cd "${GENERATOR_DIR}"
                             git fetch --prune origin
                             git checkout -B "${params.GENERATOR_BRANCH}" "origin/${params.GENERATOR_BRANCH}"
                             git reset --hard "origin/${params.GENERATOR_BRANCH}"
-                            
-                            # Handle potential node_modules locking issues
-                            if [ -d node_modules ]; then
-                                echo "Removing node_modules with permission fixes..."
-                                chmod -R u+w node_modules 2>/dev/null || true
-                                rm -rf node_modules
-                            fi
-                            
                             git clean -fdx
                         """
                     }
