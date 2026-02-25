@@ -1,0 +1,150 @@
+---
+# Validate the generated docker-compose.yml and configuration
+# Run after config-gen.yml to verify the output is valid
+# Usage:
+#   ansible-playbook playbooks/validate-compose.yml -i inventories/local/hosts.ini
+
+- name: Validate Generated Docker Compose Configuration
+  hosts: docker_compose
+  gather_facts: yes
+  vars:
+    docker_compose_dir: /data/docker-compose
+  tasks:
+    - name: "Validation: Check docker-compose.yml exists"
+      stat:
+        path: "{{ docker_compose_dir }}/docker-compose.yml"
+      register: compose_file
+
+    - name: "Validation: Fail if docker-compose.yml missing"
+      fail:
+        msg: "docker-compose.yml not found at {{ docker_compose_dir }}/docker-compose.yml"
+      when: not compose_file.stat.exists
+
+    - name: "Validation: Read docker-compose.yml"
+      slurp:
+        src: "{{ docker_compose_dir }}/docker-compose.yml"
+      register: compose_content
+
+    - name: "Validation: Parse docker-compose.yml as YAML"
+      set_fact:
+        compose_yaml: "{{ compose_content.content | b64decode | from_yaml }}"
+      register: yaml_parse
+      failed_when: yaml_parse is failed
+
+    - name: "Validation: Show compose version and top-level structure"
+      debug:
+        msg:
+          - "Version: {{ compose_yaml.version | default('not specified') }}"
+          - "Services found: {{ compose_yaml.services | length if compose_yaml.services is defined else 0 }}"
+          - "Volumes found: {{ compose_yaml.volumes | length if compose_yaml.volumes is defined else 0 }}"
+          - "Networks found: {{ compose_yaml.networks | length if compose_yaml.networks is defined else 0 }}"
+
+    - name: "Validation: List all services"
+      debug:
+        msg: "Services: {{ compose_yaml.services.keys() | list | sort }}"
+      when: compose_yaml.services is defined
+
+    - name: "Validation: Verify required infrastructure services"
+      assert:
+        that:
+          - "'mysql' in compose_yaml.services or 'postgres' in compose_yaml.services or 'mongodb' in compose_yaml.services"
+          - "'nginx' in compose_yaml.services"
+        fail_msg: "Missing required infrastructure services (nginx, database)"
+        success_msg: "All required infrastructure services present"
+
+    - name: "Validation: Check for proper volume mounts (data persistence)"
+      debug:
+        msg:
+          - "Nginx volumes: {{ compose_yaml.services.nginx.volumes | length if compose_yaml.services.nginx is defined and compose_yaml.services.nginx.volumes is defined else 0 }}"
+          - "Database volumes: {{ compose_yaml.volumes | length if compose_yaml.volumes is defined else 0 }}"
+
+    - name: "Validation: Verify .env file exists"
+      stat:
+        path: "{{ docker_compose_dir }}/.env"
+      register: env_file
+
+    - name: "Validation: Fail if .env missing"
+      fail:
+        msg: ".env file not found - required for database credentials"
+      when: not env_file.stat.exists
+
+    - name: "Validation: Read and count .env variables"
+      shell: |
+        wc -l < "{{ docker_compose_dir }}/.env"
+      register: env_line_count
+
+    - name: "Validation: Show .env statistics"
+      debug:
+        msg:
+          - ".env file exists with {{ env_line_count.stdout | int }} lines"
+          - "Contains MYSQL_ROOT_PASSWORD: {{ 'MYSQL_ROOT_PASSWORD' in lookup('file', docker_compose_dir + '/.env') }}"
+          - "Contains MONGODB_ROOT_PASSWORD: {{ 'MONGODB_ROOT_PASSWORD' in lookup('file', docker_compose_dir + '/.env') }}"
+
+    - name: "Validation: List infrastructure directory"
+      find:
+        paths: "{{ docker_compose_dir }}/infrastructure"
+        file_type: f
+        recurse: no
+      register: infra_files
+
+    - name: "Validation: Show infrastructure files"
+      debug:
+        msg: "Infrastructure files: {{ infra_files.files | map(attribute='path') | map('basename') | sort }}"
+
+    - name: "Validation: List services directory"
+      find:
+        paths: "{{ docker_compose_dir }}/services"
+        file_type: f
+        recurse: no
+      register: services_files
+
+    - name: "Validation: Show services files"
+      debug:
+        msg: "Services files: {{ services_files.files | map(attribute='path') | map('basename') | sort }}"
+
+    - name: "Validation: Check for environment variable overrides"
+      shell: |
+        grep -E "^\w+_VERSION|^\w+_BRANCH" "{{ docker_compose_dir }}/services"/*.yml | wc -l
+      register: version_overrides
+
+    - name: "Validation: Show version override count"
+      debug:
+        msg: "Service version/branch overrides found: {{ version_overrides.stdout }}"
+
+    - name: "Validation: Verify nginx configuration"
+      stat:
+        path: "{{ docker_compose_dir }}/infrastructure/nginx.yml"
+      register: nginx_file
+
+    - name: "Validation: Check nginx directives"
+      debug:
+        msg:
+          - "Nginx config file exists: {{ nginx_file.stat.exists }}"
+          - "Size: {{ nginx_file.stat.size if nginx_file.stat.exists else 'N/A' }} bytes"
+
+    - name: "Validation: List external volumes"
+      debug:
+        msg: "External volumes: {{ compose_yaml.volumes.keys() | list | select('match', '^la_') | list | sort }}"
+      when: compose_yaml.volumes is defined
+
+    - name: "Validation: Display final summary"
+      debug:
+        msg: |
+          ✅ VALIDATION SUMMARY
+          
+          Generated Configuration:
+            ✓ docker-compose.yml (valid YAML syntax)
+            ✓ .env file with {{ env_line_count.stdout | int }} environment variables
+            ✓ {{ infra_files.files | length }} infrastructure config files
+            ✓ {{ services_files.files | length }} service config files
+          
+          Services Configured:
+            ✓ {{ compose_yaml.services.keys() | length }} total services
+            ✓ Infrastructure: nginx, databases
+            ✓ Ready for docker-compose validation
+          
+          Next steps:
+            1. Review config: cat {{ docker_compose_dir }}/docker-compose.yml
+            2. Test docker syntax: docker-compose config
+            3. Start services: docker-compose up -d
+            4. Check logs: docker-compose logs -f

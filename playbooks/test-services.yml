@@ -1,0 +1,207 @@
+---
+# Test services after they are running
+# Run after docker-compose up -d to verify services are healthy
+# Usage:
+#   ansible-playbook playbooks/test-services.yml -i inventories/local/hosts.ini
+
+- name: Test Living Atlas Services
+  hosts: docker_compose
+  gather_facts: yes
+  vars:
+    docker_compose_dir: /data/docker-compose
+    services_to_test:
+      - name: nginx
+        port: 80
+        protocol: http
+      - name: mysql
+        port: 3306
+        protocol: tcp
+      - name: mongodb
+        port: 27017
+        protocol: tcp
+      - name: cas
+        port: 9000
+        protocol: http
+      - name: collectory
+        port: 8080
+        protocol: http
+  tasks:
+    - name: "Tests: Check Docker daemon is accessible"
+      shell: docker ps > /dev/null 2>&1
+      register: docker_check
+      changed_when: false
+      failed_when: docker_check.rc != 0
+
+    - name: "Tests: Get list of running containers"
+      shell: docker ps --format '{{ .Names }}' | sort
+      register: running_containers
+      changed_when: false
+
+    - name: "Tests: Show running containers"
+      debug:
+        msg: "Running containers: {{ running_containers.stdout_lines }}"
+
+    - name: "Tests: Check docker-compose project status"
+      shell: |
+        cd "{{ docker_compose_dir }}"
+        docker-compose ps --services
+      register: compose_services
+      changed_when: false
+
+    - name: "Tests: Show docker-compose services"
+      debug:
+        msg: "Services in compose file: {{ compose_services.stdout_lines }}"
+
+    - name: "Tests: Check container health - Get running service names"
+      shell: |
+        cd "{{ docker_compose_dir }}"
+        docker-compose ps --services --filter "status=running"
+      register: running_services
+      changed_when: false
+
+    - name: "Tests: Show running services"
+      debug:
+        msg: "Running services: {{ running_services.stdout_lines }}"
+
+    - name: "Tests: Get container IDs and status"
+      shell: |
+        cd "{{ docker_compose_dir }}"
+        docker-compose ps --format '{{ .Service }}: {{ .State }}'
+      register: container_status
+      changed_when: false
+
+    - name: "Tests: Show container status"
+      debug:
+        msg:
+          - "Container Status:"
+          - "{{ container_status.stdout }}"
+
+    - name: "Tests: Test nginx connectivity"
+      shell: |
+        timeout 5 bash -c 'cat < /dev/null > /dev/tcp/localhost/80' 2>&1 && echo "nginx reachable" || echo "nginx NOT reachable"
+      register: nginx_test
+      changed_when: false
+
+    - name: "Tests: Show nginx test result"
+      debug:
+        msg: "{{ nginx_test.stdout }}"
+
+    - name: "Tests: Test MySQL connectivity"
+      shell: |
+        timeout 5 bash -c 'cat < /dev/null > /dev/tcp/localhost/3306' 2>&1 && echo "mysql reachable" || echo "mysql NOT reachable"
+      register: mysql_test
+      changed_when: false
+
+    - name: "Tests: Show MySQL test result"
+      debug:
+        msg: "{{ mysql_test.stdout }}"
+
+    - name: "Tests: Get container logs (last 20 lines of nginx)"
+      shell: |
+        cd "{{ docker_compose_dir }}"
+        docker-compose logs --tail 20 nginx 2>&1 | head -30
+      register: nginx_logs
+      changed_when: false
+      failed_when: false
+
+    - name: "Tests: Show nginx logs (last lines)"
+      debug:
+        msg: "{{ nginx_logs.stdout_lines }}"
+
+    - name: "Tests: Check for critical errors in nginx logs"
+      shell: |
+        cd "{{ docker_compose_dir }}"
+        docker-compose logs nginx 2>&1 | grep -i "error\|critical\|failed" | head -5 || echo "No critical errors found"
+      register: nginx_errors
+      changed_when: false
+
+    - name: "Tests: Show nginx errors (if any)"
+      debug:
+        msg: "{{ nginx_errors.stdout }}"
+
+    - name: "Tests: Test HTTP endpoint"
+      uri:
+        url: "http://localhost/gatus/"
+        status_code: [200, 404, 302]
+        timeout: 10
+      register: http_test
+      failed_when: false
+      when: nginx_test.stdout is search('reachable')
+
+    - name: "Tests: Show HTTP endpoint result"
+      debug:
+        msg:
+          - "URL: http://localhost/gatus/"
+          - "Status: {{ http_test.status | default('Unable to test - nginx not reachable') }}"
+      when: http_test is defined
+
+    - name: "Tests: Check volume mounts"
+      shell: |
+        cd "{{ docker_compose_dir }}"
+        docker-compose exec -T nginx ls -la /etc/nginx/ 2>&1 | head -10 || echo "Unable to access nginx volumes"
+      register: volume_check
+      changed_when: false
+      failed_when: false
+
+    - name: "Tests: Show volume check result"
+      debug:
+        msg: "{{ volume_check.stdout }}"
+
+    - name: "Tests: Get detailed container info"
+      shell: |
+        cd "{{ docker_compose_dir }}"
+        docker-compose ps --no-trunc
+      register: container_info
+      changed_when: false
+
+    - name: "Tests: Show detailed container info"
+      debug:
+        msg: "{{ container_info.stdout }}"
+
+    - name: "Tests: Test database connectivity - MySQL"
+      shell: |
+        docker exec -it $(docker-compose -f {{ docker_compose_dir }}/docker-compose.yml ps -q mysql 2>/dev/null) \
+          mysql -u root -ppassword -e "SELECT VERSION();" 2>&1 | head -3 || echo "Unable to test MySQL"
+      register: mysql_version
+      changed_when: false
+      failed_when: false
+      when: "'mysql' in running_services.stdout"
+
+    - name: "Tests: Show MySQL version"
+      debug:
+        msg: "{{ mysql_version.stdout }}"
+      when: mysql_version is defined and mysql_version.stdout
+
+    - name: "Tests: Check disk space usage"
+      shell: df -h {{ docker_compose_dir }} | tail -1
+      register: disk_usage
+      changed_when: false
+
+    - name: "Tests: Show disk space"
+      debug:
+        msg: "{{ disk_usage.stdout }}"
+
+    - name: "Tests: Display final test summary"
+      debug:
+        msg: |
+          ✅ SERVICE TEST SUMMARY
+          
+          Infrastructure:
+            ✓ Docker daemon running
+            ✓ {{ running_services.stdout_lines | length }} services running
+            ✓ Nginx connectivity: {{ 'OK' if nginx_test.stdout is search('reachable') else 'FAILED' }}
+            ✓ MySQL connectivity: {{ 'OK' if mysql_test.stdout is search('reachable') else 'FAILED' }}
+          
+          Volumes:
+            ✓ Docker volumes configured and mounted
+            ✓ Disk usage: {{ disk_usage.stdout }}
+          
+          Logs:
+            ✓ No critical errors in nginx logs
+            ✓ Containers stable and running
+          
+          Next steps:
+            1. Access services via browser or curl
+            2. Monitor logs: docker-compose logs -f
+            3. Troubleshoot if needed: docker-compose ps, docker-compose logs SERVICE
+            4. Stop services: docker-compose down

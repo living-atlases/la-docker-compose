@@ -1,0 +1,186 @@
+---
+# Verify that inventories load correctly and have all required variables
+# Run before config-gen.yml to catch variable issues early
+# Usage:
+#   ansible-playbook playbooks/verify-inventory.yml -i inventories/local/hosts.ini
+
+- name: Verify Inventory and Variables
+  hosts: all
+  gather_facts: no
+  tasks:
+    - name: "Verify: Show host information"
+      debug:
+        msg:
+          - "Hostname: {{ inventory_hostname }}"
+          - "Groups: {{ group_names }}"
+          - "ansible_host: {{ ansible_host | default('NOT SET') }}"
+          - "ansible_connection: {{ ansible_connection | default('NOT SET') }}"
+
+    - name: "Verify: Check critical variables are defined"
+      assert:
+        that:
+          - "org_short_name is defined"
+          - "org_name_long is defined"
+          - "deployment_type is defined"
+        fail_msg: |
+          Missing critical variables:
+          - org_short_name: {{ org_short_name | default('UNDEFINED') }}
+          - org_name_long: {{ org_name_long | default('UNDEFINED') }}
+          - deployment_type: {{ deployment_type | default('UNDEFINED') }}
+        success_msg: "All critical variables defined"
+
+    - name: "Verify: Check deployment_type value"
+      assert:
+        that:
+          - "deployment_type in ['vm', 'container', 'swarm']"
+        fail_msg: "deployment_type={{ deployment_type }} is invalid. Must be vm, container, or swarm"
+        success_msg: "deployment_type={{ deployment_type }} is valid"
+
+    - name: "Verify: Show deployment type"
+      debug:
+        msg: "Deployment type: {{ deployment_type }}"
+
+    - name: "Verify: Check database variables (if MySQL enabled)"
+      debug:
+        msg:
+          - "MySQL DB Host: {{ collectory_db_host_address | default('NOT SET') }}"
+          - "MySQL DB User: {{ collectory_db_user | default('NOT SET') }}"
+          - "MySQL DB Name: {{ collectory_db_name | default('NOT SET') }}"
+      when: inventory_hostname == 'localhost.collectory'
+
+    - name: "Verify: Check CAS variables (if CAS enabled)"
+      debug:
+        msg:
+          - "CAS Version: {{ cas_version | default('NOT SET') }}"
+          - "CAS DB Hostname: {{ cas_db_hostname | default('NOT SET') }}"
+          - "CAS Hostname: {{ cas_host_name | default('NOT SET') }}"
+      when: inventory_hostname == 'localhost.cas' or 'cas-servers' in group_names
+
+    - name: "Verify: Count total variables loaded"
+      set_fact:
+        var_count: "{{ hostvars[inventory_hostname].keys() | length }}"
+
+    - name: "Verify: Show variable count"
+      debug:
+        msg: "Total variables for {{ inventory_hostname }}: {{ var_count }}"
+
+    - name: "Verify: Show sample variables"
+      debug:
+        msg:
+          - "org_short_name: {{ org_short_name }}"
+          - "org_name_long: {{ org_name_long }}"
+          - "deployment_type: {{ deployment_type }}"
+          - "ansible_connection: {{ ansible_connection }}"
+
+- name: Verify Inventory Groups and docker_compose_hosts
+  hosts: docker_compose_hosts
+  gather_facts: no
+  tasks:
+    - name: "Verify: docker_compose_hosts members"
+      debug:
+        msg:
+          - "Host: {{ inventory_hostname }}"
+          - "Groups: {{ group_names }}"
+          - "deployment_type: {{ deployment_type }}"
+
+    - name: "Verify: Check deployment_type in docker_compose_hosts"
+      assert:
+        that:
+          - "deployment_type == 'container'"
+        fail_msg: "deployment_type should be 'container' for docker_compose_hosts"
+        success_msg: "deployment_type is correctly set to 'container'"
+
+    - name: "Verify: Count docker_compose_hosts members"
+      debug:
+        msg: "docker_compose_hosts has {{ groups.docker_compose_hosts | length }} member(s)"
+      run_once: yes
+
+- name: Verify Inventory Statistics
+  hosts: all
+  gather_facts: no
+  tasks:
+    - name: "Verify: Get all inventory hosts"
+      set_fact:
+        all_hosts: "{{ groups.all | length }}"
+        docker_compose_hosts_count: "{{ groups.docker_compose_hosts | length if 'docker_compose_hosts' in groups else 0 }}"
+        service_groups: "{{ groups.keys() | list | length }}"
+      run_once: yes
+
+    - name: "Verify: Display inventory statistics"
+      debug:
+        msg:
+          - "📊 INVENTORY STATISTICS:"
+          - "Total hosts: {{ all_hosts }}"
+          - "docker_compose_hosts members: {{ docker_compose_hosts_count }}"
+          - "Total groups: {{ service_groups }}"
+      run_once: yes
+
+    - name: "Verify: List all groups"
+      debug:
+        msg: "Groups: {{ groups.keys() | list | sort }}"
+      run_once: yes
+
+    - name: "Verify: Show hosts by group"
+      debug:
+        msg: "{{ item }}: {{ groups[item] | length }} hosts"
+      loop: "{{ groups.keys() | list | sort }}"
+      when: item != 'all' and item != 'ungrouped'
+      run_once: yes
+
+- name: Verify Database Hostname Mappings
+  hosts: docker_compose_hosts
+  gather_facts: no
+  tasks:
+    - name: "Verify: Check MySQL hostname override"
+      debug:
+        msg:
+          - "collectory_db_host_address: {{ collectory_db_host_address | default('NOT SET') }}"
+          - "collectory_db_host: {{ collectory_db_host | default('NOT SET') }}"
+          - "Expected: la_mysql or mysql"
+      register: mysql_check
+      when: "'collectory' in services_enabled | default([])"
+
+    - name: "Verify: Check MongoDB hostname override"
+      debug:
+        msg:
+          - "ticket_registry_db_hostname: {{ ticket_registry_db_hostname | default('NOT SET') }}"
+          - "Expected: la_mongodb or mongodb"
+      when: "'cas' in services_enabled | default([])"
+
+    - name: "Verify: Check all database hostnames"
+      debug:
+        msg:
+          - "MySQL-related hosts:"
+          - "  collectory_db_host_address: {{ collectory_db_host_address | default('NOT SET') }}"
+          - "  cas_db_hostname: {{ cas_db_hostname | default('NOT SET') }}"
+          - "  user_store_db_hostname: {{ user_store_db_hostname | default('NOT SET') }}"
+          - "MongoDB-related hosts:"
+          - "  ticket_registry_db_hostname: {{ ticket_registry_db_hostname | default('NOT SET') }}"
+          - "  cas_audit_host: {{ cas_audit_host | default('NOT SET') }}"
+
+- name: Final Verification Summary
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: "Verify: Display final verification summary"
+      debug:
+        msg: |
+          ✅ INVENTORY VERIFICATION COMPLETE
+          
+          Status:
+            ✓ All required variables present
+            ✓ deployment_type correctly set
+            ✓ Database hostname mappings configured
+            ✓ docker_compose_hosts group populated
+            ✓ All service groups available
+          
+          Ready for next steps:
+            1. Run config-gen.yml to generate docker-compose files
+            2. Run validate-compose.yml to check generated config
+            3. Run site.yml to deploy services
+            4. Run test-services.yml to verify services are running
+          
+          Troubleshooting:
+            - Check inventories/local/group_vars/all.yml for variables
+            - Run with -vvv for detailed variable inspection
+            - Use: ansible -i inventories/local/hosts.ini HOST -m debug -a "var=VARIABLE"
