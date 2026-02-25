@@ -98,3 +98,121 @@ ansible-playbook playbooks/config-gen.yml -i inventories/dev/hosts.ini --limit c
 # Start only what you need
 cd /data/docker-compose && docker compose up -d
 ```
+
+---
+
+## Testing & Dry-run
+
+### Local Inventories for Testing
+
+Two pre-configured inventories are available for testing playbooks without remote hosts:
+
+#### `inventories/local/hosts.ini` - Full deployment
+- All 27 Living Atlas services
+- Uses `localhost.<service>` pattern (no SSH)
+- Mirrors lademo structure for compatibility
+- Use for comprehensive testing
+
+#### `inventories/dev/hosts.ini` - Minimal dev setup
+- 4 services: CAS, Collectory, Branding, docker_compose
+- Fast feedback loop for development
+- Use for rapid iteration or testing single services
+
+### Quick-Start Testing Commands
+
+#### 1. Validate inventory loads correctly (fastest)
+```bash
+cd /home/vjrj/proyectos/gbif/dev/la-docker-compose
+ansible-playbook -i inventories/local/hosts.ini test-inventory.yml --check
+```
+Shows:
+- All 27 hosts loaded correctly
+- `deployment_type=container` verified
+- Group assignments and variables inherited
+
+#### 2. Syntax check playbooks (safe, no execution)
+```bash
+# Full playbook
+ansible-playbook -i inventories/local/hosts.ini playbooks/site.yml --syntax-check
+
+# Config generation only
+ansible-playbook -i inventories/dev/hosts.ini playbooks/config-gen.yml --syntax-check
+```
+
+#### 3. Dry-run with changes preview (--check --diff)
+```bash
+# See what would be generated (limited to docker_compose host)
+ansible-playbook -i inventories/local/hosts.ini playbooks/config-gen.yml \
+  --limit docker_compose --check --diff -v | head -200
+
+# Full dry-run with minimal dev setup
+ansible-playbook -i inventories/dev/hosts.ini playbooks/config-gen.yml --check --diff
+```
+
+### Advanced Testing Scenarios
+
+#### View all hosts in inventory
+```bash
+ansible -i inventories/local/hosts.ini all --list-hosts
+```
+
+#### Check variables for a specific host
+```bash
+ansible -i inventories/local/hosts.ini localhost.cas -m debug -a "var=deployment_type"
+```
+
+#### Test specific group
+```bash
+ansible-playbook -i inventories/local/hosts.ini playbooks/config-gen.yml \
+  --limit docker_compose_hosts --check
+```
+
+### Regenerating Inventories
+
+If services are added/removed or inventory structure changes:
+
+```bash
+cd /home/vjrj/proyectos/gbif/dev/la-docker-compose
+python3 scripts/create_local_inventory.py full > inventories/local/hosts.ini
+python3 scripts/create_local_inventory.py dev > inventories/dev/hosts.ini
+```
+
+The script `create_local_inventory.py` contains service mappings that can be easily updated:
+- `SERVICES_FULL` dict (26 services)
+- `SERVICES_DEV` dict (4 services)
+- `GROUP_MAPPING` (group-to-service associations)
+
+For future integration with `generator-living-atlas`, a `.yo-rc.json` config can be added to automate this.
+
+### Inventory Structure Details
+
+Both inventories use the `localhost.<service>` pattern:
+
+```ini
+[collectory]
+localhost.collectory ansible_host=localhost ansible_connection=local
+
+[docker_compose]
+localhost.docker_compose ansible_host=localhost ansible_connection=local
+
+[docker_compose_hosts:vars]
+deployment_type = container
+collectory_db_host_address = la_mysql
+# ... database hostname overrides for docker-compose containers
+```
+
+**Why `localhost.<service>`?**
+- Ansible uses `inventory_hostname` (not `ansible_host`) as the primary key for hostvars
+- Multiple hosts with same `ansible_host=localhost` require unique names to avoid variable collisions
+- Pattern matches lademo structure for maintainability and future generator integration
+
+### Shared Variables
+
+Both inventories inherit from `inventories/local/group_vars/all.yml`:
+- Service versions (CAS, Collectory, etc.)
+- Database credentials (test values only)
+- URLs, ports, and endpoints
+- `deployment_type: container` (set in `[docker_compose_hosts:vars]`)
+- Docker network configuration
+
+---
