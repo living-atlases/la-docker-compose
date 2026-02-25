@@ -66,3 +66,6 @@ collectory_db_user: "collectory"
 collectory_db_name: "collectory"
 mysql_root_password: "password"
 collectory_db_host_address: "mysql"
+docker_extra_hosts: []
+nginx_docker_internal_aliases: {}
+docker_default_user: "ubuntu"

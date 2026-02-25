@@ -89,6 +89,7 @@ docker_build_cache_dir: "{{ ansible_env.HOME }}/.cache/docker-buildx"
 docker_network: internal
 docker_network_mtu: 1500
 docker_extra_hosts: []
+nginx_docker_internal_aliases: {}
 
 # ============================================
 # Java Memory Configuration
