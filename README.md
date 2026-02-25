@@ -216,3 +216,247 @@ Both inventories inherit from `inventories/local/group_vars/all.yml`:
 - Docker network configuration
 
 ---
+
+## Testing Strategy
+
+A comprehensive testing pipeline is available to validate configuration and services at every stage.
+
+### Testing Phases
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ 1. Inventory & Variables                                    │
+│    verify-inventory.yml ──► Validate variables are loaded   │
+└─────────────────────────────────────────────────────────────┘
+                    ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 2. Configuration Generation                                 │
+│    config-gen.yml ──► Generate docker-compose.yml + .env    │
+└─────────────────────────────────────────────────────────────┘
+                    ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 3. Generated Config Validation                              │
+│    validate-compose.yml ──► Verify YAML syntax & structure  │
+└─────────────────────────────────────────────────────────────┘
+                    ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 4. Deploy & Runtime Tests                                   │
+│    site.yml ──► docker-compose up -d                        │
+│    test-services.yml ──► Health checks & connectivity       │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Phase 1: Inventory & Variables Verification
+
+**Purpose:** Catch missing or invalid variables early before generation
+
+```bash
+# Verify all hosts load correctly and have required variables
+ansible-playbook playbooks/verify-inventory.yml -i inventories/local/hosts.ini
+
+# Show variables for a specific host
+ansible -i inventories/local/hosts.ini localhost.cas -m debug -a "var=deployment_type"
+
+# Show all variables for a host
+ansible -i inventories/local/hosts.ini localhost.docker_compose -m debug -a "var=hostvars[inventory_hostname]" | head -50
+```
+
+**What it checks:**
+- ✓ All hosts load from inventory
+- ✓ Critical variables defined (org_short_name, org_name_long, deployment_type)
+- ✓ deployment_type is valid (vm, container, or swarm)
+- ✓ Database hostname mappings configured
+- ✓ docker_compose_hosts group populated
+- ✓ Total variable count
+
+### Phase 2: Configuration Generation (--check mode)
+
+**Purpose:** Generate configuration files and detect issues without applying
+
+```bash
+# Dry-run: See what would be generated
+ansible-playbook playbooks/config-gen.yml -i inventories/local/hosts.ini --check -v
+
+# Dry-run limited to docker_compose host (faster)
+ansible-playbook playbooks/config-gen.yml -i inventories/local/hosts.ini --limit docker_compose --check -v
+
+# Actual generation (creates files)
+ansible-playbook playbooks/config-gen.yml -i inventories/local/hosts.ini
+```
+
+**What it generates:**
+- ✓ `/data/docker-compose/docker-compose.yml` (v3.8 format)
+- ✓ `/data/docker-compose/.env` (database credentials)
+- ✓ `/data/docker-compose/infrastructure/*.yml` (nginx, mysql, postgres, mongodb)
+- ✓ `/data/docker-compose/services/*.yml` (all enabled services)
+- ✓ `/data/logs/` directories for each service
+
+### Phase 3: Generated Configuration Validation
+
+**Purpose:** Verify the generated docker-compose.yml is valid and complete
+
+```bash
+# Validate generated configuration
+ansible-playbook playbooks/validate-compose.yml -i inventories/local/hosts.ini
+
+# Show all services in compose file
+ansible-playbook playbooks/validate-compose.yml -i inventories/local/hosts.ini -v
+```
+
+**What it validates:**
+- ✓ docker-compose.yml exists and is valid YAML
+- ✓ .env file exists with passwords
+- ✓ Infrastructure files present (nginx, databases)
+- ✓ Service files generated (collectory, etc.)
+- ✓ Volume definitions correct
+- ✓ External volumes configured
+
+### Phase 4: Deployment & Service Health
+
+**Purpose:** Deploy containers and verify they start correctly
+
+```bash
+# Deploy (runs docker-compose up -d automatically)
+ansible-playbook playbooks/site.yml -i inventories/local/hosts.ini
+
+# Or use config-gen.yml alone and manually start
+ansible-playbook playbooks/config-gen.yml -i inventories/local/hosts.ini
+cd /data/docker-compose
+docker-compose up -d
+
+# Test all running services
+ansible-playbook playbooks/test-services.yml -i inventories/local/hosts.ini
+```
+
+**What it tests:**
+- ✓ Docker daemon accessible
+- ✓ All containers running
+- ✓ Nginx connectivity (port 80)
+- ✓ MySQL connectivity (port 3306)
+- ✓ MongoDB connectivity (port 27017)
+- ✓ CAS, Collectory service ports
+- ✓ Volume mounts and data persistence
+- ✓ Container logs for errors
+- ✓ HTTP endpoint reachability
+
+### Quick Test Scenarios
+
+**Scenario 1: Validate Everything Before Deploying**
+```bash
+# Step-by-step validation
+ansible-playbook playbooks/verify-inventory.yml -i inventories/local/hosts.ini
+ansible-playbook playbooks/config-gen.yml -i inventories/local/hosts.ini --check
+ansible-playbook playbooks/validate-compose.yml -i inventories/local/hosts.ini --check
+```
+
+**Scenario 2: Full Deployment with Tests**
+```bash
+# Generate, deploy, and test
+ansible-playbook playbooks/config-gen.yml -i inventories/local/hosts.ini
+cd /data/docker-compose && docker-compose up -d
+ansible-playbook playbooks/test-services.yml -i inventories/local/hosts.ini
+```
+
+**Scenario 3: Test Only One Service**
+```bash
+# Generate config for Collectory only
+ansible-playbook playbooks/config-gen.yml -i inventories/dev/hosts.ini --limit collectory
+cd /data/docker-compose && docker-compose up -d collectory
+# Check service
+docker-compose logs -f collectory
+```
+
+**Scenario 4: Check Health After Changes**
+```bash
+# After modifying inventory variables, validate
+ansible-playbook playbooks/verify-inventory.yml -i inventories/local/hosts.ini --diff
+# Then regenerate
+ansible-playbook playbooks/config-gen.yml -i inventories/local/hosts.ini
+# Test
+ansible-playbook playbooks/test-services.yml -i inventories/local/hosts.ini
+```
+
+### Manual Testing Commands
+
+**Check docker-compose YAML syntax:**
+```bash
+cd /data/docker-compose
+docker-compose config  # Validates and outputs composed config
+docker-compose config --resolve-image-digests  # With digests
+```
+
+**View logs:**
+```bash
+cd /data/docker-compose
+docker-compose logs -f                    # All services
+docker-compose logs -f collectory         # Specific service
+docker-compose logs --tail 50 mysql       # Last 50 lines
+```
+
+**Container inspection:**
+```bash
+cd /data/docker-compose
+docker-compose ps                         # Running containers
+docker-compose stats                      # CPU/memory usage
+docker-compose exec nginx ls -la /etc/nginx/  # Access container filesystem
+```
+
+**Connectivity tests:**
+```bash
+# Test services from host
+curl -v http://localhost/gatus/
+curl -v http://localhost/collectory
+
+# Test from inside container
+docker-compose exec nginx curl http://collectory:8080/
+
+# Test database from host
+timeout 5 bash -c 'cat < /dev/null > /dev/tcp/localhost/3306'
+```
+
+### Linting and Validation Tools
+
+**YAML Syntax Validation:**
+```bash
+# Lint all YAML files
+yamllint inventories/local/ roles/ playbooks/
+
+# Ansible playbook syntax check
+ansible-playbook playbooks/config-gen.yml --syntax-check
+ansible-playbook playbooks/validate-compose.yml --syntax-check
+ansible-playbook playbooks/site.yml --syntax-check
+```
+
+**Ansible Best Practices:**
+```bash
+# Run ansible-lint on roles and playbooks
+ansible-lint roles/la-compose/
+ansible-lint playbooks/
+```
+
+**Docker Compose Validation:**
+```bash
+cd /data/docker-compose
+docker-compose config > /dev/null && echo "Valid" || echo "Invalid"
+```
+
+### Troubleshooting Tests
+
+**If config-gen fails:**
+1. Check inventory loads: `ansible-playbook playbooks/verify-inventory.yml -i inventories/local/hosts.ini -vvv`
+2. Check specific variables: `ansible -i inventories/local/hosts.ini localhost.docker_compose -m debug -a "var=VARIABLE_NAME"`
+3. Run with more verbosity: `ansible-playbook playbooks/config-gen.yml -i inventories/local/hosts.ini -vvv`
+
+**If services don't start:**
+1. Check Docker daemon: `docker ps`
+2. Check logs: `docker-compose logs SERVICE_NAME`
+3. Verify volumes: `docker volume ls | grep la_`
+4. Check ports: `netstat -tulpn | grep LISTEN`
+
+**If connectivity tests fail:**
+1. Check container is running: `docker-compose ps`
+2. Check port is exposed: `docker-compose exec SERVICE nc -zv localhost PORT`
+3. Check logs: `docker-compose logs -f SERVICE`
+4. Restart service: `docker-compose restart SERVICE`
+
+---
