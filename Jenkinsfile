@@ -211,6 +211,14 @@ EOF
                             git fetch --prune origin
                             git checkout -B "${params.GENERATOR_BRANCH}" "origin/${params.GENERATOR_BRANCH}"
                             git reset --hard "origin/${params.GENERATOR_BRANCH}"
+                            
+                            # Handle potential node_modules locking issues
+                            if [ -d node_modules ]; then
+                                echo "Removing node_modules with permission fixes..."
+                                chmod -R u+w node_modules 2>/dev/null || true
+                                rm -rf node_modules
+                            fi
+                            
                             git clean -fdx
                         """
                     }
