@@ -291,20 +291,18 @@ EOF
                     
                     cd "${GENERATOR_DIR}"
                     
-                    # Use npm ci if package-lock.json exists, otherwise npm install
+                    # Use npm ci if package-lock.json exists, otherwise npm install with --ignore-scripts
+                    # The --ignore-scripts prevents husky from running post-install hooks which can fail
+                    # if the old husky version is incompatible with newer Node versions
                     if [ -f package-lock.json ]; then
                         echo "Found package-lock.json, using npm ci for reproducibility..."
-                        \$NPM ci --no-audit --no-fund
+                        \$NPM ci --no-audit --no-fund --ignore-scripts
                     else
                         echo "No package-lock.json found, using npm install..."
                         \$NPM install --no-audit --no-fund --ignore-scripts
                     fi
                     
-                    # Install yeoman-generator in the generator checkout
-                    echo "Installing yeoman-generator in generator directory..."
-                    \$NPM install --no-audit --no-fund yeoman-generator
-                    
-                    # Verify yeoman-generator is available
+                    # Verify yeoman-generator is available (should be in package.json as devDependency)
                     test -d node_modules/yeoman-generator || { echo "ERROR: yeoman-generator not installed"; exit 1; }
                     echo "✓ yeoman-generator installed successfully"
                     
