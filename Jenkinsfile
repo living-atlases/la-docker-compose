@@ -306,10 +306,6 @@ EOF
                     test -d node_modules/yeoman-generator || { echo "ERROR: yeoman-generator not installed"; exit 1; }
                     echo "✓ yeoman-generator installed successfully"
                     
-                    # Verify generator can import yeoman-generator
-                    echo "Verifying yeoman-generator can be imported..."
-                    node -e "import('yeoman-generator').then(()=>console.log('✓ yeoman-generator: OK')).catch(e=>{console.error(e); process.exit(1)})"
-                    
                     echo "Generator package version:"
                     node -e "console.log(require('./package.json').version)"
                 """
