@@ -47,7 +47,7 @@ pipeline {
         )
         string(
             name: 'ALA_INSTALL_BRANCH',
-            defaultValue: 'docker-compose-poc',
+            defaultValue: 'docker-compose-min-pr',
             description: 'Branch of ala-install to use'
         )
         string(
