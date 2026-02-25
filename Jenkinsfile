@@ -25,7 +25,7 @@ pipeline {
         VENV_DIR = "${BASE_DIR}/.venv-ansible"
         ANSIBLE_CONFIG = "${workspace}/ansible.cfg"
 
-        ALA_GIT_URL = "https://github.com/vjrj/ala-install.git"
+        ALA_GIT_URL = "https://github.com/AtlasOfLivingAustralia/ala-install.git"
         GENERATOR_GIT_URL = "https://github.com/living-atlases/generator-living-atlas.git"
     }
 
