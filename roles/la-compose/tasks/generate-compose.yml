@@ -892,7 +892,15 @@
   tags:
     - elasticsearch
     - docker-compose
-  when: "'cas' in services_enabled"
+  when: >-
+    'image-service' in group_names or
+    'image-service' in physical_server_groups or
+    'events' in group_names or
+    'events' in physical_server_groups or
+    'doi-service' in group_names or
+    'doi-service' in physical_server_groups or
+    'ecodata' in group_names or
+    'ecodata' in physical_server_groups
 
 - name: Generate mysql.yml
   template:
