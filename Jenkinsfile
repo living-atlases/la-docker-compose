@@ -22,8 +22,6 @@ pipeline {
         INVENTORY_PARENT_DIR = "${BASE_DIR}/lademo"
         INVENTORY_DIR = "${INVENTORY_PARENT_DIR}/lademo-inventories"
 
-        INVENTORY_DIR = "${INVENTORY_PARENT_DIR}/lademo-inventories"
-
         VENV_DIR = "${BASE_DIR}/.venv-ansible"
         ANSIBLE_CONFIG = "${workspace}/ansible.cfg"
 
@@ -129,10 +127,15 @@ pipeline {
                                     sudo apt-get autoremove -y || true
                                 fi
 
-                                # 6. Clean residual docker config and keys
-                                sudo rm -rf /etc/docker /etc/systemd/system/docker.service.d || true
-                                sudo rm -f /var/run/docker.sock || true
-                                sudo rm -f /etc/apt/sources.list.d/docker.list /etc/apt/keyrings/docker.asc /etc/apt/trusted.gpg.d/dowload.docker.com.asc /etc/apt/trusted.gpg.d/download.docker.com.asc || true
+                                 # 6. Clean residual docker config and keys
+                                 sudo rm -rf /etc/docker /etc/systemd/system/docker.service.d || true
+                                 sudo rm -f /var/run/docker.sock || true
+                                 sudo rm -f /etc/apt/sources.list.d/docker.list /etc/apt/keyrings/docker.asc /etc/apt/trusted.gpg.d/download.docker.com.asc || true
+                                 
+                                 # 7. Reload systemd after cleaning docker units
+                                 if command -v systemctl >/dev/null 2>&1; then
+                                     sudo systemctl daemon-reload 2>/dev/null || true
+                                 fi
 EOF
                                 )
 
@@ -154,12 +157,27 @@ EOF
             steps {
                 sh """
                     set -eu
+                    
+                    echo "Creating base directories..."
                     mkdir -p "${BASE_DIR}" "${ALA_DIR}" "${GENERATOR_DIR}" "${INVENTORY_PARENT_DIR}" "${INVENTORY_DIR}"
+                    
+                    echo "Setting up Python virtual environment for Ansible..."
                     if [ ! -d "${VENV_DIR}" ]; then
                         python3 -m venv "${VENV_DIR}"
                     fi
+                    
+                    # Upgrade pip
                     "${VENV_DIR}/bin/pip" install --upgrade pip
+                    
+                    # Install Ansible
                     "${VENV_DIR}/bin/pip" install ansible
+                    
+                    # Verify Ansible installation
+                    echo "Verifying Ansible installation..."
+                    test -x "${VENV_DIR}/bin/ansible-playbook" || { echo "ERROR: ansible-playbook not found in venv"; exit 1; }
+                    "${VENV_DIR}/bin/ansible-playbook" --version
+                    
+                    echo "Ansible venv ready at: ${VENV_DIR}"
                 """
             }
         }
@@ -247,11 +265,40 @@ EOF
             steps {
                 sh """
                     set -eu
-                    cd "${GENERATOR_DIR}"
-                    # Install with ignore-scripts to avoid husky/please-upgrade-node failures
-                    npm install --no-audit --no-fund --ignore-scripts
-                    echo "Generator version:"
+                    
+                    # Detect Node.js installation path (like reference Jenkinsfile)
+                    NODE_HOME="\$(cd "\$(dirname "\$(which node)")/.." && pwd)"
+                    NPM="node \$NODE_HOME/lib/node_modules/npm/bin/npm-cli.js"
+                    
+                    echo "Node version:"
                     node -v
+                    echo "NPM version:"
+                    \$NPM -v
+                    
+                    cd "${GENERATOR_DIR}"
+                    
+                    # Use npm ci if package-lock.json exists, otherwise npm install
+                    if [ -f package-lock.json ]; then
+                        echo "Found package-lock.json, using npm ci for reproducibility..."
+                        \$NPM ci --no-audit --no-fund
+                    else
+                        echo "No package-lock.json found, using npm install..."
+                        \$NPM install --no-audit --no-fund --ignore-scripts
+                    fi
+                    
+                    # Install yeoman-generator in the generator checkout
+                    echo "Installing yeoman-generator in generator directory..."
+                    \$NPM install --no-audit --no-fund yeoman-generator
+                    
+                    # Verify yeoman-generator is available
+                    test -d node_modules/yeoman-generator || { echo "ERROR: yeoman-generator not installed"; exit 1; }
+                    echo "✓ yeoman-generator installed successfully"
+                    
+                    # Verify generator can import yeoman-generator
+                    echo "Verifying yeoman-generator can be imported..."
+                    node -e "import('yeoman-generator').then(()=>console.log('✓ yeoman-generator: OK')).catch(e=>{console.error(e); process.exit(1)})"
+                    
+                    echo "Generator package version:"
                     node -e "console.log(require('./package.json').version)"
                 """
             }
@@ -262,25 +309,42 @@ EOF
             steps {
                 sh """
                     set -eu
+                    
+                    # Detect Node.js installation path
+                    NODE_HOME="\$(cd "\$(dirname "\$(which node)")/.." && pwd)"
+                    NPM="node \$NODE_HOME/lib/node_modules/npm/bin/npm-cli.js"
+                    
                     cd "${INVENTORY_PARENT_DIR}"
                     
                     echo "Initializing npm environment in inventory directory..."
                     if [ ! -f package.json ]; then
-                        npm init -y >/dev/null 2>&1
+                        \$NPM init -y >/dev/null 2>&1
                     fi
                     
-                    # Clean up node_modules to ensure a fresh installation of the latest generator
+                    # Clean up node_modules to ensure fresh installation
+                    echo "Cleaning node_modules and package-lock.json..."
                     rm -rf node_modules package-lock.json
                     
                     echo "Installing generator and runner via npm..."
-                    npm install --no-audit --no-fund yo yeoman-environment yeoman-generator generator-living-atlas@latest
+                    \$NPM install --no-audit --no-fund yo yeoman-environment yeoman-generator generator-living-atlas@latest
+                    
+                    # Verify installations
+                    echo "Verifying installations..."
+                    \$NPM ls yo --depth=0
+                    \$NPM ls generator-living-atlas --depth=0
+                    \$NPM ls yeoman-generator --depth=0
+                    
+                    echo "Generator version:"
+                    node -e "console.log('generator-living-atlas:', require('generator-living-atlas/package.json').version)"
+                    node -e "console.log('generator-living-atlas path:', require.resolve('generator-living-atlas/package.json'))"
                     
                     echo "Running generator..."
-                    # Execute yo from the local node_modules
                     node ./node_modules/yo/lib/cli.js living-atlas --replay-dont-ask --force
                     
-                    echo "Checking generated inventory..."
+                    echo "Verifying generated inventory..."
+                    test -f "${INVENTORY_DIR}/lademo-inventory.ini" || { echo "ERROR: inventory not generated"; exit 1; }
                     ls -lh "${INVENTORY_DIR}/lademo-inventory.ini"
+                    echo "✓ Inventory generated successfully"
                 """
             }
         }
@@ -290,28 +354,68 @@ EOF
             steps {
                 script {
                     def playbook = params.AUTO_DEPLOY ? 'playbooks/site.yml' : 'playbooks/config-gen.yml'
+                    
+                    echo "Running playbook: ${playbook}"
+                    echo "Auto-deploy: ${params.AUTO_DEPLOY}"
+                    echo "Target hosts: ${env.TARGET_HOSTS}"
+                    
+                    // Build inventory arguments
+                    def inventoryArg = "-i ${INVENTORY_DIR}/lademo-inventory.ini"
+                    if (fileExists("${INVENTORY_DIR}/lademo-local-extras.ini")) {
+                        inventoryArg += " -i ${INVENTORY_DIR}/lademo-local-extras.ini"
+                        echo "Found lademo-local-extras.ini"
+                    }
+                    if (fileExists("${INVENTORY_DIR}/lademo-local-passwords.ini")) {
+                        inventoryArg += " -i ${INVENTORY_DIR}/lademo-local-passwords.ini"
+                        echo "Found lademo-local-passwords.ini"
+                    }
+                    
+                    sh """
+                        set -eu
+                        
+                        export PATH="${VENV_DIR}/bin:\$PATH"
+                        export ANSIBLE_FORCE_COLOR=true
+                        export ANSIBLE_STDOUT_CALLBACK=yaml
+                        export ANSIBLE_HOST_KEY_CHECKING=False
+                        
+                        echo "Ansible version:"
+                        ansible-playbook --version
+                        
+                        echo "Running playbook against docker_compose group (all hosts)..."
+                        ansible-playbook ${playbook} ${inventoryArg} --limit docker_compose --extra-vars "auto_deploy=${params.AUTO_DEPLOY}" -vv
+                    """
+                }
+            }
+        }
+
+        stage('Validate Deployment') {
+            when { expression { env.DO_REDEPLOY == 'true' && params.AUTO_DEPLOY && !params.ONLY_CLEAN } }
+            steps {
+                script {
                     def hosts = env.TARGET_HOSTS.trim().split(/\s+/)
                     
                     for (h in hosts) {
-                        def currentHost = h
-                        echo "Targeting host: ${currentHost}"
+                        def targetHost = h
+                        echo "Validating docker-compose on ${targetHost}..."
                         
-                        // We strictly use the generated inventories in INVENTORY_DIR
-                        def inventoryArg = "-i ${INVENTORY_DIR}/lademo-inventory.ini"
-                        if (fileExists("${INVENTORY_DIR}/lademo-local-extras.ini")) inventoryArg += " -i ${INVENTORY_DIR}/lademo-local-extras.ini"
-                        if (fileExists("${INVENTORY_DIR}/lademo-local-passwords.ini")) inventoryArg += " -i ${INVENTORY_DIR}/lademo-local-passwords.ini"
-                        
-                        echo "Using generated inventories from ${INVENTORY_DIR}"
-
                         sh """
-                            export PATH="${VENV_DIR}/bin:\$PATH"
-                            export ANSIBLE_FORCE_COLOR=true
-                            export ANSIBLE_STDOUT_CALLBACK=yaml
-                            export ANSIBLE_HOST_KEY_CHECKING=False
+                            set -eu
                             
-                            ansible-playbook ${playbook} ${inventoryArg} --extra-vars "auto_deploy=${params.AUTO_DEPLOY}" --limit "${currentHost}"
+                            # Check if docker-compose.yml was generated and is valid
+                            if [ "${targetHost}" = "localhost" ] || [ "${targetHost}" = "127.0.0.1" ]; then
+                                echo "Checking docker-compose.yml on localhost..."
+                                test -f /data/docker-compose/docker-compose.yml || { echo "ERROR: docker-compose.yml not found on localhost"; exit 1; }
+                                docker compose -f /data/docker-compose/docker-compose.yml config >/dev/null || { echo "ERROR: docker-compose.yml invalid on localhost"; exit 1; }
+                                echo "✓ docker-compose.yml valid on localhost"
+                            else
+                                echo "Checking docker-compose.yml on ${targetHost}..."
+                                ssh ${targetHost} "test -f /data/docker-compose/docker-compose.yml" || { echo "ERROR: docker-compose.yml not found on ${targetHost}"; exit 1; }
+                                ssh ${targetHost} "docker compose -f /data/docker-compose/docker-compose.yml config >/dev/null" || { echo "ERROR: docker-compose.yml invalid on ${targetHost}"; exit 1; }
+                                echo "✓ docker-compose.yml valid on ${targetHost}"
+                            fi
                         """
                     }
+                    echo "✓ All docker-compose.yml files validated successfully"
                 }
             }
         }
