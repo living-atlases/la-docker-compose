@@ -120,10 +120,17 @@
           failed_when:
             - compose_down_result.rc != 0
             - "'No such file or directory' not in compose_down_result.stderr"
+            - "'No such container' not in compose_down_result.stderr"
           changed_when: false
 
         - name: Clean up dangling Docker resources (prune volumes, networks)
           command: docker system prune -f --volumes
+          become: true
+          changed_when: false
+          ignore_errors: true
+
+        - name: Clean up Docker build cache
+          command: docker builder prune -af
           become: true
           changed_when: false
           ignore_errors: true
