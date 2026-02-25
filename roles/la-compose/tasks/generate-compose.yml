@@ -1210,7 +1210,7 @@
 - name: "SSL Certificates: Assert certificate file exists"
   assert:
     that:
-      - cert_file_stat.stat.exists
+      - cert_file_stat.stat.exists or ansible_check_mode
     fail_msg: "Certificate file not found: {{ inventory_dir }}/certs/letsencrypt/live/l-a.site/{{ ssl_cert_file }}"
     success_msg: "Certificate file exists: {{ ssl_cert_file }}"
   when: not use_la_site_certs | bool
@@ -1228,7 +1228,7 @@
 - name: "SSL Certificates: Assert key file exists"
   assert:
     that:
-      - key_file_stat.stat.exists
+      - key_file_stat.stat.exists or ansible_check_mode
     fail_msg: "Key file not found: {{ inventory_dir }}/certs/letsencrypt/live/l-a.site/{{ ssl_key_file }}"
     success_msg: "Key file exists: {{ ssl_key_file }}"
   when: not use_la_site_certs | bool

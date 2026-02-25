@@ -90,6 +90,7 @@ docker_network: internal
 docker_network_mtu: 1500
 docker_extra_hosts: []
 nginx_docker_internal_aliases: {}
+docker_socket: /var/run/docker.sock
 
 # ============================================
 # Java Memory Configuration

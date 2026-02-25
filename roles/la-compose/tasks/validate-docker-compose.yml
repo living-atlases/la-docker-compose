@@ -19,6 +19,7 @@
   become: true
   changed_when: false
   register: compose_syntax
+  when: not ansible_check_mode
 
 - name: "Validation: Build list of expected infrastructure files based on enabled services"
   set_fact:
@@ -46,7 +47,9 @@
 - name: "Validation: Fail if any infrastructure file is missing"
   fail:
     msg: "Infrastructure file missing: {{ item.item }}"
-  when: not item.stat.exists
+  when:
+    - not item.stat.exists
+    - not ansible_check_mode
   loop: "{{ infra_file_check.results }}"
 
 - name: "Validation: Check .env file exists and has passwords"
@@ -57,7 +60,9 @@
 - name: "Validation: Fail if .env doesn't exist"
   fail:
     msg: ".env file not found at {{ docker_compose_data_dir }}/.env"
-  when: not env_file.stat.exists
+  when:
+    - not env_file.stat.exists
+    - not ansible_check_mode
 
 - name: "Validation: Check .env contains required passwords"
   shell: |
@@ -85,6 +90,7 @@
   when:
     - expected_log_dirs | length > 0
     - not item.stat.exists
+    - not ansible_check_mode
   loop: "{{ log_dir_check.results }}"
 
 - name: "Validation: Build expected volumes list based on enabled databases"
