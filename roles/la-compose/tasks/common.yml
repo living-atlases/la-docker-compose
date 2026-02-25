@@ -6,7 +6,7 @@
     owner: "{{ docker_compose_userid }}"
     group: "{{ docker_compose_usergid }}"
   when:
-    - use_gatus | default(false) | bool
+    - (use_gatus | default(false) | bool) or (groups['gatus'] is defined and groups['gatus'] | length > 0)
   tags:
     - docker-compose
     - gatus
