@@ -305,6 +305,55 @@ Use handlers for restarts/reloads:
 - templates notify a handler
 - handler restarts/reloads the service once per run
 
+### Inventory Re-executability Requirement
+
+**Critical**: Inventories must be executable **multiple times without errors or data loss**:
+
+- Running playbooks against the same inventory twice should result in identical state (idempotent)
+- Re-running should not overwrite configuration or corrupt data
+- Failed deployments must be resumable without manual cleanup
+- Database volumes and persistent data are protected via `external: true` in docker-compose.yml
+
+This is essential for:
+- CI/CD robustness (retries on transient failures)
+- Development iteration (running playbooks repeatedly during debugging)
+- Production safety (predictable state transitions)
+
+Example problematic patterns to AVOID:
+```yaml
+# ❌ BAD: Destructive without cleanup (state metadata orphaned)
+- name: Start services
+  command: docker compose up -d
+
+# ✅ GOOD: Idempotent with cleanup
+- name: Clean orphaned state
+  block:
+    - command: docker compose down --remove-orphans
+      chdir: "{{ compose_dir }}"
+      failed_when:
+        - result.rc != 0
+        - "'No such file or directory' not in result.stderr"
+    - command: docker system prune -f --volumes
+      ignore_errors: true
+      
+- name: Start services
+  command: docker compose up -d --remove-orphans
+```
+
+### Docker Compose Idempotence Issues
+
+**Problem**: `docker compose` can leave orphaned state metadata that causes "No such container" errors on subsequent runs.
+
+**Root Cause**: When containers are recreated between deployments, Docker Compose maintains internal state references (metadata, networks, partially-deleted state trees) that the daemon no longer knows about.
+
+**Solution Pattern**:
+1. Always run `docker compose down --remove-orphans` before `docker compose up`
+2. Follow immediately with `docker system prune -f --volumes` to clean dangling resources
+3. Use `--remove-orphans` flag in `docker compose up` as final safeguard
+4. Define all data volumes as `external: true` to prevent accidental deletion
+
+**See**: `roles/la-compose/tasks/main.yml:106-140` for reference implementation.
+
 ---
 
 ## Debian/Ubuntu specifics

@@ -105,6 +105,12 @@
 
     - name: Clean up existing containers and networks before redeployment
       block:
+        - name: Remove Docker Compose state metadata files
+          command: find "{{ docker_compose_data_dir }}" -maxdepth 1 -name ".docker-compose*.yml" -delete
+          become: true
+          changed_when: false
+          ignore_errors: true
+
         - name: Stop and remove existing docker compose deployment
           command: docker compose down --remove-orphans
           args:
