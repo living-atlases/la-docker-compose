@@ -163,6 +163,106 @@ If containers are not an option, keep at least lint + syntax-check and run playb
 
 ---
 
+## 🗂️ Local Testing Inventories
+
+For rapid playbook development and testing without remote machines, use the local inventories provided in `inventories/local/` and `inventories/dev/`.
+
+### Purpose
+
+- **`inventories/local/hosts.ini`** - Full deployment inventory (27 services)
+  - Tests configuration generation, templates, variable inheritance
+  - Mirrors lademo structure for compatibility
+  - Use when you need comprehensive coverage of all services
+
+- **`inventories/dev/hosts.ini`** - Minimal dev inventory (CAS + Collectory + Branding)
+  - Rapid iteration for single-service testing
+  - Faster playbook runs for quick feedback loops
+  - Use with `--limit collectory` to test specific services
+
+### Inventory Structure
+
+Both inventories use the pattern `localhost.<service>` (e.g., `localhost.cas`, `localhost.collectory`):
+
+```
+[cas_servers]
+localhost.cas ansible_host=localhost ansible_connection=local
+
+[collectory]
+localhost.collectory ansible_host=localhost ansible_connection=local
+```
+
+**Why `localhost.<service>`?**
+- Ansible uses `inventory_hostname` (not `ansible_host`) as the primary key for hostvars
+- Multiple hosts with same `ansible_host=localhost` require unique inventory names to avoid variable collisions
+- Pattern matches lademo structure for maintainability
+
+### Database Hostname Mapping
+
+Both inventories include a `[docker_compose_hosts:vars]` section that maps service database variables to docker-compose container names:
+
+```ini
+[docker_compose_hosts:vars]
+collectory_db_host_address = la_mysql
+cas_db_hostname = la_mysql
+user_store_db_hostname = la_mysql
+# ... etc
+```
+
+This ensures services connect to the correct containers when running locally.
+
+### Quick-Start Commands
+
+**Validate inventory syntax:**
+```bash
+ansible-inventory -i inventories/local/hosts.ini --list
+ansible-inventory -i inventories/dev/hosts.ini --list
+```
+
+**Syntax check playbooks with full inventory:**
+```bash
+ansible-playbook -i inventories/local playbooks/site.yml --syntax-check
+```
+
+**Test config generation with minimal dev setup:**
+```bash
+ansible-playbook -i inventories/dev playbooks/config-gen.yml --check --diff
+```
+
+**Limit to single service for debugging:**
+```bash
+ansible-playbook -i inventories/dev playbooks/config-gen.yml --limit collectory --check --diff -vvv
+```
+
+**Run with container deployment type:**
+```bash
+ansible-playbook -i inventories/local playbooks/site.yml -e deployment_type=container --check --diff
+```
+
+### Regenerating Inventories
+
+If services are added/removed or the inventory structure changes:
+
+```bash
+cd la-docker-compose
+python3 scripts/create_local_inventory.py full > inventories/local/hosts.ini
+python3 scripts/create_local_inventory.py dev > inventories/dev/hosts.ini
+```
+
+The script maintains service-to-group mappings and database hostname overrides. For future generator-living-atlas integration, `.yo-rc.json` can be added to automate regeneration.
+
+### Reusable Variables
+
+Both inventories inherit from `inventories/local/group_vars/all.yml`, which contains:
+
+- Service versions
+- Database credentials (test values only)
+- URLs, ports, and endpoints
+- Deployment type: `deployment_type: container`
+
+This file should be updated with test values for new services added to the local inventory.
+
+---
+
 ## Remote SSH execution practices (Debian/Ubuntu)
 
 ### Inventory hygiene
