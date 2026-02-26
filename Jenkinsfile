@@ -102,6 +102,12 @@ pipeline {
                                     sudo find /data/docker-compose -maxdepth 2 -name "docker-compose.yml" -execdir docker compose down -v \\; || true
                                 fi
                                 
+                                # 1b. Clear BuildKit cache (prevents stale layer errors)
+                                if command -v docker >/dev/null 2>&1; then
+                                    echo "Clearing BuildKit cache..."
+                                    sudo docker builder prune -f || true
+                                fi
+                                
                                 # 2. Stop docker service
                                 if command -v systemctl >/dev/null 2>&1; then
                                     sudo systemctl stop docker containerd 2>/dev/null || true
