@@ -150,6 +150,7 @@
     mode: '0755'
     owner: "{{ docker_compose_userid }}"
     group: "{{ docker_compose_usergid }}"
+  become: true
   tags:
     - docker-compose
 
@@ -160,6 +161,7 @@
     mode: '0755'
     owner: "{{ docker_compose_userid }}"
     group: "{{ docker_compose_usergid }}"
+  become: true
   tags:
     - docker-compose
 
@@ -647,6 +649,7 @@
     mode: '0755'
     owner: "{{ docker_compose_userid }}"
     group: "{{ docker_compose_usergid }}"
+  become: true
   tags:
     - always
     - docker-compose
@@ -658,6 +661,7 @@
     mode: '0755'
     owner: "{{ docker_compose_userid }}"
     group: "{{ docker_compose_usergid }}"
+  become: true
   tags:
     - always
     - docker-compose
@@ -726,6 +730,7 @@
     mode: '0755'
     owner: "{{ docker_compose_userid }}"
     group: "{{ docker_compose_usergid }}"
+  become: true
   when: "'branding' in services_to_build"
   tags:
     - branding
