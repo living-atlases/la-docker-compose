@@ -96,24 +96,30 @@ pipeline {
                                 set -eu
                                 echo "==> Cleaning on \$(hostname)"
                                 
-                                # 1. Stop containers if docker is present
-                                if [ -d /data/docker-compose ] && command -v docker >/dev/null 2>&1; then
-                                    echo "Stopping existing containers..."
-                                    sudo find /data/docker-compose -maxdepth 2 -name "docker-compose.yml" -execdir docker compose down -v \\; || true
-                                fi
-                                
-                                # 1b. Clear BuildKit cache (prevents stale layer errors)
+                                # 1. Stop and clean Docker state (keep images for speed)
                                 if command -v docker >/dev/null 2>&1; then
-                                    echo "Clearing BuildKit cache..."
-                                    sudo docker builder prune -f || true
-                                fi
-                                
-                                # 2. Stop docker service
-                                if command -v systemctl >/dev/null 2>&1; then
-                                    sudo systemctl stop docker containerd 2>/dev/null || true
+                                    echo "Cleaning Docker state (preserving images for cache)..."
+                                    
+                                    # Stop all running containers
+                                    if [ -d /data/docker-compose ]; then
+                                        echo "  - Stopping compose containers..."
+                                        sudo find /data/docker-compose -maxdepth 2 -name "docker-compose.yml" -execdir docker compose down -v \\; || true
+                                    fi
+                                    
+                                    # Clean BuildKit cache and dangling resources
+                                    echo "  - Pruning BuildKit cache..."
+                                    sudo docker builder prune -af 2>/dev/null || true
+                                    
+                                    echo "  - Pruning dangling images, volumes, and networks..."
+                                    sudo docker system prune -f --volumes 2>/dev/null || true
+                                    
+                                    # Restart Docker to ensure clean state
+                                    echo "  - Restarting Docker daemon..."
+                                    sudo systemctl restart docker containerd 2>/dev/null || true
+                                    sleep 2
                                 fi
 
-                                # 3. Wait for apt/dpkg locks
+                                # 2. Wait for apt/dpkg locks
                                 i=0
                                 while pgrep -x apt-get >/dev/null 2>&1 || pgrep -x apt >/dev/null 2>&1 || pgrep -x dpkg >/dev/null 2>&1 || pgrep -f unattended-upgrades >/dev/null 2>&1; do
                                     i=\$((i+1))
@@ -121,27 +127,19 @@ pipeline {
                                     sleep 5
                                 done
 
-                                # 4. Wipe /data (preserving lost+found)
+                                # 3. Wipe /data (preserving lost+found and var-lib-containerd for volume caching)
                                 if [ -d /data ]; then
-                                    echo "Cleaning /data..."
+                                    echo "Cleaning /data directory..."
                                     sudo find /data -mindepth 1 -maxdepth 1 -not -name lost+found -not -name var-lib-containerd -print -exec rm -rf -- {} + || true
                                 fi
 
-                                # 5. Purge docker packages
-                                if command -v apt-get >/dev/null 2>&1; then
-                                    sudo apt-get remove -y docker-ce docker-ce-cli docker.io containerd runc || true
-                                    sudo apt-get autoremove -y || true
-                                fi
-
-                                 # 6. Clean residual docker config and keys
-                                 sudo rm -rf /etc/docker /etc/systemd/system/docker.service.d || true
-                                 sudo rm -f /var/run/docker.sock || true
-                                 sudo rm -f /etc/apt/sources.list.d/docker.list /etc/apt/keyrings/docker.asc /etc/apt/trusted.gpg.d/download.docker.com.asc || true
-                                 
-                                 # 7. Reload systemd after cleaning docker units
-                                 if command -v systemctl >/dev/null 2>&1; then
-                                     sudo systemctl daemon-reload 2>/dev/null || true
-                                 fi
+                                # 4. Clean docker config but keep images and daemon settings for idempotence
+                                echo "Cleaning Docker config directories..."
+                                sudo rm -rf /etc/docker/certs.d /etc/docker/*.json /etc/systemd/system/docker.service.d || true
+                                sudo rm -f /var/run/docker.sock || true
+                                
+                                # Note: NOT removing /etc/docker/daemon.json or Docker packages
+                                # This preserves Docker installation for faster playbook runs
 EOF
                                 )
 
