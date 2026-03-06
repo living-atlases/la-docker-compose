@@ -366,6 +366,70 @@ EOF
             }
         }
 
+        stage('Pre-Deploy Docker Cleanup') {
+            when { 
+                expression { 
+                    env.DO_REDEPLOY == 'true' && 
+                    !params.ONLY_CLEAN && 
+                    params.AUTO_DEPLOY && 
+                    !params.CLEAN_MACHINE
+                } 
+            }
+            steps {
+                script {
+                    def hosts = env.TARGET_HOSTS.trim().split(/\s+/)
+                    
+                    def jobs = [:]
+                    for (h in hosts) {
+                        def targetHost = h
+                        jobs[targetHost] = {
+                            sh("""
+                                set -eu
+                                cleanup_script=\$(cat <<'EOF'
+                                set -eu
+                                echo "==> Pre-deploy Docker cleanup on \$(hostname)"
+                                
+                                if command -v docker >/dev/null 2>&1; then
+                                    # 1. Stop compose deployment if exists (preserve volumes for data)
+                                    if [ -d /data/docker-compose ] && [ -f /data/docker-compose/docker-compose.yml ]; then
+                                        echo "  - Stopping existing compose deployment..."
+                                        cd /data/docker-compose
+                                        sudo docker compose down --remove-orphans 2>/dev/null || true
+                                    fi
+                                    
+                                    # 2. Prune dangling containers and images (preserve volumes and kept images)
+                                    echo "  - Pruning dangling containers and images..."
+                                    sudo docker system prune -af 2>/dev/null || true
+                                    
+                                    # 3. Restart Docker daemon to clean orphaned internal state
+                                    echo "  - Restarting Docker daemon to clean internal state..."
+                                    sudo systemctl restart docker
+                                    sleep 3
+                                    
+                                    # 4. Verify Docker is healthy
+                                    echo "  - Verifying Docker is ready..."
+                                    sudo docker info >/dev/null 2>&1 || { echo "ERROR: Docker not responding after restart"; exit 1; }
+                                    
+                                    echo "  ✓ Pre-deploy Docker cleanup complete"
+                                else
+                                    echo "  ⚠ Docker not installed, skipping cleanup"
+                                fi
+EOF
+                                )
+                                
+                                if [ "${targetHost}" = "localhost" ] || [ "${targetHost}" = "127.0.0.1" ]; then
+                                    bash -c "\$cleanup_script"
+                                else
+                                    echo "\$cleanup_script" | ssh ${targetHost} bash -s
+                                fi
+                            """.stripIndent())
+                        }
+                    }
+                    parallel jobs
+                }
+            }
+        }
+
         stage('Run Playbooks') {
             when { expression { env.DO_REDEPLOY == 'true' && !params.ONLY_CLEAN } }
             steps {
