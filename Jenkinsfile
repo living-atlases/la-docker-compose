@@ -133,13 +133,18 @@ pipeline {
                                     sudo find /data -mindepth 1 -maxdepth 1 -not -name lost+found -not -name var-lib-containerd -print -exec rm -rf -- {} + || true
                                 fi
 
-                                # 4. Clean docker config but keep images and daemon settings for idempotence
-                                echo "Cleaning Docker config directories..."
-                                sudo rm -rf /etc/docker/certs.d /etc/docker/*.json /etc/systemd/system/docker.service.d || true
-                                sudo rm -f /var/run/docker.sock || true
-                                
-                                # Note: NOT removing /etc/docker/daemon.json or Docker packages
-                                # This preserves Docker installation for faster playbook runs
+                                 # 4. Clean docker config but keep images and daemon settings for idempotence
+                                 echo "Cleaning Docker config directories..."
+                                 sudo rm -rf /etc/docker/certs.d /etc/docker/*.json /etc/systemd/system/docker.service.d || true
+                                 sudo rm -f /var/run/docker.sock || true
+                                 
+                                 # 5. Recreate Docker socket for API connectivity
+                                 echo "  - Recreating Docker socket..."
+                                 sudo systemctl restart docker.socket 2>/dev/null || true
+                                 sleep 1
+                                 
+                                 # Note: NOT removing /etc/docker/daemon.json or Docker packages
+                                 # This preserves Docker installation for faster playbook runs
 EOF
                                 )
 
