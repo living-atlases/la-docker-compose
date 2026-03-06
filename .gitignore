@@ -16,3 +16,10 @@ Thumb.db
 .vscode/
 *.swp
 *.swo
+
+# Local development and documentation (sensitive/drafts)
+opencode.jsonc
+*.old
+test-inventory.yml
+docker-plan.md
+la-docker-compose-*.md
