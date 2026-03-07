@@ -371,8 +371,7 @@ EOF
                 expression { 
                     env.DO_REDEPLOY == 'true' && 
                     !params.ONLY_CLEAN && 
-                    params.AUTO_DEPLOY && 
-                    !params.CLEAN_MACHINE
+                    params.AUTO_DEPLOY
                 } 
             }
             steps {
