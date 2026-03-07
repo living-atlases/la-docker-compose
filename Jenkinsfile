@@ -400,14 +400,48 @@ EOF
                                     echo "  - Pruning dangling containers and images..."
                                     sudo docker system prune -af 2>/dev/null || true
                                     
-                                    # 3. Restart Docker daemon to clean orphaned internal state
-                                    echo "  - Restarting Docker daemon to clean internal state..."
-                                    sudo systemctl restart docker
+                                    # 3. Stop Docker daemon first
+                                    echo "  - Stopping Docker daemon..."
+                                    sudo systemctl stop docker
+                                    sleep 2
+                                    
+                                    # 4. Remove orphaned container directories (CRITICAL for fixing phantom containers)
+                                    echo "  - Removing orphaned container directories from /var/lib/docker/containers/..."
+                                    if [ -d /var/lib/docker/containers ]; then
+                                        # Only remove directories, keep the structure
+                                        sudo find /var/lib/docker/containers -maxdepth 1 -type d -not -name containers | xargs -r sudo rm -rf
+                                        echo "    ✓ Orphaned container directories removed"
+                                    fi
+                                    
+                                    # 5. Remove stale Docker state
+                                    echo "  - Cleaning stale Docker state..."
+                                    sudo rm -f /var/run/docker.sock
+                                    sudo rm -rf /var/run/docker/
+                                    sudo rm -rf /run/docker/
+                                    
+                                    # 6. Restart Docker daemon to reinitialize from clean state
+                                    echo "  - Restarting Docker daemon from clean state..."
+                                    sudo systemctl start docker
                                     sleep 3
                                     
-                                    # 4. Verify Docker is healthy
+                                    # 7. Verify Docker is healthy
                                     echo "  - Verifying Docker is ready..."
-                                    sudo docker info >/dev/null 2>&1 || { echo "ERROR: Docker not responding after restart"; exit 1; }
+                                    retry_count=0
+                                    while [ \$retry_count -lt 5 ]; do
+                                        if sudo docker info >/dev/null 2>&1; then
+                                            echo "    ✓ Docker is responding"
+                                            break
+                                        fi
+                                        retry_count=\$((retry_count + 1))
+                                        if [ \$retry_count -lt 5 ]; then
+                                            echo "    Retry \$retry_count/5, waiting for Docker..."
+                                            sleep 2
+                                        fi
+                                    done
+                                    if [ \$retry_count -eq 5 ]; then
+                                        echo "ERROR: Docker not responding after restart"
+                                        exit 1
+                                    fi
                                     
                                     echo "  ✓ Pre-deploy Docker cleanup complete"
                                 else
