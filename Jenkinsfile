@@ -469,7 +469,7 @@ EOF
                                          echo "    ✓ No container directories found (CLEAN)"
                                      else
                                          echo "    ⚠ ALERT: Found \$container_dirs container directories (UNCLEAN)"
-                                         sudo find /var/lib/docker/containers -maxdepth 1 -type d -not -name containers -exec basename {} \;
+                                         sudo find /var/lib/docker/containers -maxdepth 1 -type d -not -name containers -printf '%f\n'
                                      fi
                                      
                                      echo "  ✓ Pre-deploy Docker cleanup complete"
