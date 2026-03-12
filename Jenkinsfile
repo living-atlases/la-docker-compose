@@ -388,94 +388,55 @@ EOF
                                 set -eu
                                 echo "==> Pre-deploy Docker cleanup on \$(hostname)"
                                 
+                                 echo "==> NUCLEAR Docker cleanup (simulating clean machine)"
+                                 
                                  if command -v docker >/dev/null 2>&1; then
-                                     # 1. Stop compose deployment if exists (preserve volumes for data)
-                                     if [ -d /data/docker-compose ] && [ -f /data/docker-compose/docker-compose.yml ]; then
-                                         echo "  - Stopping existing compose deployment..."
-                                         cd /data/docker-compose
-                                         sudo docker compose down --remove-orphans 2>/dev/null || echo "    (compose down failed or already stopped)"
-                                     fi
+                                     # 1. Stop Docker daemon AND socket to prevent auto-restart
+                                     echo "  - Stopping Docker daemon and socket..."
+                                     sudo systemctl stop docker.socket 2>/dev/null || true
+                                     sudo systemctl stop docker
+                                     sleep 2
                                      
-                                     # 2. Prune dangling containers and images (preserve volumes and kept images)
-                                     echo "  - Pruning dangling containers and images..."
-                                     sudo docker system prune -af 2>/dev/null || echo "    (prune had no orphans or failed)"
+                                     # 2. NUCLEAR: Remove ALL Docker state (simulates fresh install)
+                                     # This removes containers, images, networks, build cache
+                                     # BUT preserves external volumes at /data/ (mysql, solr, etc)
+                                     echo "  - NUCLEAR: Removing /var/lib/docker/* (preserving external volumes in /data/)"
+                                     sudo rm -rf /var/lib/docker/*
+                                     echo "    ✓ Docker state completely removed"
                                      
-                                     # 3. Clear docker-compose metadata cache (in case compose cached phantom references)
-                                     echo "  - Clearing docker-compose metadata cache..."
-                                     if [ -d /data/docker-compose/.docker ]; then
-                                         echo "    Removing /data/docker-compose/.docker/ cache..."
-                                         sudo rm -rfv /data/docker-compose/.docker/ 2>/dev/null || true
-                                     fi
+                                     # 3. Start Docker fresh (will reinitialize from scratch)
+                                     echo "  - Starting Docker daemon from clean state..."
+                                     sudo systemctl start docker
+                                     sleep 5
                                      
-                                     # 4. Count and remove orphaned container directories (CRITICAL for fixing phantom containers)
-                                     echo "  - Removing orphaned container directories from /var/lib/docker/containers/..."
-                                     if [ -d /var/lib/docker/containers ]; then
-                                         echo "    Pre-cleanup: Counting directories..."
-                                         pre_count=\$(sudo find /var/lib/docker/containers -maxdepth 1 -type d -not -name containers | wc -l)
-                                         echo "    Found \$pre_count orphaned container directories"
-                                         
-                                         if [ \$pre_count -gt 0 ]; then
-                                             # Only do aggressive cleanup if there are orphaned directories
-                                             echo "    Stopping Docker daemon before removing orphaned dirs..."
-                                             sudo systemctl stop docker
-                                             sleep 2
-                                             
-                                             # Remove all subdirectories (container state directories)
-                                             sudo find /var/lib/docker/containers -maxdepth 1 -type d -not -name containers -print0 | xargs -0 -r sudo rm -rfv
-                                             
-                                             echo "    Post-cleanup: Verifying removal..."
-                                             post_count=\$(sudo find /var/lib/docker/containers -maxdepth 1 -type d -not -name containers | wc -l)
-                                             echo "    Remaining directories: \$post_count"
-                                             if [ \$post_count -eq 0 ]; then
-                                                 echo "    ✓ All orphaned container directories successfully removed"
-                                             else
-                                                 echo "    ⚠ WARNING: \$post_count directories still remain after cleanup"
-                                             fi
-                                             
-                                             # Restart Docker to recover from stopped state
-                                             echo "    Restarting Docker daemon..."
-                                             sudo systemctl start docker
-                                             sleep 3
-                                         else
-                                             echo "    No orphaned directories found, skipping aggressive cleanup"
-                                         fi
-                                     fi
-                                     
-                                     # 5. Graceful restart to ensure clean state
-                                     echo "  - Performing graceful Docker restart..."
-                                     sudo systemctl restart docker
-                                     sleep 3
-                                     
-                                     # 6. Verify Docker is healthy
+                                     # 4. Verify Docker is healthy with more retries (it takes longer after nuclear cleanup)
                                      echo "  - Verifying Docker is ready..."
                                      retry_count=0
-                                     while [ \$retry_count -lt 5 ]; do
+                                     max_retries=10
+                                     while [ \$retry_count -lt \$max_retries ]; do
                                          if sudo docker info >/dev/null 2>&1; then
-                                             echo "    ✓ Docker is responding"
+                                             echo "    ✓ Docker is responding and healthy"
                                              break
                                          fi
                                          retry_count=\$((retry_count + 1))
-                                         if [ \$retry_count -lt 5 ]; then
-                                             echo "    Retry \$retry_count/5, waiting for Docker..."
-                                             sleep 2
+                                         if [ \$retry_count -lt \$max_retries ]; then
+                                             echo "    Retry \$retry_count/\$max_retries, waiting for Docker..."
+                                             sleep 3
                                          fi
                                      done
-                                     if [ \$retry_count -eq 5 ]; then
-                                         echo "ERROR: Docker not responding after restart"
+                                     
+                                     if [ \$retry_count -eq \$max_retries ]; then
+                                         echo "ERROR: Docker not responding after nuclear cleanup"
                                          exit 1
                                      fi
                                      
-                                     # 7. Final verification - list container directories to prove they're gone
-                                     echo "  - Final verification: Container directories after cleanup..."
-                                     container_dirs=\$(sudo find /var/lib/docker/containers -maxdepth 1 -type d -not -name containers | wc -l)
-                                     if [ \$container_dirs -eq 0 ]; then
-                                         echo "    ✓ No container directories found (CLEAN)"
-                                     else
-                                         echo "    ⚠ ALERT: Found \$container_dirs container directories (UNCLEAN)"
-                                         sudo find /var/lib/docker/containers -maxdepth 1 -type d -not -name containers -printf '%f\n'
-                                     fi
+                                     # 5. Confirm clean state
+                                     echo "  - Confirming clean Docker state..."
+                                     container_count=\$(sudo docker ps -a -q | wc -l)
+                                     image_count=\$(sudo docker images -q | wc -l)
+                                     echo "    Containers: \$container_count, Images: \$image_count (clean state)"
                                      
-                                     echo "  ✓ Pre-deploy Docker cleanup complete"
+                                     echo "  ✓ NUCLEAR cleanup complete - Docker reinitialized from scratch"
                                  else
                                      echo "  ⚠ Docker not installed, skipping cleanup"
                                  fi
