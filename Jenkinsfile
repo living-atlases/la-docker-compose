@@ -106,6 +106,11 @@ pipeline {
                                         sudo find /data/docker-compose -maxdepth 2 -name "docker-compose.yml" -execdir docker compose down -v \\; || true
                                     fi
                                     
+                                    # Remove phantom containers in terminal states (prevents accumulation)
+                                    echo "  - Removing exited and created containers..."
+                                    sudo docker ps -aq -f 'status=exited' | xargs -r sudo docker rm -f 2>/dev/null || true
+                                    sudo docker ps -aq -f 'status=created' | xargs -r sudo docker rm -f 2>/dev/null || true
+                                    
                                     # Clean BuildKit cache and dangling resources
                                     echo "  - Pruning BuildKit cache..."
                                     sudo docker builder prune -af 2>/dev/null || true
