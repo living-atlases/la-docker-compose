@@ -40,6 +40,11 @@ services:
     networks:
       default: {}
       {{ docker_network | default('internal') }}:
+    depends_on:
+{% if use_la_site_certs %}
+      certs-init:
+        condition: service_completed_successfully
+{% endif %}
     restart: "no"
 
   # Nginx reverse proxy
