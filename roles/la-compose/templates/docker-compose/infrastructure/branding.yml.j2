@@ -1,29 +1,14 @@
 services:
   # Branding builder - builds and extracts assets to volume
   # This is an init container that runs once to populate the volume
+  # Note: Image is built by docker buildx bake (see roles/la-compose/tasks/build-images.yml)
+  #       This avoids docker-compose build metadata tracking issues on container recreation
   branding-init:
     container_name: la_branding-init
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
-{% if build_images is defined and (build_images | bool or build_images == 'true') %}
-    # Build from source when build_images is enabled
+    # Image built by docker buildx bake - must exist before docker compose up
     image: branding-builder:{{ branding_version | default('latest') }}
     pull_policy: never
-    build:
-      context: {{ docker_compose_data_dir }}/dockerfiles/branding
-      dockerfile: Dockerfile
-      target: builder-production
-      args:
-        BUILD_SOURCE: {{ branding_build_source }}
-{% if branding_build_source == 'git' %}
-        GIT_URL: {{ branding_source }}
-        GIT_REF: {{ branding_git_ref | default('master') }}
-{% endif %}
-        NODE_VERSION: {{ branding_node_version | default('18') }}
-{% else %}
-    # Use site-specific branding image
-    image: branding-builder:{{ branding_version | default('latest') }}
-    pull_policy: never
-{% endif %}
     volumes:
       - la_branding-assets:/output
     command: >
@@ -43,3 +28,4 @@ services:
       timeout: 3s
       retries: 3
       start_period: 2s
+

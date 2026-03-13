@@ -13,9 +13,37 @@
       - "    - Services: {{ services_enabled | join(', ') }}"
       - "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-- name: Build site-specific branding locally
-  shell: >
-    docker compose build branding-init
+- name: Check docker buildx availability
+  command: docker buildx version
+  register: buildx_check
+  failed_when: false
+  changed_when: false
+  when:
+    - "'branding' in services_enabled"
+
+- name: Fail if docker buildx not available
+  fail:
+    msg: |
+      docker buildx is required to build branding images but is not available.
+      docker buildx was added in Docker 19.03 and is installed by default on most systems.
+      
+      To enable buildx on your system:
+      - Update Docker to 19.03 or later
+      - On Linux, you may need to install docker-buildx plugin: https://github.com/docker/buildx
+  when:
+    - "'branding' in services_enabled"
+    - buildx_check.rc != 0
+
+- name: Generate docker-bake.hcl for branding
+  template:
+    src: docker-bake.hcl.j2
+    dest: "{{ docker_compose_data_dir }}/docker-bake.hcl"
+    mode: '0644'
+  when:
+    - "'branding' in services_enabled"
+
+- name: Build site-specific branding using docker buildx bake
+  command: docker buildx bake -f docker-bake.hcl branding
   args:
     chdir: "{{ docker_compose_data_dir }}"
   register: build_branding
