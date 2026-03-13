@@ -70,28 +70,11 @@
   changed_when: false
   register: env_passwords
 
-- name: "Validation: Build list of expected log directories based on services_enabled"
-  set_fact:
-    expected_log_dirs: >-
-      {{ (['cas', 'userdetails', 'apikey', 'cas-management'] if 'cas' in services_enabled else []) +
-         (['collectory'] if 'collectory' in services_enabled else []) +
-         (['species-list'] if 'species_lists' in services_enabled else []) }}
-
-- name: "Validation: Check logs directories created"
-  stat:
-    path: "{{ data_dir }}/logs/{{ item }}"
-  register: log_dir_check
-  loop: "{{ expected_log_dirs }}"
-  when: expected_log_dirs | length > 0
-
-- name: "Validation: Fail if any log directory is missing"
-  fail:
-    msg: "Log directory missing: {{ item.item }}"
-  when:
-    - expected_log_dirs | length > 0
-    - not item.stat.exists
-    - not ansible_check_mode
-  loop: "{{ log_dir_check.results }}"
+# NOTE: Log directory validation removed because:
+# 1. Service log volume mounts are commented out in docker-compose templates
+# 2. Log directories are not created or used by the deployment
+# 3. Services write logs to stdout/stderr for Docker to capture
+# Previously this caused false failures when /data/logs/cas and other dirs were missing
 
 - name: "Validation: Build expected volumes list based on enabled databases"
   set_fact:
