@@ -18,8 +18,13 @@ Thumb.db
 *.swo
 
 # Local development and documentation (sensitive/drafts)
-opencode.jsonc
+opencode.json*
 *.old
 test-inventory.yml
 docker-plan.md
 la-docker-compose-*.md
+HEALTH_CHECKS.md
+AGENTS.md.backup
+scripts/diagnose-failure.sh
+scripts/wait-for-health.sh
+roles/la-compose/tasks/validate-*.yml
