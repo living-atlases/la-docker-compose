@@ -1,3 +1,6 @@
+# Deployment configuration
+deployment_type: container
+
 # Local inventory default version overrides to pass configuration checks
 cas_version: "6.6.6"
 userdetails_version: "3.2.0"

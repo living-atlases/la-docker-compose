@@ -97,7 +97,12 @@ When adding new tasks or roles to support container deployments:
 
 - Never modify tasks that apply to all deployment types (config generation, templates)
 - Split tasks if some parts are deployment-type specific
-- Valid values: `vm` (default), `container`, `swarm`
+- **Valid values:**
+  - `vm` (default) - Traditional VM deployment
+  - `container` (recommended for docker-compose) - Docker Compose standalone
+  - `swarm` (legacy, maintained for compatibility) - Docker Swarm orchestration
+
+**Note:** All `*-docker.yml` playbooks in ala-install now default to `deployment_type: container` but accept inventory overrides for Swarm compatibility.
 
 ---
 
