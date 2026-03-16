@@ -103,6 +103,16 @@
         - only
         - docker-compose
 
+    - name: "CAPA 2: Pre-deployment validation"
+      include_tasks: validate-pre-deploy.yml
+      when: auto_deploy | default(true) | bool
+      tags:
+        - always
+        - docker-compose
+        - validate
+        - pre-deploy
+      register: pre_deploy_result
+
     - name: Clean up existing containers and networks before redeployment
       block:
         - name: Remove Docker Compose state metadata files
@@ -140,3 +150,13 @@
       tags:
         - docker-compose
         - deploy
+
+    - name: "CAPA 3 & 4: Post-deployment validation and health check"
+      include_tasks: validate-post-deploy.yml
+      when: auto_deploy | default(true) | bool
+      tags:
+        - always
+        - docker-compose
+        - validate
+        - post-deploy
+      register: post_deploy_result

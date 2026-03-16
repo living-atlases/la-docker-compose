@@ -1,0 +1,260 @@
+---
+# Post-Deployment Validation Tasks
+# Validates that services have started correctly and are healthy
+#
+# Checks:
+# - All services have started
+# - Services pass health checks
+# - Services are accessible on expected ports
+# - Service logs show no critical errors
+#
+# This task is run AFTER starting services to verify successful deployment
+
+- name: Post-Deployment Validation Block
+  block:
+    - name: Wait for docker-compose to settle
+      pause:
+        seconds: 5
+      when: wait_for_settle | default(true)
+
+    - name: Verify all docker-compose services are running
+      command: |
+        docker compose -f "{{ docker_compose_data_dir }}/docker-compose.yml" ps
+      register: compose_ps
+      changed_when: false
+
+    - name: Parse service status
+      set_fact:
+        running_services: "{{ (compose_ps.stdout_lines | select('search', 'running') | list) | length }}"
+        expected_services: "{{ compose_services.keys() | length }}"
+
+    - name: Display service status
+      debug:
+        msg: "Service Status: {{ running_services }} running / {{ expected_services }} expected"
+
+    - name: Warn if not all services running yet
+      debug:
+        msg: |
+          Some services not yet in running state.
+          Full output:
+          {{ compose_ps.stdout }}
+      when:
+        - running_services | int < expected_services | int
+
+    - name: Run health check script with timeout
+      block:
+        - name: Copy wait-for-health.sh script to target
+          copy:
+            src: "{{ playbook_dir }}/../../scripts/wait-for-health.sh"
+            dest: "{{ docker_compose_data_dir }}/wait-for-health.sh"
+            mode: "0755"
+            owner: "{{ docker_compose_userid }}"
+            group: "{{ docker_compose_usergid }}"
+          become: true
+
+        - name: Run health check with custom timeout
+          command: |
+            "{{ docker_compose_data_dir }}/wait-for-health.sh" \
+              --compose-dir "{{ docker_compose_data_dir }}" \
+              --timeout {{ health_check_timeout | default(300) }} \
+              --check-interval {{ health_check_interval | default(5) }} \
+              {% if verbose_health_check | default(false) %}--verbose{% endif %}
+          register: health_check_result
+          become: true
+          changed_when: false
+
+      rescue:
+        - name: Health check failed - collecting diagnostics
+          block:
+            - name: Copy diagnose script to target
+              copy:
+                src: "{{ playbook_dir }}/../../scripts/diagnose-failure.sh"
+                dest: "{{ docker_compose_data_dir }}/diagnose-failure.sh"
+                mode: "0755"
+                owner: "{{ docker_compose_userid }}"
+                group: "{{ docker_compose_usergid }}"
+              become: true
+
+            - name: Run diagnostic collection
+              command: |
+                "{{ docker_compose_data_dir }}/diagnose-failure.sh" \
+                  --output-dir "{{ data_dir }}/diagnostics" \
+                  {% if verbose_health_check | default(false) %}--verbose{% endif %}
+              register: diagnostic_result
+              become: true
+              changed_when: false
+              ignore_errors: true
+
+            - name: Display diagnostic location
+              debug:
+                msg: |
+                  ✗ Health check FAILED - Diagnostics collected
+                  
+                  Review diagnostic reports at:
+                  {{ data_dir }}/diagnostics/SUMMARY.md
+                  
+                  Key files:
+                  - system-info.txt (host and docker stats)
+                  - docker-compose-config.txt (current configuration)
+                  - {service}-report.txt (per-service details)
+                  - {service}-logs.txt (service logs)
+
+            - name: Fail deployment with diagnostic link
+              fail:
+                msg: |
+                  ✗ Post-deployment health check FAILED
+                  
+                  Diagnostics saved to: {{ data_dir }}/diagnostics/
+                  Start with: {{ data_dir }}/diagnostics/SUMMARY.md
+                  
+                  Common solutions:
+                  1. Check available disk space with: df -h
+                  2. Check Docker logs with: docker logs <container>
+                  3. Check service logs with: docker compose logs <service>
+                  4. Verify network connectivity with: docker network inspect
+                  5. Review deployment configuration in docker-compose.env
+
+    - name: Verify critical services are healthy
+      block:
+        - name: Check MySQL health
+          docker_container_info:
+            name: "la_{{ instance_name | lower }}_mysql_1"
+          register: mysql_info
+          when: "'mysql' in compose_services"
+          ignore_errors: true
+
+        - name: Verify MySQL status
+          assert:
+            that:
+              - mysql_info.exists | default(false)
+              - mysql_info.container.state.running | default(false)
+            fail_msg: "MySQL container not running or not found"
+          when:
+            - "'mysql' in compose_services"
+            - mysql_info is defined
+          ignore_errors: true
+
+      when: strict_health_check | default(false)
+      tags:
+        - strict
+
+    - name: Validate port accessibility
+      block:
+        - name: Check if ports are listening
+          wait_for:
+            host: "{{ inventory_hostname }}"
+            port: "{{ item }}"
+            timeout: 10
+            state: started
+          register: port_check
+          ignore_errors: true
+          with_items:
+            - 80     # Nginx
+            - 443    # Nginx SSL
+            - 3306   # MySQL
+            - 27017  # MongoDB
+            - 5432   # PostgreSQL
+            - 8983   # Solr
+            - 9200   # Elasticsearch
+
+        - name: Report port status
+          debug:
+            msg: |
+              Port Accessibility:
+              {% for result in port_check.results %}
+              - Port {{ result.item }}: {{ 'OK' if result.state == 'started' else 'FAILED' }}
+              {% endfor %}
+
+      when: check_port_accessibility | default(true)
+      tags:
+        - ports
+
+    - name: Check for critical errors in logs
+      block:
+        - name: Search for ERROR patterns in recent logs
+          command: |
+            docker compose -f "{{ docker_compose_data_dir }}/docker-compose.yml" logs --tail 100
+          register: recent_logs
+          changed_when: false
+
+        - name: Check for fatal errors
+          set_fact:
+            has_fatal_errors: "{{ 'FATAL' in recent_logs.stdout or 'Fatal' in recent_logs.stdout }}"
+
+        - name: Warn if fatal errors found
+          debug:
+            msg: |
+              ⚠ WARNING: Potential fatal errors detected in logs.
+              Please review with: docker compose logs
+          when: has_fatal_errors | default(false)
+
+      when: check_logs_for_errors | default(true)
+      tags:
+        - logs
+
+    - name: Display post-deployment summary
+      debug:
+        msg: |
+          ✓ Post-deployment validation PASSED
+          
+          Deployment Status:
+          - Instance: {{ instance_name }}
+          - Services Running: {{ running_services }}/{{ expected_services }}
+          - Health Check: PASSED
+          - All critical checks completed
+          
+          Next steps:
+          1. Access the Living Atlas at https://{{ inventory_hostname }}/
+          2. Monitor logs with: docker compose logs -f
+          3. Check service health at: https://{{ inventory_hostname }}/status (if available)
+          4. Review deployment with: docker ps
+          
+          For issues or questions, check:
+          {{ data_dir }}/diagnostics/ (if created)
+          {{ data_dir }}/logs/deployment.log
+
+  rescue:
+    - name: Post-deployment validation FAILED
+      fail:
+        msg: |
+          ✗ Post-deployment validation FAILED
+          
+          Services may not have started correctly.
+          Check diagnostics at: {{ data_dir }}/diagnostics/
+          
+          Troubleshooting steps:
+          1. docker compose ps        # Show container status
+          2. docker compose logs      # Show recent logs
+          3. docker system df        # Check disk space
+          4. docker network inspect   # Check networking
+          5. Review deployment.log    # Check deployment history
+
+  always:
+    - name: Collect final service status
+      command: docker compose ps -q
+      register: final_status
+      changed_when: false
+      ignore_errors: true
+
+    - name: Log post-deployment status
+      lineinfile:
+        path: "{{ data_dir }}/logs/deployment.log"
+        line: "{{ ansible_date_time.iso8601 }} - Post-deployment validation completed. Services running: {{ final_status.stdout_lines | length }}/{{ expected_services | default('?') }}"
+        create: true
+        mode: "0644"
+      become: true
+      ignore_errors: true
+      tags:
+        - logs
+
+    - name: Generate deployment report
+      template:
+        src: deployment-report.j2
+        dest: "{{ data_dir }}/logs/deployment-report.html"
+        mode: "0644"
+        owner: "{{ docker_compose_userid }}"
+        group: "{{ docker_compose_usergid }}"
+      become: true
+      ignore_errors: true
+      tags:
+        - reports

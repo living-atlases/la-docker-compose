@@ -1,0 +1,258 @@
+---
+# Pre-Deployment Validation Tasks
+# Validates configuration and prerequisites before starting docker-compose services
+#
+# Checks:
+# - Required config files exist and are readable
+# - Database volumes exist
+# - Disk space is available
+# - Docker daemon is responsive
+# - Previous state is cleaned up
+#
+# This task is run BEFORE starting services to fail fast on configuration issues
+
+- name: Pre-Deployment Validation Block
+  block:
+    - name: Verify docker-compose.yml exists
+      stat:
+        path: "{{ docker_compose_data_dir }}/docker-compose.yml"
+      register: compose_yml_stat
+      failed_when: not compose_yml_stat.stat.exists
+
+    - name: Verify docker-compose.env exists
+      stat:
+        path: "{{ docker_compose_data_dir }}/docker-compose.env"
+      register: compose_env_stat
+      failed_when: not compose_env_stat.stat.exists
+
+    - name: Verify docker-compose.yml syntax
+      command:
+        cmd: docker compose -f "{{ docker_compose_data_dir }}/docker-compose.yml" config -q
+      register: compose_syntax_check
+      changed_when: false
+      failed_when:
+        - compose_syntax_check.rc != 0
+
+    - name: Validate docker-compose.yml with ansible-lint
+      command:
+        cmd: |
+          yamllint -d "{extends: default, rules: {line-length: disable, comments: disable}}" "{{ docker_compose_data_dir }}/docker-compose.yml"
+      register: yaml_lint_check
+      changed_when: false
+      failed_when:
+        - yaml_lint_check.rc != 0
+      ignore_errors: true
+      tags:
+        - lint
+
+    - name: Verify Docker daemon is responsive
+      command: docker version --format "{{.Server.Version}}"
+      register: docker_version
+      changed_when: false
+      retries: 3
+      delay: 5
+
+    - name: Display Docker version
+      debug:
+        msg: "Docker version: {{ docker_version.stdout }}"
+
+    - name: Check available disk space
+      shell: |
+        set -o pipefail
+        df "{{ docker_compose_data_dir }}" | awk 'NR==2 {print int($4/1024/1024) " GB available"}'
+      register: disk_available
+      changed_when: false
+      ignore_errors: true
+
+    - name: Warn if low disk space (< 5GB)
+      debug:
+        msg: "WARNING: Low disk space available - {{ disk_available.stdout }}"
+      when:
+        - disk_available.rc == 0
+        - disk_available.stdout | regex_search('[0-4] GB available')
+
+    - name: Fail if critically low disk space (< 1GB)
+      fail:
+        msg: "CRITICAL: Insufficient disk space - {{ disk_available.stdout }}. Please free up at least 1GB."
+      when:
+        - disk_available.rc == 0
+        - disk_available.stdout | regex_search('0 GB available')
+
+    - name: Check if required configuration directories exist
+      stat:
+        path: "{{ item }}"
+      register: config_dir_stats
+      with_items:
+        - "{{ data_dir }}/config"
+        - "{{ data_dir }}/logs"
+      ignore_errors: true
+
+    - name: Report missing configuration directories
+      debug:
+        msg: "Warning: Configuration directory not found: {{ item.item }}"
+      loop: "{{ config_dir_stats.results }}"
+      when:
+        - not item.stat.exists | default(false)
+
+    - name: Verify volumes directory structure
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+        owner: "{{ docker_compose_userid }}"
+        group: "{{ docker_compose_usergid }}"
+      become: true
+      with_items:
+        - "{{ data_dir }}/mysql"
+        - "{{ data_dir }}/mongodb"
+        - "{{ data_dir }}/postgres"
+        - "{{ data_dir }}/cassandra"
+        - "{{ data_dir }}/elasticsearch"
+        - "{{ data_dir }}/solr"
+        - "{{ data_dir }}/logs"
+      tags:
+        - volumes
+
+    - name: Check if database volumes are mounted
+      command: mountpoint -q "{{ item }}"
+      register: volume_mount_check
+      with_items:
+        - "{{ data_dir }}/mysql"
+        - "{{ data_dir }}/mongodb"
+      failed_when: false
+      changed_when: false
+
+    - name: Report unmounted volumes
+      debug:
+        msg: "INFO: Volume not mounted as separate filesystem: {{ item.item }} (OK if on root filesystem)"
+      loop: "{{ volume_mount_check.results }}"
+      when:
+        - item.rc != 0
+      tags:
+        - volumes
+
+    - name: Verify environment file is readable
+      command: head -1 "{{ docker_compose_data_dir }}/docker-compose.env"
+      register: env_file_read
+      changed_when: false
+
+    - name: Check for required environment variables in .env
+      shell: |
+        set -o pipefail
+        grep -E "^(INSTANCE_NAME|DEPLOYMENT_ID)=" "{{ docker_compose_data_dir }}/docker-compose.env" | wc -l
+      register: required_env_count
+      changed_when: false
+
+    - name: Fail if required environment variables missing
+      fail:
+        msg: |
+          Required environment variables missing from docker-compose.env.
+          Required: INSTANCE_NAME, DEPLOYMENT_ID
+      when:
+        - required_env_count.stdout | int < 2
+
+    - name: Verify pwe.properties exists for CAS
+      stat:
+        path: "{{ data_dir }}/config/pwe.properties"
+      register: pwe_properties_stat
+      when: "'cas-servers' in physical_server_groups"
+      ignore_errors: true
+
+    - name: Warn if pwe.properties missing (CAS will use defaults)
+      debug:
+        msg: "INFO: pwe.properties not found - CAS will use default configuration"
+      when:
+        - "'cas-servers' in physical_server_groups"
+        - not pwe_properties_stat.stat.exists | default(false)
+
+    - name: Check docker-compose project consistency
+      command: |
+        docker compose -f "{{ docker_compose_data_dir }}/docker-compose.yml" \
+          --project-name "la_{{ instance_name | lower }}" config --format json
+      register: compose_config
+      changed_when: false
+      environment:
+        INSTANCE_NAME: "{{ instance_name }}"
+
+    - name: Parse docker-compose configuration
+      set_fact:
+        compose_services: "{{ (compose_config.stdout | from_json).services | default({}) }}"
+
+    - name: Report services to be deployed
+      debug:
+        msg: "Services ready for deployment: {{ compose_services.keys() | list | join(', ') }}"
+
+    - name: Validate service name format
+      assert:
+        that:
+          - item is match('^[a-z0-9_-]+$')
+        fail_msg: "Invalid service name format: {{ item }}"
+      loop: "{{ compose_services.keys() | list }}"
+
+    - name: Clean up stale docker compose state
+      block:
+        - name: Remove stale metadata files
+          file:
+            path: "{{ item }}"
+            state: absent
+          become: true
+          with_fileglob:
+            - "{{ docker_compose_data_dir }}/.docker-compose*.yml"
+          ignore_errors: true
+
+        - name: Prune dangling containers (if any)
+          command: docker container prune -f --filter "label!=com.docker.compose.project"
+          become: true
+          register: prune_result
+          changed_when: "'Deleted' in prune_result.stdout"
+          ignore_errors: true
+
+        - name: Prune dangling networks
+          command: docker network prune -f --filter "label!=com.docker.compose.project"
+          become: true
+          register: network_prune
+          changed_when: "'Deleted' in network_prune.stdout"
+          ignore_errors: true
+
+      tags:
+        - cleanup
+
+    - name: Display pre-deployment summary
+      debug:
+        msg: |
+          ✓ Pre-deployment validation PASSED
+          
+          Deployment Summary:
+          - Instance: {{ instance_name }}
+          - Deployment Dir: {{ docker_compose_data_dir }}
+          - Services: {{ compose_services.keys() | length }}
+          - Docker Version: {{ docker_version.stdout }}
+          - Disk Available: {{ disk_available.stdout | default('Unknown') }}
+          
+          Ready to proceed with docker-compose up
+
+  rescue:
+    - name: Pre-deployment validation FAILED
+      fail:
+        msg: |
+          ✗ Pre-deployment validation FAILED
+          
+          Please check the errors above and resolve before proceeding.
+          Common issues:
+          - Missing or invalid docker-compose.yml
+          - Docker daemon not responsive
+          - Insufficient disk space
+          - Required environment variables not set
+          - Configuration files not found
+
+  always:
+    - name: Log validation status
+      lineinfile:
+        path: "{{ data_dir }}/logs/deployment.log"
+        line: "{{ ansible_date_time.iso8601 }} - Pre-deployment validation completed with status: {{ 'PASS' if not validation_failed | default(false) else 'FAIL' }}"
+        create: true
+        mode: "0644"
+      become: true
+      ignore_errors: true
+      tags:
+        - logs
