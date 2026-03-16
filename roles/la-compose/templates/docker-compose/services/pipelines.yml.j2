@@ -1,27 +1,34 @@
 services:
-  la_pipelines:
-    image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}la-pipelines:${TAG:-latest}
-    container_name: la_pipelines
-    user: "1000:1000"
-    environment:
-      - TZ=${TZ:-Europe/Brussels}
-      - JAVA_OPTS=${PIPELINES_JAVA_OPTS:-}
-      - EXTRA_JVM_CLI_ARGS=${EXTRA_JVM_CLI_ARGS:-}
-    volumes:
-      - ${DATA_DIR:-/data}/la-pipelines:/data/la-pipelines
-      - ${DATA_DIR:-/data}/la-pipelines/data:/data/la-pipelines/data
-      - ${DATA_DIR:-/data}/la-pipelines/vocabularies:/data/la-pipelines/vocabularies
-      - ${DATA_DIR:-/data}/la-pipelines/spark-tmp:/data/la-pipelines/spark-tmp
-      - ${DATA_DIR:-/data}/la-pipelines/dwca-import:/data/la-pipelines/dwca-import
-      - ${DATA_DIR:-/data}/logs/pipelines:/app/livingatlas/pipelines/target/logs
-      - ${DATA_DIR:-/data}/pipelines-shp:/data/pipelines-shp
-      - ${DATA_DIR:-/data}/dwca-tmp:/data/dwca-tmp
-      - ${DATA_DIR:-/data}/dwca-export:/data/dwca-export
-    networks:
-      - ${DOCKER_NETWORK:-internal}
-    restart: unless-stopped
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+   la_pipelines:
+     image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}la-pipelines:${TAG:-latest}
+     container_name: la_pipelines
+     user: "1000:1000"
+     environment:
+       - TZ=${TZ:-Europe/Brussels}
+       - JAVA_OPTS=${PIPELINES_JAVA_OPTS:-}
+       - EXTRA_JVM_CLI_ARGS=${EXTRA_JVM_CLI_ARGS:-}
+     volumes:
+       - ${DATA_DIR:-/data}/la-pipelines:/data/la-pipelines
+       - ${DATA_DIR:-/data}/la-pipelines/data:/data/la-pipelines/data
+       - ${DATA_DIR:-/data}/la-pipelines/vocabularies:/data/la-pipelines/vocabularies
+       - ${DATA_DIR:-/data}/la-pipelines/spark-tmp:/data/la-pipelines/spark-tmp
+       - ${DATA_DIR:-/data}/la-pipelines/dwca-import:/data/la-pipelines/dwca-import
+       - ${DATA_DIR:-/data}/logs/pipelines:/app/livingatlas/pipelines/target/logs
+       - ${DATA_DIR:-/data}/pipelines-shp:/data/pipelines-shp
+       - ${DATA_DIR:-/data}/dwca-tmp:/data/dwca-tmp
+       - ${DATA_DIR:-/data}/dwca-export:/data/dwca-export
+     networks:
+       - ${DOCKER_NETWORK:-internal}
+     # LA Pipelines is a stateful service, healthcheck verifies data dirs exist
+     healthcheck:
+       test: ["CMD", "test", "-d", "/data/la-pipelines/data"]
+       interval: 60s
+       timeout: 10s
+       retries: 3
+       start_period: 60s
+     restart: unless-stopped
+     logging:
+       driver: "json-file"
+       options:
+         max-size: "10m"
+         max-file: "3"

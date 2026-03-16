@@ -1,17 +1,23 @@
 services:
-  namematching-service:
-    container_name: la_namematching_service
-    image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}ala-namematching-server:{{ ala_namematching_service_version }}
-    ports:
-      - "{{ namematching_service_port }}:9179"
-      - "{{ namematching_admin_port }}:9180"
-    environment:
-      - JAVA_OPTS=-Xmx2g -Xms1g
-      - NAMEMATCHING_SERVICE_JAVA_OPTS=-Xmx2g -Xms1g
-    volumes:
-      - "{{ data_dir }}/lucene/namematching-nm:/data/lucene/namematching-nm:ro"
-      - "{{ data_dir }}/ala-namematching-service/config:/data/ala-namematching-server/config:ro"
-    networks:
-      default: {}
-      {{ docker_network | default('internal') }}:
-    restart: unless-stopped
+   namematching-service:
+     container_name: la_namematching_service
+     image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}ala-namematching-server:{{ ala_namematching_service_version }}
+     ports:
+       - "{{ namematching_service_port }}:9179"
+       - "{{ namematching_admin_port }}:9180"
+     environment:
+       - JAVA_OPTS=-Xmx2g -Xms1g
+       - NAMEMATCHING_SERVICE_JAVA_OPTS=-Xmx2g -Xms1g
+     volumes:
+       - "{{ data_dir }}/lucene/namematching-nm:/data/lucene/namematching-nm:ro"
+       - "{{ data_dir }}/ala-namematching-service/config:/data/ala-namematching-server/config:ro"
+     networks:
+       default: {}
+       {{ docker_network | default('internal') }}:
+     healthcheck:
+       test: ["CMD", "curl", "--fail", "--silent", "http://localhost:9180/admin/health"]
+       interval: 30s
+       timeout: 10s
+       retries: 3
+       start_period: 60s
+     restart: unless-stopped

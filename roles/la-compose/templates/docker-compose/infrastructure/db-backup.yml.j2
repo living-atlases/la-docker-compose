@@ -35,12 +35,18 @@ services:
       - DB02_USER=root
       - DB02_PASS=${MYSQL_ROOT_PASSWORD}
       # PostgreSQL backup (DB03)
-      - DB03_TYPE=postgres
-      - DB03_HOST={{ postgres_db_host_address | default('postgres') }}
-      - DB03_NAME=all
-      - DB03_USER={{ postgres_user | default('postgres') }}
-      - DB03_PASS=${POSTGRES_PASSWORD}
-    restart: unless-stopped
+       - DB03_TYPE=postgres
+       - DB03_HOST={{ postgres_db_host_address | default('postgres') }}
+       - DB03_NAME=all
+       - DB03_USER={{ postgres_user | default('postgres') }}
+       - DB03_PASS=${POSTGRES_PASSWORD}
+     healthcheck:
+       test: ["CMD", "test", "-d", "/backup"]
+       interval: 60s
+       timeout: 10s
+       retries: 3
+       start_period: 30s
+     restart: unless-stopped
 {% if (enable_mysql | default(false) | bool) or (enable_postgres | default(false) | bool) or (enable_mongo | default(false) | bool) %}
     depends_on:
 {% if enable_mysql | default(false) | bool %}
