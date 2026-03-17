@@ -1,0 +1,27 @@
+---
+# Mock CAS role - outputs variables to check for collisions
+
+- name: CAS role - Debug variables
+  debug:
+    msg:
+      - "=== CAS ROLE EXECUTION ==="
+      - "Variables seen by CAS role:"
+      - "  userdetails_base_url: {{ userdetails_base_url | default('❌ UNDEFINED') }}"
+      - "  service_name: {{ service_name | default('❌ UNDEFINED') }}"
+      - "  service_port: {{ service_port | default('❌ UNDEFINED') }}"
+      - "  config_dir: {{ config_dir | default('❌ UNDEFINED') }}"
+      - ""
+      - "Expected values:"
+      - "  userdetails_base_url: https://auth.test.site/userdetails"
+      - "  service_name: CAS"
+      - "  service_port: 8080"
+      - "  config_dir: /data/cas/config"
+
+- name: CAS role - Validate values
+  debug:
+    msg:
+      - "VALIDATION:"
+      - "  ✓ userdetails_base_url correct: {{ 'auth.test.site' in userdetails_base_url }}"
+      - "  ✓ service_name correct: {{ service_name == 'CAS' }}"
+      - "  ✓ service_port correct: {{ service_port == 8080 }}"
+      - "  ✓ config_dir correct: {{ config_dir == '/data/cas/config' }}"

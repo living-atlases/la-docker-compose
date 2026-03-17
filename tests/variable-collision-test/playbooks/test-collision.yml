@@ -1,0 +1,157 @@
+---
+- name: Test Variable Collision Between Services - 3 Scenarios
+  hosts: docker_compose
+  gather_facts: false
+  vars:
+    services_enabled:
+      - cas
+      - collectory
+
+  tasks:
+    # ============================================================
+    # SETUP: Find service aliases
+    # ============================================================
+    - name: "[SETUP] Find service aliases"
+      set_fact:
+        cas_alias: "{{ groups['cas-servers'] | select('match', '^' + ansible_host + '\\.') | first }}"
+        collectory_alias: "{{ groups['collectory'] | select('match', '^' + ansible_host + '\\.') | first }}"
+
+    - name: "[SETUP] Show aliases found"
+      debug:
+        msg:
+          - "Found aliases:"
+          - "  CAS: {{ cas_alias }}"
+          - "  Collectory: {{ collectory_alias }}"
+
+    # ============================================================
+    # OPTION A: Explicit hostvars pass-through
+    # ============================================================
+    - name: "[OPTION A] ========================================="
+      debug:
+        msg: "OPTION A: Explicit hostvars Pass-Through"
+
+    - name: "[OPTION A] Run CAS role"
+      include_role:
+        name: cas5_test
+      vars:
+        userdetails_base_url: "{{ hostvars[cas_alias]['userdetails_base_url'] }}"
+        service_name: "{{ hostvars[cas_alias]['service_name'] }}"
+        service_port: "{{ hostvars[cas_alias]['service_port'] }}"
+        config_dir: "{{ hostvars[cas_alias]['config_dir'] }}"
+
+    - name: "[OPTION A] Run Collectory role"
+      include_role:
+        name: collectory_test
+      vars:
+        userdetails_base_url: "{{ hostvars[collectory_alias]['userdetails_base_url'] }}"
+        service_name: "{{ hostvars[collectory_alias]['service_name'] }}"
+        service_port: "{{ hostvars[collectory_alias]['service_port'] }}"
+        config_dir: "{{ hostvars[collectory_alias]['config_dir'] }}"
+
+    - name: "[OPTION A] Run CAS role AGAIN (check for collision)"
+      include_role:
+        name: cas5_test
+      vars:
+        userdetails_base_url: "{{ hostvars[cas_alias]['userdetails_base_url'] }}"
+        service_name: "{{ hostvars[cas_alias]['service_name'] }}"
+        service_port: "{{ hostvars[cas_alias]['service_port'] }}"
+        config_dir: "{{ hostvars[cas_alias]['config_dir'] }}"
+
+    # ============================================================
+    # OPTION B: Pre-load facts from both aliases
+    # ============================================================
+    - name: "[OPTION B] ========================================="
+      debug:
+        msg: "OPTION B: Pre-load Facts"
+
+    - name: "[OPTION B] Pre-load CAS alias variables"
+      set_fact:
+        cas_service_vars: "{{ hostvars[cas_alias] }}"
+
+    - name: "[OPTION B] Pre-load Collectory alias variables"
+      set_fact:
+        collectory_service_vars: "{{ hostvars[collectory_alias] }}"
+
+    - name: "[OPTION B] Run CAS role with pre-loaded vars"
+      include_role:
+        name: cas5_test
+      vars:
+        userdetails_base_url: "{{ cas_service_vars['userdetails_base_url'] }}"
+        service_name: "{{ cas_service_vars['service_name'] }}"
+        service_port: "{{ cas_service_vars['service_port'] }}"
+        config_dir: "{{ cas_service_vars['config_dir'] }}"
+
+    - name: "[OPTION B] Run Collectory role with pre-loaded vars"
+      include_role:
+        name: collectory_test
+      vars:
+        userdetails_base_url: "{{ collectory_service_vars['userdetails_base_url'] }}"
+        service_name: "{{ collectory_service_vars['service_name'] }}"
+        service_port: "{{ collectory_service_vars['service_port'] }}"
+        config_dir: "{{ collectory_service_vars['config_dir'] }}"
+
+    - name: "[OPTION B] Run CAS role AGAIN (check for collision)"
+      include_role:
+        name: cas5_test
+      vars:
+        userdetails_base_url: "{{ cas_service_vars['userdetails_base_url'] }}"
+        service_name: "{{ cas_service_vars['service_name'] }}"
+        service_port: "{{ cas_service_vars['service_port'] }}"
+        config_dir: "{{ cas_service_vars['config_dir'] }}"
+
+    # ============================================================
+    # OPTION C: Block-scoped variable isolation
+    # ============================================================
+    - name: "[OPTION C] ========================================="
+      debug:
+        msg: "OPTION C: Block-scoped Variable Isolation"
+
+    - name: "[OPTION C] Execute CAS in isolated block"
+      block:
+        - name: "[OPTION C] Run CAS role"
+          include_role:
+            name: cas5_test
+          vars:
+            userdetails_base_url: "{{ hostvars[cas_alias]['userdetails_base_url'] }}"
+            service_name: "{{ hostvars[cas_alias]['service_name'] }}"
+            service_port: "{{ hostvars[cas_alias]['service_port'] }}"
+            config_dir: "{{ hostvars[cas_alias]['config_dir'] }}"
+
+    - name: "[OPTION C] Execute Collectory in isolated block"
+      block:
+        - name: "[OPTION C] Run Collectory role"
+          include_role:
+            name: collectory_test
+          vars:
+            userdetails_base_url: "{{ hostvars[collectory_alias]['userdetails_base_url'] }}"
+            service_name: "{{ hostvars[collectory_alias]['service_name'] }}"
+            service_port: "{{ hostvars[collectory_alias]['service_port'] }}"
+            config_dir: "{{ hostvars[collectory_alias]['config_dir'] }}"
+
+    - name: "[OPTION C] Execute CAS again in isolated block (check for collision)"
+      block:
+        - name: "[OPTION C] Run CAS role AGAIN"
+          include_role:
+            name: cas5_test
+          vars:
+            userdetails_base_url: "{{ hostvars[cas_alias]['userdetails_base_url'] }}"
+            service_name: "{{ hostvars[cas_alias]['service_name'] }}"
+            service_port: "{{ hostvars[cas_alias]['service_port'] }}"
+            config_dir: "{{ hostvars[cas_alias]['config_dir'] }}"
+
+    # ============================================================
+    # FINAL SUMMARY
+    # ============================================================
+    - name: "========================================= SUMMARY ========================================="
+      debug:
+        msg:
+          - ""
+          - "TEST RESULTS:"
+          - ""
+          - "✅ If you see correct values in each role execution, NO COLLISION occurred"
+          - "❌ If a role shows OTHER service's values, COLLISION detected"
+          - ""
+          - "Review each OPTION section above:"
+          - "  - OPTION A: Explicit hostvars (simplest, fewest lines)"
+          - "  - OPTION B: Pre-load facts (separates variable loading)"
+          - "  - OPTION C: Block-scoped (explicit scope isolation)"

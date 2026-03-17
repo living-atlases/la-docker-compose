@@ -1,0 +1,27 @@
+---
+# Mock Collectory role - outputs variables to check for collisions
+
+- name: Collectory role - Debug variables
+  debug:
+    msg:
+      - "=== COLLECTORY ROLE EXECUTION ==="
+      - "Variables seen by Collectory role:"
+      - "  userdetails_base_url: {{ userdetails_base_url | default('❌ UNDEFINED') }}"
+      - "  service_name: {{ service_name | default('❌ UNDEFINED') }}"
+      - "  service_port: {{ service_port | default('❌ UNDEFINED') }}"
+      - "  config_dir: {{ config_dir | default('❌ UNDEFINED') }}"
+      - ""
+      - "Expected values:"
+      - "  userdetails_base_url: https://collectory.test.site/userdetails"
+      - "  service_name: Collectory"
+      - "  service_port: 8081"
+      - "  config_dir: /data/collectory/config"
+
+- name: Collectory role - Validate values
+  debug:
+    msg:
+      - "VALIDATION:"
+      - "  ✓ userdetails_base_url correct: {{ 'collectory.test.site' in userdetails_base_url }}"
+      - "  ✓ service_name correct: {{ service_name == 'Collectory' }}"
+      - "  ✓ service_port correct: {{ service_port == 8081 }}"
+      - "  ✓ config_dir correct: {{ config_dir == '/data/collectory/config' }}"

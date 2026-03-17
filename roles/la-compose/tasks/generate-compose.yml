@@ -364,7 +364,7 @@
     deployment_type: container
   when:
     - "'cas' in services_enabled"
-    - "'cas-servers' in group_names"
+    - "service_aliases.get('cas-servers') is defined"
   tags:
     - cas
     - config
@@ -376,7 +376,7 @@
     deployment_type: container
   when:
     - "'userdetails' in services_enabled"
-    - "'cas-servers' in group_names"        
+    - "service_aliases.get('cas-servers') is defined"
   tags:
     - userdetails
     - config
@@ -388,7 +388,7 @@
     deployment_type: container
   when:
     - "'apikey' in services_enabled"
-    - "'cas-servers' in group_names"        
+    - "service_aliases.get('cas-servers') is defined"
   tags:
     - apikey
     - config
@@ -400,7 +400,7 @@
     deployment_type: container
   when:
     - "'cas_management' in services_enabled"
-    - "'cas-servers' in group_names"        
+    - "service_aliases.get('cas-servers') is defined"
   tags:
     - cas-management
     - config
@@ -436,7 +436,7 @@
     nginx_vhost_fast_mode: true
   when: 
     - "'collectory' in services_enabled"
-    - "'collectory' in group_names"
+    - "service_aliases.get('collectory') is defined"
   tags:
     - collectory
     - config
@@ -449,7 +449,7 @@
     nginx_vhost_fast_mode: true
   when: 
     - "'species_lists' in services_enabled"
-    - "'species-list' in group_names"
+    - "service_aliases.get('species-list') is defined"
   tags:
     - species-list
     - config
@@ -463,7 +463,7 @@
     nginx_vhost_fast_mode: true
   when: 
     - "'ala_bie' in services_enabled"
-    - "'bie-hub' in group_names"
+    - "service_aliases.get('bie-hub') is defined"
   tags:
     - bie-hub
     - config
@@ -477,7 +477,7 @@
     nginx_vhost_fast_mode: true
   when: 
     - "'bie_index' in services_enabled"
-    - "'bie-index' in group_names"
+    - "service_aliases.get('bie-index') is defined"
   tags:
     - bie-index
     - config
@@ -491,7 +491,7 @@
     nginx_vhost_fast_mode: true
   when:
     - "'ala_hub' in services_enabled"
-    - "'biocache-hub' in group_names"
+    - "service_aliases.get('biocache-hub') is defined"
   tags:
     - biocache-hub
     - config
@@ -506,7 +506,7 @@
     nginx_vhost_fast_mode: true
   when:
     - "'biocache_service' in services_enabled"
-    - "'biocache-service-clusterdb' in group_names"
+    - "service_aliases.get('biocache-service-clusterdb') is defined"
   tags:
     - biocache-service
     - config
@@ -522,7 +522,7 @@
     nginx_vhost_fast_mode: true
   when:
     - "'biocache_service' in services_enabled"
-    - "'biocache-service-clusterdb' in group_names"
+    - "service_aliases.get('biocache-service-clusterdb') is defined"
   tags:
     - biocache-service
     - config

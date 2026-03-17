@@ -60,6 +60,26 @@
     - always
     - docker-compose
 
+# Calculate service aliases for explicit variable loading
+# Maps each service group to its corresponding inventory hostname alias (e.g., 'cas-servers' -> 'test-host.cas')
+# Used in generate-compose.yml to load service-specific variables via hostvars[]
+- name: Calculate service alias hostnames for variable loading
+  set_fact:
+    service_aliases: >-
+      {%- set result = {} -%}
+      {%- for service in ['cas-servers', 'collectory', 'species-list', 'bie-hub', 'bie-index', 'biocache-hub', 'biocache-service-clusterdb', 'logger-service', 'image-service', 'namematching-service', 'sensitive-data-service'] -%}
+        {%- if service in groups -%}
+          {%- set matching = groups[service] | select('match', '^' + ansible_host + '\\.') | list -%}
+          {%- if matching | length > 0 -%}
+            {%- set _ = result.update({service: matching[0]}) -%}
+          {%- endif -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ result }}
+  tags:
+    - always
+    - docker-compose
+
 - name: Normalize database hostnames for Docker network
   set_fact:
     cas_db_hostname: "{{ 'mysql' if (cas_db_hostname | default('localhost') in ['localhost', '127.0.0.1']) else cas_db_hostname }}"
