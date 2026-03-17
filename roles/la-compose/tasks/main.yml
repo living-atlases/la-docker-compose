@@ -22,6 +22,19 @@
       tags:
         - docker
 
+    - name: Ensure docker_compose_data_dir exists early
+      file:
+        path: "{{ docker_compose_data_dir }}"
+        state: directory
+        mode: "0755"
+        owner: "{{ docker_compose_userid }}"
+        group: "{{ docker_compose_usergid }}"
+      become: true
+      tags:
+        - always
+        - docker-compose
+        - build
+
     - name: Create dockerfiles subdirectory in output
       file:
         path: "{{ docker_compose_data_dir }}/dockerfiles"
