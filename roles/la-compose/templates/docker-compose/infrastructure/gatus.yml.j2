@@ -13,17 +13,17 @@ services:
     expose:
       - 8080
     networks:
-       default: {}
-       {{ docker_network | default('internal') }}:
-         aliases:
-           - {{ gatus_hostname | default('gatus') }}
-           - la_gatus_service
-     healthcheck:
-       test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/"]
-       interval: 30s
-       timeout: 10s
-       retries: 3
-       start_period: 60s
-     restart: unless-stopped
+      default: {}
+      {{ docker_network | default('internal') }}:
+        aliases:
+          - {{ gatus_hostname | default('gatus') }}
+          - la_gatus_service
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
 
 
