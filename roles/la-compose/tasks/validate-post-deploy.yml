@@ -112,7 +112,7 @@
                   2. Check Docker logs with: docker logs <container>
                   3. Check service logs with: docker compose logs <service>
                   4. Verify network connectivity with: docker network inspect
-                  5. Review deployment configuration in docker-compose.env
+                  5. Review deployment configuration in .env file
 
     - name: Verify critical services are healthy
       block:

@@ -19,9 +19,9 @@
       register: compose_yml_stat
       failed_when: not compose_yml_stat.stat.exists
 
-    - name: Verify docker-compose.env exists
+    - name: Verify .env file exists
       stat:
-        path: "{{ docker_compose_data_dir }}/docker-compose.env"
+        path: "{{ docker_compose_data_dir }}/.env"
       register: compose_env_stat
       failed_when: not compose_env_stat.stat.exists
 
@@ -132,21 +132,21 @@
         - volumes
 
     - name: Verify environment file is readable
-      command: head -1 "{{ docker_compose_data_dir }}/docker-compose.env"
+      command: head -1 "{{ docker_compose_data_dir }}/.env"
       register: env_file_read
       changed_when: false
 
     - name: Check for required environment variables in .env
       shell: |
         set -o pipefail
-        grep -E "^(INSTANCE_NAME|DEPLOYMENT_ID)=" "{{ docker_compose_data_dir }}/docker-compose.env" | wc -l
+        grep -E "^(INSTANCE_NAME|DEPLOYMENT_ID)=" "{{ docker_compose_data_dir }}/.env" | wc -l
       register: required_env_count
       changed_when: false
 
     - name: Fail if required environment variables missing
       fail:
         msg: |
-          Required environment variables missing from docker-compose.env.
+          Required environment variables missing from .env file.
           Required: INSTANCE_NAME, DEPLOYMENT_ID
       when:
         - required_env_count.stdout | int < 2
