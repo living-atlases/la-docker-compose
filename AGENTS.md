@@ -495,3 +495,37 @@ jenkins_searchBuildLog jobFullName=la-docker-compose-tests pattern="ERROR.*patte
 2. **Ansible syntax** - look for `FAILED! Error parsing`
 3. **Include/import failures** - look for `Could not find or access` in playbooks/
 4. **Task execution** - look for `fatal:` or `failed=1` in PLAY RECAP
+
+---
+
+## 📚 Architecture & Design Documentation
+
+### Build #83: CAS Configuration Directory Fix Analysis
+
+**Location:** `BUILD_83_FIX.md`
+
+This document captures the root cause analysis, solution design, and testing approach for the Build #83 CAS container startup failure. Key learnings:
+
+**The Problem:**
+- Service roles in `generate-compose.yml` used conditions like `when: "'cas-servers' in group_names"`
+- In docker-compose architecture, services are host aliases (e.g., `hostname.cas`), not group memberships
+- Group membership checks fail when executing playbook against the physical host
+
+**The Pattern:**
+- Use dynamically-calculated `service_aliases` fact instead of static group membership checks
+- Fact maps service groups to their actual host aliases at runtime
+- Provides safe fallback if alias doesn't exist (check fails safely)
+
+**Why It Matters:**
+- Reveals a fundamental architectural pattern for multi-service deployments
+- Shows how to properly include roles when services are represented as aliases
+- Demonstrates collision-risk testing (Issue #10) to verify variable isolation
+
+**When to Reference:**
+- Before modifying service role inclusion conditions in `generate-compose.yml`
+- When adding new services to the deployment
+- When debugging why services aren't starting (check if role inclusion is skipped)
+- When reviewing related changes to understand the inventory architecture
+
+**Recommended Reading:**
+Start with "The Problem in Detail" section to understand the context, then skip to "The Solution" for the fix pattern.

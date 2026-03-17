@@ -460,3 +460,23 @@ docker-compose config > /dev/null && echo "Valid" || echo "Invalid"
 4. Restart service: `docker-compose restart SERVICE`
 
 ---
+
+## Recent Fixes & Architecture Documentation
+
+### Build #83: CAS Configuration Directory Fix
+
+See **[BUILD_83_FIX.md](BUILD_83_FIX.md)** for comprehensive analysis of:
+
+- **Problem:** Jenkins Build #83 failed—CAS container crashed with `Config data location '/data/cas/config/' does not exist`
+- **Root Cause:** Service role inclusion logic in `generate-compose.yml` checked for group membership (`'cas-servers' in group_names`), but in the docker-compose architecture, services are represented as host aliases, not groups
+- **Solution:** Updated all 11 service role conditions to use a dynamically-calculated `service_aliases` fact
+- **Status:** ✅ Fixed in commit `1c309e3` — ready for Jenkins Build #84 validation
+
+**Key sections in BUILD_83_FIX.md:**
+- The Problem in Detail — how group membership checks fail in docker-compose
+- The Solution — how `service_aliases` works
+- Testing & Validation — how we verified variable collisions (Issue #10) are prevented
+- Expected Behavior — what Build #84 should show
+- Design patterns — why this matters for multi-service deployments
+
+**Recommended reading:** If you modify service role inclusion logic or add new services, start here to understand the architectural constraints.
