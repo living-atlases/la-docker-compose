@@ -63,7 +63,7 @@
         msg: "CRITICAL: Insufficient disk space - {{ disk_available.stdout }}. Please free up at least 1GB."
       when:
         - disk_available.rc == 0
-        - disk_available.stdout | regex_search('0 GB available')
+        - disk_available.stdout | regex_search('^0 GB available')
 
     - name: Check if required configuration directories exist
       stat:

@@ -21,6 +21,11 @@ skip_handlers: true
 
 supported_ansible_version: { full: 2.17.3, major: 2, minor: 17, revision: 3 }
 
+# Instance name for docker-compose project identification
+# Used for docker compose --project-name and container naming
+# Defaults to short hostname for uniqueness per deployment
+instance_name: "{{ inventory_hostname_short | default(inventory_hostname) }}"
+
 # ============================================
 # i18n Configuration
 # ============================================
