@@ -68,7 +68,7 @@
           block:
             - name: Copy diagnose script to target
               copy:
-                src: "{{ playbook_dir }}/../../scripts/diagnose-failure.sh"
+                src: "{{ role_path }}/../../scripts/diagnose-failure.sh"
                 dest: "{{ docker_compose_data_dir }}/diagnose-failure.sh"
                 mode: "0755"
                 owner: "{{ docker_compose_userid }}"
