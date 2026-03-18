@@ -45,7 +45,7 @@
       block:
         - name: Copy wait-for-health.sh script to target
           copy:
-            src: "{{ playbook_dir }}/../../scripts/wait-for-health.sh"
+            src: "{{ role_path }}/../../scripts/wait-for-health.sh"
             dest: "{{ docker_compose_data_dir }}/wait-for-health.sh"
             mode: "0755"
             owner: "{{ docker_compose_userid }}"

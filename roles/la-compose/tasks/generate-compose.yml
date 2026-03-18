@@ -59,7 +59,7 @@
   tags:
     - always
     - docker-compose 
-  when: "'cas-servers' in group_names"
+  when: service_aliases.get('cas-servers') is defined
 
 - name: Set docker facts for namematching service
   set_fact:
@@ -67,7 +67,7 @@
   tags:
     - always
     - docker-compose    
-  when: "'namematching-service' in group_names"
+  when: service_aliases.get('namematching-service') is defined
 
 - name: Set docker facts for sensitive data service
   set_fact:
@@ -75,7 +75,7 @@
   tags:
     - always
     - docker-compose
-  when: "'sensitive-data-service' in group_names"
+  when: service_aliases.get('sensitive-data-service') is defined
 
 - name: Set docker facts for collectory service
   set_fact:
@@ -83,7 +83,7 @@
   tags:
     - always
     - docker-compose
-  when: "'collectory' in group_names"
+  when: service_aliases.get('collectory') is defined
 
 - name: Set nginx Docker resolver configuration
   set_fact:
@@ -411,7 +411,7 @@
 - name: Load collectory role variables if needed
   include_vars:
     file: "{{ playbook_dir }}/../../ala-install/ansible/roles/collectory/vars/main.yml"
-  when: "'collectory' in group_names"
+  when: service_aliases.get('collectory') is defined
   tags:
     - docker-compose
 
