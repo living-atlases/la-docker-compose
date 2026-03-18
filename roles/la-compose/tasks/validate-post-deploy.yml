@@ -247,14 +247,24 @@
       tags:
         - logs
 
-    - name: Generate deployment report
-      template:
-        src: deployment-report.j2
-        dest: "{{ data_dir }}/logs/deployment-report.html"
-        mode: "0644"
-        owner: "{{ docker_compose_userid }}"
-        group: "{{ docker_compose_usergid }}"
-      become: true
+    - name: Display deployment report
+      debug:
+        msg: |
+          ╔════════════════════════════════════════════════════════════╗
+          ║           DEPLOYMENT REPORT - {{ inventory_hostname }}     ║
+          ╠════════════════════════════════════════════════════════════╣
+          ║ Timestamp: {{ ansible_date_time.iso8601 }}
+          ║ Services:  {{ final_status.stdout_lines | length }}/{{ expected_services | default('?') }} running
+          ║ Host:      {{ ansible_host | default('localhost') }}
+          ╠════════════════════════════════════════════════════════════╣
+          ║ Running Services:
+          {% for svc in final_status.stdout_lines | default([]) %}
+          ║   ✓ {{ svc }}
+          {% endfor %}
+          ╠════════════════════════════════════════════════════════════╣
+          ║ Logs: {{ data_dir }}/logs/deployment.log
+          ║ Status: {{ 'SUCCESS ✓' if (final_status.stdout_lines | length | int == expected_services | int) else 'WARNING ⚠️' }}
+          ╚════════════════════════════════════════════════════════════╝
       ignore_errors: true
       tags:
         - reports
