@@ -380,7 +380,7 @@
 - name: "Bulk load CAS5 variables from service alias context"
   set_fact:
     "{{ item.key }}": "{{ item.value }}"
-  loop: "{{ hostvars[service_aliases['cas-servers']] | dict2items }}"
+  loop: "{{ hostvars[service_aliases.get('cas-servers', '')] | default({}) | dict2items | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$') | list }}"
   loop_control:
     label: "{{ item.key }}"
   when:
@@ -408,7 +408,7 @@
 - name: "Bulk load USERDETAILS variables from service alias context"
   set_fact:
     "{{ item.key }}": "{{ item.value }}"
-  loop: "{{ hostvars[service_aliases['cas-servers']] | dict2items }}"
+  loop: "{{ hostvars[service_aliases.get('cas-servers', '')] | default({}) | dict2items | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$') | list }}"
   loop_control:
     label: "{{ item.key }}"
   when:
@@ -436,7 +436,7 @@
 - name: "Bulk load APIKEY variables from service alias context"
   set_fact:
     "{{ item.key }}": "{{ item.value }}"
-  loop: "{{ hostvars[service_aliases['cas-servers']] | dict2items }}"
+  loop: "{{ hostvars[service_aliases.get('cas-servers', '')] | default({}) | dict2items | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$') | list }}"
   loop_control:
     label: "{{ item.key }}"
   when:
@@ -464,7 +464,7 @@
 - name: "Bulk load CAS-MANAGEMENT variables from service alias context"
   set_fact:
     "{{ item.key }}": "{{ item.value }}"
-  loop: "{{ hostvars[service_aliases['cas-servers']] | dict2items }}"
+  loop: "{{ hostvars[service_aliases.get('cas-servers', '')] | default({}) | dict2items | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$') | list }}"
   loop_control:
     label: "{{ item.key }}"
   when:
@@ -515,7 +515,7 @@
 - name: "Bulk load COLLECTORY variables from service alias context"
   set_fact:
     "{{ item.key }}": "{{ item.value }}"
-  loop: "{{ hostvars[service_aliases['collectory']] | dict2items }}"
+  loop: "{{ hostvars[service_aliases.get('collectory', '')] | default({}) | dict2items | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$') | list }}"
   loop_control:
     label: "{{ item.key }}"
   when:
@@ -544,7 +544,7 @@
 - name: "Bulk load SPECIES-LIST variables from service alias context"
   set_fact:
     "{{ item.key }}": "{{ item.value }}"
-  loop: "{{ hostvars[service_aliases['species-list']] | dict2items }}"
+  loop: "{{ hostvars[service_aliases.get('species-list', '')] | default({}) | dict2items | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$') | list }}"
   loop_control:
     label: "{{ item.key }}"
   when:
@@ -573,7 +573,7 @@
 - name: "Bulk load BIE-HUB variables from service alias context"
   set_fact:
     "{{ item.key }}": "{{ item.value }}"
-  loop: "{{ hostvars[service_aliases['bie-hub']] | dict2items }}"
+  loop: "{{ hostvars[service_aliases.get('bie-hub', '')] | default({}) | dict2items | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$') | list }}"
   loop_control:
     label: "{{ item.key }}"
   when:
@@ -603,7 +603,7 @@
 - name: "Bulk load BIE-INDEX variables from service alias context"
   set_fact:
     "{{ item.key }}": "{{ item.value }}"
-  loop: "{{ hostvars[service_aliases['bie-index']] | dict2items }}"
+  loop: "{{ hostvars[service_aliases.get('bie-index', '')] | default({}) | dict2items | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$') | list }}"
   loop_control:
     label: "{{ item.key }}"
   when:
@@ -633,7 +633,7 @@
 - name: "Bulk load BIOCACHE-HUB variables from service alias context"
   set_fact:
     "{{ item.key }}": "{{ item.value }}"
-  loop: "{{ hostvars[service_aliases['biocache-hub']] | dict2items }}"
+  loop: "{{ hostvars[service_aliases.get('biocache-hub', '')] | default({}) | dict2items | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$') | list }}"
   loop_control:
     label: "{{ item.key }}"
   when:
@@ -663,7 +663,7 @@
 - name: "Bulk load BIOCACHE-SERVICE variables from service alias context"
   set_fact:
     "{{ item.key }}": "{{ item.value }}"
-  loop: "{{ hostvars[service_aliases['biocache-service-clusterdb']] | dict2items }}"
+  loop: "{{ hostvars[service_aliases.get('biocache-service-clusterdb', '')] | default({}) | dict2items | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$') | list }}"
   loop_control:
     label: "{{ item.key }}"
   when:
