@@ -148,15 +148,25 @@
 
 
 
-# Load common role variables early for common.yml tasks
-- name: Load common role variables
-  include_vars:
-    file: "{{ playbook_dir }}/../../ala-install/ansible/roles/common/vars/main.yml"
+# Run common role from ala-install to set up all variables and facts (maven_repo_url, etc.)
+# This MUST run before any other ala-install roles to ensure all variables are defined
+# The common role handles:
+#  - setfacts.yml: Define maven_repo_url, deployment_type defaults, etc.
+#  - Directory creation and validation
+#  - Deployment type validation
+- name: Run ala-install common role
+  include_role:
+    name: common
+    from_static: false
+  vars:
+    deployment_type: "{{ deployment_type | default('container') }}"
   tags:
-    - docker-compose
+    - always
+    - config
+    - common
 
-# Create common directories BEFORE any role tries to use them
-- name: Run common directory and config setup
+# Create docker-compose specific common directories and configs
+- name: Run docker-compose specific common setup
   include_tasks: common.yml
   tags:
     - docker-compose
