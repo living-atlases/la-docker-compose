@@ -157,7 +157,6 @@
 - name: Run ala-install common role
   include_role:
     name: common
-    from_static: false
   vars:
     deployment_type: "{{ deployment_type | default('container') }}"
   tags:
