@@ -40,6 +40,24 @@
     - always
     - docker-compose
 
+# Define system variables that should NOT be copied when bulk-loading from service aliases
+# These are internal Ansible variables that belong only to their source context
+- name: Define system variables blacklist
+  set_fact:
+    system_vars_blacklist:
+      - inventory_hostname
+      - inventory_hostname_short
+      - inventory_dir
+      - inventory_file
+      - group_names
+      - groups
+      - playbook_dir
+      - role_names
+      - role_path
+      - omit
+  tags:
+    - always
+
 - name: Set docker facts for all services
   set_fact:
     # Core user variables for all services
@@ -357,6 +375,23 @@
 
 
 
+# Bulk load all CAS5 variables from service alias context (before include_role)
+# This ensures ala-install cas5 role has access to all required configuration variables
+- name: "Bulk load CAS5 variables from service alias context"
+  set_fact:
+    "{{ item.key }}": "{{ item.value }}"
+  loop: "{{ hostvars[service_aliases['cas-servers']] | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when:
+    - service_aliases.get('cas-servers') is defined
+    - item.key is not match('^ansible_.*')
+    - item.key not in system_vars_blacklist
+  tags:
+    - cas
+    - config
+    - bulk-load
+
 - name: Run cas configuration generation
   include_role:
     name: cas5
@@ -368,6 +403,22 @@
   tags:
     - cas
     - config
+
+# Bulk load all USERDETAILS variables from service alias context
+- name: "Bulk load USERDETAILS variables from service alias context"
+  set_fact:
+    "{{ item.key }}": "{{ item.value }}"
+  loop: "{{ hostvars[service_aliases['cas-servers']] | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when:
+    - service_aliases.get('cas-servers') is defined
+    - item.key is not match('^ansible_.*')
+    - item.key not in system_vars_blacklist
+  tags:
+    - userdetails
+    - config
+    - bulk-load
 
 - name: Run userdetails configuration generation
   include_role:
@@ -381,6 +432,22 @@
     - userdetails
     - config
 
+# Bulk load all APIKEY variables from service alias context
+- name: "Bulk load APIKEY variables from service alias context"
+  set_fact:
+    "{{ item.key }}": "{{ item.value }}"
+  loop: "{{ hostvars[service_aliases['cas-servers']] | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when:
+    - service_aliases.get('cas-servers') is defined
+    - item.key is not match('^ansible_.*')
+    - item.key not in system_vars_blacklist
+  tags:
+    - apikey
+    - config
+    - bulk-load
+
 - name: Run apikey configuration generation
   include_role:
     name: apikey
@@ -392,6 +459,22 @@
   tags:
     - apikey
     - config
+
+# Bulk load all CAS-MANAGEMENT variables from service alias context
+- name: "Bulk load CAS-MANAGEMENT variables from service alias context"
+  set_fact:
+    "{{ item.key }}": "{{ item.value }}"
+  loop: "{{ hostvars[service_aliases['cas-servers']] | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when:
+    - service_aliases.get('cas-servers') is defined
+    - item.key is not match('^ansible_.*')
+    - item.key not in system_vars_blacklist
+  tags:
+    - cas-management
+    - config
+    - bulk-load
 
 - name: Run cas-management configuration generation
   include_role:
@@ -428,6 +511,22 @@
     - docker-compose
 
 # Now run collectory and other services
+# Bulk load all COLLECTORY variables from service alias context
+- name: "Bulk load COLLECTORY variables from service alias context"
+  set_fact:
+    "{{ item.key }}": "{{ item.value }}"
+  loop: "{{ hostvars[service_aliases['collectory']] | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when:
+    - service_aliases.get('collectory') is defined
+    - item.key is not match('^ansible_.*')
+    - item.key not in system_vars_blacklist
+  tags:
+    - collectory
+    - config
+    - bulk-load
+
 - name: Run collectory configuration generation (asset copy, config templates)
   include_role:
     name: collectory
@@ -441,6 +540,22 @@
     - collectory
     - config
 
+# Bulk load all SPECIES-LIST variables from service alias context
+- name: "Bulk load SPECIES-LIST variables from service alias context"
+  set_fact:
+    "{{ item.key }}": "{{ item.value }}"
+  loop: "{{ hostvars[service_aliases['species-list']] | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when:
+    - service_aliases.get('species-list') is defined
+    - item.key is not match('^ansible_.*')
+    - item.key not in system_vars_blacklist
+  tags:
+    - species-list
+    - config
+    - bulk-load
+
 - name: Run species-list configuration generation (asset copy, config templates)
   include_role:
     name: species-list
@@ -453,6 +568,22 @@
   tags:
     - species-list
     - config
+
+# Bulk load all BIE-HUB variables from service alias context
+- name: "Bulk load BIE-HUB variables from service alias context"
+  set_fact:
+    "{{ item.key }}": "{{ item.value }}"
+  loop: "{{ hostvars[service_aliases['bie-hub']] | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when:
+    - service_aliases.get('bie-hub') is defined
+    - item.key is not match('^ansible_.*')
+    - item.key not in system_vars_blacklist
+  tags:
+    - bie-hub
+    - config
+    - bulk-load
 
 - name: Run bie-hub configuration generation
   include_role:
@@ -468,6 +599,22 @@
     - bie-hub
     - config
 
+# Bulk load all BIE-INDEX variables from service alias context
+- name: "Bulk load BIE-INDEX variables from service alias context"
+  set_fact:
+    "{{ item.key }}": "{{ item.value }}"
+  loop: "{{ hostvars[service_aliases['bie-index']] | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when:
+    - service_aliases.get('bie-index') is defined
+    - item.key is not match('^ansible_.*')
+    - item.key not in system_vars_blacklist
+  tags:
+    - bie-index
+    - config
+    - bulk-load
+
 - name: Run bie-index configuration generation
   include_role:
     name: bie-index
@@ -482,6 +629,22 @@
     - bie-index
     - config
 
+# Bulk load all BIOCACHE-HUB variables from service alias context
+- name: "Bulk load BIOCACHE-HUB variables from service alias context"
+  set_fact:
+    "{{ item.key }}": "{{ item.value }}"
+  loop: "{{ hostvars[service_aliases['biocache-hub']] | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when:
+    - service_aliases.get('biocache-hub') is defined
+    - item.key is not match('^ansible_.*')
+    - item.key not in system_vars_blacklist
+  tags:
+    - biocache-hub
+    - config
+    - bulk-load
+
 - name: Run biocache-hub configuration generation
   include_role:
     name: biocache-hub
@@ -495,6 +658,22 @@
   tags:
     - biocache-hub
     - config
+
+# Bulk load all BIOCACHE-SERVICE variables from service alias context
+- name: "Bulk load BIOCACHE-SERVICE variables from service alias context"
+  set_fact:
+    "{{ item.key }}": "{{ item.value }}"
+  loop: "{{ hostvars[service_aliases['biocache-service-clusterdb']] | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when:
+    - service_aliases.get('biocache-service-clusterdb') is defined
+    - item.key is not match('^ansible_.*')
+    - item.key not in system_vars_blacklist
+  tags:
+    - biocache-service
+    - config
+    - bulk-load
 
 - name: Run biocache-service properties generation
   include_role:

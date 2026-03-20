@@ -1,0 +1,155 @@
+---
+# Test hostvars + service_aliases pattern for accessing service-specific variables
+# Simulates the Build #90 issue: cas_server_name undefined when playbook runs against docker_compose host
+# Solution: use hostvars[service_alias] to access variables from service context
+
+- name: Test hostvars service alias variable loading
+  hosts: docker_compose
+  gather_facts: false
+  
+  tasks:
+    - name: "DEBUG: Show current inventory context"
+      debug:
+        msg: |
+          Running on: {{ inventory_hostname }}
+          ansible_host: {{ ansible_host }}
+          Groups: {{ group_names }}
+    
+    # Mimic the setup-facts.yml logic to calculate service_aliases
+    - name: Calculate service_aliases (mimic setup-facts.yml)
+      set_fact:
+        service_aliases: >-
+          {%- set result = {} -%}
+          {%- for service in ['cas-servers'] -%}
+            {%- if service in groups -%}
+              {%- set matching = groups[service] | select('match', '^' + ansible_host + '\\.') | list -%}
+              {%- if matching | length > 0 -%}
+                {%- set _ = result.update({service: matching[0]}) -%}
+              {%- endif -%}
+            {%- endif -%}
+          {%- endfor -%}
+          {{ result }}
+    
+    - name: "DEBUG: Show calculated service_aliases"
+      debug:
+        msg: "service_aliases: {{ service_aliases }}"
+    
+    # TEST 1: Verify cas_server_name is UNDEFINED in docker_compose context
+    - name: "TEST 1: Check if cas_server_name is undefined in docker_compose context"
+      set_fact:
+        test1_result: "{{ cas_server_name | default('UNDEFINED') }}"
+    
+    - name: "TEST 1: Display result"
+      debug:
+        msg: |
+          TEST 1 - Expected FAILURE (variable should be undefined):
+          cas_server_name in docker_compose context: {{ test1_result }}
+    
+    - name: "TEST 1: Verify it's actually undefined"
+      assert:
+        that:
+          - test1_result == 'UNDEFINED'
+        fail_msg: "TEST 1 FAILED: cas_server_name should be undefined in docker_compose context"
+        success_msg: "TEST 1 PASSED ✅: cas_server_name is undefined in docker_compose context (expected)"
+    
+    # TEST 2: Access cas_server_name using hostvars from service alias
+    - name: "TEST 2: Load cas_server_name via hostvars[service_alias]"
+      set_fact:
+        test2_result: "{{ hostvars[service_aliases['cas-servers']]['cas_server_name'] }}"
+      when: service_aliases.get('cas-servers') is defined
+      register: test2_output
+    
+    - name: "TEST 2: Display loaded value"
+      debug:
+        msg: |
+          TEST 2 - Expected SUCCESS (variable loaded via hostvars):
+          cas_server_name from {{ service_aliases['cas-servers'] }}: {{ test2_result }}
+      when: service_aliases.get('cas-servers') is defined
+    
+    - name: "TEST 2: Verify hostvars loaded the variable correctly"
+      assert:
+        that:
+          - test2_result is defined
+          - test2_result == 'https://test-cas.example.com'
+        fail_msg: |
+          TEST 2 FAILED: hostvars did not load cas_server_name
+          Got: {{ test2_result | default('UNDEFINED') }}
+        success_msg: "TEST 2 PASSED ✅: hostvars successfully loaded cas_server_name={{ test2_result }}"
+      when: service_aliases.get('cas-servers') is defined
+    
+    # TEST 3: Load multiple variables using hostvars
+    - name: "TEST 3: Load multiple variables via hostvars"
+      set_fact:
+        test3_hostname: "{{ hostvars[service_aliases['cas-servers']]['cas_host_name'] }}"
+        test3_context: "{{ hostvars[service_aliases['cas-servers']]['cas_context_path'] }}"
+      when: service_aliases.get('cas-servers') is defined
+      register: test3_output
+    
+    - name: "TEST 3: Display multiple loaded values"
+      debug:
+        msg: |
+          TEST 3 - Expected SUCCESS (multiple variables loaded via hostvars):
+          cas_host_name: {{ test3_hostname }}
+          cas_context_path: {{ test3_context }}
+      when: service_aliases.get('cas-servers') is defined
+    
+    - name: "TEST 3: Verify all variables loaded"
+      assert:
+        that:
+          - test3_hostname == 'test-cas.example.com'
+          - test3_context == 'cas'
+        fail_msg: |
+          TEST 3 FAILED: Multiple variables not loaded correctly
+          cas_host_name: {{ test3_hostname | default('UNDEFINED') }}
+          cas_context_path: {{ test3_context | default('UNDEFINED') }}
+        success_msg: "TEST 3 PASSED ✅: All variables loaded via hostvars"
+      when: service_aliases.get('cas-servers') is defined
+    
+    # TEST 4: Verify ansible_host from service alias (same as docker_compose host)
+    - name: "TEST 4: Access ansible_host from service alias context"
+      set_fact:
+        test4_host: "{{ hostvars[service_aliases['cas-servers']]['ansible_host'] }}"
+      when: service_aliases.get('cas-servers') is defined
+      register: test4_output
+    
+    - name: "TEST 4: Verify ansible_host is same"
+      debug:
+        msg: |
+          TEST 4 - Verify ansible_host is same:
+          ansible_host from .cas context: {{ test4_host }}
+          Expected: localhost
+      when: service_aliases.get('cas-servers') is defined
+    
+    - name: "TEST 4: Assert ansible_host is correct"
+      assert:
+        that:
+          - test4_host == 'localhost'
+        fail_msg: |
+          TEST 4 FAILED: ansible_host is different!
+          Got: {{ test4_host }}
+        success_msg: "TEST 4 PASSED ✅: ansible_host is same ({{ test4_host }})"
+      when: service_aliases.get('cas-servers') is defined
+    
+    # FINAL SUMMARY
+    - name: "SUMMARY: All tests passed ✅"
+      debug:
+        msg: |
+          ========================================
+          SERVICE ALIAS VARIABLE ACCESS: SUCCESS
+          ========================================
+          
+          ✅ TEST 1: cas_server_name undefined in docker_compose context
+          ✅ TEST 2: hostvars[service_alias] loads cas_server_name
+          ✅ TEST 3: Multiple variables load correctly via hostvars
+          ✅ TEST 4: ansible_host is identical (same physical server)
+          
+          CONCLUSION: Using hostvars[service_alias] is SAFE and EFFECTIVE
+          
+          The pattern works because:
+          1. service_aliases maps groups to inventory aliases
+          2. Both docker_compose and service aliases point to same ansible_host
+          3. hostvars provides access to all variables in service alias context
+          4. Tasks execute on same physical server (via ansible_host)
+          
+          Next step for include_role:
+            Pre-load variables from service alias into task vars, then include_role
