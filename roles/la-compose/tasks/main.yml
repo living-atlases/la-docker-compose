@@ -22,6 +22,16 @@
       tags:
         - docker
 
+    - name: Install python3-lxml for Ansible XML modules
+      apt:
+        name: python3-lxml
+        state: present
+        update_cache: false
+      become: true
+      tags:
+        - always
+        - dependencies
+
     - name: Ensure docker_compose_data_dir exists early
       file:
         path: "{{ docker_compose_data_dir }}"
