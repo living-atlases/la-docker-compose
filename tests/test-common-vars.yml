@@ -1,0 +1,105 @@
+---
+# Test playbook to verify that common role variables are loaded correctly
+# This simulates the flow in generate-compose.yml to verify variable availability
+#
+# Run with:
+#   ansible-playbook -i inventories/local tests/test-common-vars.yml -vv
+
+- name: Test common role variable loading
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  
+  vars:
+    # Simulate la-compose defaults
+    data_dir: /data
+    docker_compose_data_dir: /data/docker-compose
+    nginx_conf_dir: /etc/nginx
+    deployment_type: container
+    docker_compose_userid: 1000
+    docker_compose_usergid: 1000
+    use_gatus: true
+    
+  tasks:
+    - name: "TEST 1: Show initial state (before including common role)"
+      debug:
+        msg:
+          - "=== BEFORE COMMON ROLE ==="
+          - "gatus_config_dir defined: {{ gatus_config_dir is defined }}"
+          - "maven_repo_url defined: {{ maven_repo_url is defined }}"
+          - "data_dir: {{ data_dir }}"
+      tags: [test]
+
+    - name: "TEST 2: Include common role from ala-install (same as generate-compose.yml:157)"
+      include_role:
+        name: common
+      tags: [test]
+
+    - name: "TEST 3: Show state after including common role"
+      debug:
+        msg:
+          - "=== AFTER COMMON ROLE (include_role) ==="
+          - "gatus_config_dir defined: {{ gatus_config_dir is defined }}"
+          - "maven_repo_url defined: {{ maven_repo_url is defined }}"
+      tags: [test]
+
+    - name: "TEST 4: Try to access gatus_config_dir variable"
+      debug:
+        msg: "gatus_config_dir value: {{ gatus_config_dir | default('UNDEFINED') }}"
+      tags: [test]
+
+    - name: "TEST 5: Try to access maven_repo_url variable"
+      debug:
+        msg: "maven_repo_url value: {{ maven_repo_url | default('UNDEFINED') }}"
+      tags: [test]
+
+    - name: "TEST 6: Include common role with public=true"
+      include_role:
+        name: common
+        public: true
+      tags: [test-public]
+
+    - name: "TEST 7: Check if public=true makes variables accessible"
+      debug:
+        msg:
+          - "=== AFTER COMMON ROLE (public=true) ==="
+          - "gatus_config_dir: {{ gatus_config_dir | default('UNDEFINED') }}"
+          - "maven_repo_url: {{ maven_repo_url | default('UNDEFINED') }}"
+      tags: [test-public]
+
+    - name: "TEST 8: Find ala-install path"
+      set_fact:
+        ala_install_vars_path: "{{ lookup('env', 'HOME') }}/proyectos/gbif/dev/ala-install/ansible/roles/common/vars/main.yml"
+      tags: [test-explicit]
+
+    - name: "TEST 8b: Load common vars explicitly with include_vars"
+      include_vars:
+        file: "{{ ala_install_vars_path }}"
+      tags: [test-explicit]
+
+    - name: "TEST 9: Check if explicit include_vars works"
+      debug:
+        msg:
+          - "=== AFTER include_vars ==="
+          - "gatus_config_dir: {{ gatus_config_dir | default('UNDEFINED') }}"
+      tags: [test-explicit]
+
+    - name: "TEST 10: Simulate the failing task from common.yml"
+      file:
+        path: "{{ gatus_config_dir }}"
+        state: directory
+        owner: "{{ docker_compose_userid }}"
+        group: "{{ docker_compose_usergid }}"
+      check_mode: true
+      when:
+        - (use_gatus | default(false) | bool)
+      tags: [test-task]
+      register: test_result
+      ignore_errors: true
+
+    - name: "TEST 11: Show result of simulated task"
+      debug:
+        msg:
+          - "Task succeeded: {{ test_result is not failed }}"
+          - "Result: {{ test_result }}"
+      tags: [test-task]

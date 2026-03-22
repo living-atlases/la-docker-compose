@@ -157,6 +157,7 @@
 - name: Run ala-install common role
   include_role:
     name: common
+    public: true  # Makes vars/ and set_fact available globally for la-compose tasks
   tags:
     - always
     - config

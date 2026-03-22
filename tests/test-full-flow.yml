@@ -1,0 +1,157 @@
+---
+# Complete test simulating the exact flow in generate-compose.yml
+# Tests both approaches: public=true vs include_vars
+#
+# Run with:
+#   ansible-playbook -i inventories/local tests/test-full-flow.yml
+
+- name: Test complete variable loading flow (Approach 1 - public=true)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  
+  vars:
+    data_dir: /data
+    docker_compose_data_dir: /data/docker-compose
+    nginx_conf_dir: /etc/nginx
+    deployment_type: container
+    docker_compose_userid: 1000
+    docker_compose_usergid: 1000
+    use_gatus: true
+    
+  tasks:
+    - name: "=== APPROACH 1: include_role with public=true ==="
+      debug:
+        msg: "Testing include_role with public=true"
+
+    - name: "Run ala-install common role with public=true"
+      include_role:
+        name: common
+        public: true
+      tags: [approach1]
+
+    - name: "Verify gatus_config_dir is available"
+      assert:
+        that:
+          - gatus_config_dir is defined
+          - gatus_config_dir == "/data/gatus/config"
+        success_msg: "✅ gatus_config_dir correctly loaded: {{ gatus_config_dir }}"
+        fail_msg: "❌ gatus_config_dir not loaded correctly"
+      tags: [approach1]
+
+    - name: "Verify maven_repo_url is available (from setfacts.yml)"
+      assert:
+        that:
+          - maven_repo_url is defined
+        success_msg: "✅ maven_repo_url correctly loaded: {{ maven_repo_url }}"
+        fail_msg: "❌ maven_repo_url not loaded from setfacts.yml"
+      tags: [approach1]
+
+    - name: "Simulate task from common.yml (gatus directory)"
+      file:
+        path: "{{ gatus_config_dir }}"
+        state: directory
+        owner: "{{ docker_compose_userid }}"
+        group: "{{ docker_compose_usergid }}"
+      check_mode: true
+      when: use_gatus | default(false) | bool
+      tags: [approach1]
+
+    - name: "Simulate task from common.yml (nginx directories)"
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ docker_compose_userid }}"
+        group: "{{ docker_compose_usergid }}"
+      check_mode: true
+      with_items:
+        - "{{ nginx_conf_dir }}/conf.d"
+        - "{{ nginx_conf_dir }}/sites-enabled"
+        - "{{ nginx_conf_dir }}/sites-available"
+      tags: [approach1]
+
+    - name: "✅ APPROACH 1 SUCCESS"
+      debug:
+        msg:
+          - "All variables loaded correctly with public=true"
+          - "gatus_config_dir: {{ gatus_config_dir }}"
+          - "maven_repo_url: {{ maven_repo_url }}"
+      tags: [approach1]
+
+
+- name: Test complete variable loading flow (Approach 2 - include_vars)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  
+  vars:
+    data_dir: /data
+    docker_compose_data_dir: /data/docker-compose
+    nginx_conf_dir: /etc/nginx
+    deployment_type: container
+    docker_compose_userid: 1000
+    docker_compose_usergid: 1000
+    use_gatus: true
+    
+  tasks:
+    - name: "=== APPROACH 2: include_role + include_vars ==="
+      debug:
+        msg: "Testing include_role + explicit include_vars"
+
+    - name: "Run ala-install common role (default)"
+      include_role:
+        name: common
+      tags: [approach2]
+
+    - name: "Load common vars explicitly"
+      include_vars:
+        file: "{{ lookup('env', 'HOME') }}/proyectos/gbif/dev/ala-install/ansible/roles/common/vars/main.yml"
+      tags: [approach2]
+
+    - name: "Verify gatus_config_dir is available"
+      assert:
+        that:
+          - gatus_config_dir is defined
+          - gatus_config_dir == "/data/gatus/config"
+        success_msg: "✅ gatus_config_dir correctly loaded: {{ gatus_config_dir }}"
+        fail_msg: "❌ gatus_config_dir not loaded correctly"
+      tags: [approach2]
+
+    - name: "Verify maven_repo_url is available (from setfacts.yml)"
+      assert:
+        that:
+          - maven_repo_url is defined
+        success_msg: "✅ maven_repo_url correctly loaded: {{ maven_repo_url }}"
+        fail_msg: "❌ maven_repo_url not loaded from setfacts.yml"
+      tags: [approach2]
+
+    - name: "Simulate task from common.yml (gatus directory)"
+      file:
+        path: "{{ gatus_config_dir }}"
+        state: directory
+        owner: "{{ docker_compose_userid }}"
+        group: "{{ docker_compose_usergid }}"
+      check_mode: true
+      when: use_gatus | default(false) | bool
+      tags: [approach2]
+
+    - name: "Simulate task from common.yml (nginx directories)"
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ docker_compose_userid }}"
+        group: "{{ docker_compose_usergid }}"
+      check_mode: true
+      with_items:
+        - "{{ nginx_conf_dir }}/conf.d"
+        - "{{ nginx_conf_dir }}/sites-enabled"
+        - "{{ nginx_conf_dir }}/sites-available"
+      tags: [approach2]
+
+    - name: "✅ APPROACH 2 SUCCESS"
+      debug:
+        msg:
+          - "All variables loaded correctly with include_vars"
+          - "gatus_config_dir: {{ gatus_config_dir }}"
+          - "maven_repo_url: {{ maven_repo_url }}"
+      tags: [approach2]
