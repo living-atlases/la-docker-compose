@@ -22,23 +22,28 @@
       tags:
         - docker
 
-    - name: Purge potentially broken python3-lxml installation
+    - name: Install python-lxml for Ansible XML modules (python 2)
       apt:
-        name: python3-lxml
-        state: absent
-        purge: true
+        name: python-lxml
+        state: present
       become: true
-      ignore_errors: true
+      when: ansible_python.version.major == 2
       tags:
         - always
         - dependencies
 
-    - name: Install python3-lxml for Ansible XML modules
+    - name: Install python3-lxml for Ansible XML modules (python 3)
       apt:
         name: python3-lxml
         state: present
-        update_cache: false
       become: true
+      when: ansible_python.version.major == 3
+      tags:
+        - always
+        - dependencies
+
+    - name: Reset SSH connection to reload Python modules after lxml install
+      meta: reset_connection
       tags:
         - always
         - dependencies
