@@ -232,6 +232,8 @@
   always:
     - name: Collect final service status
       command: docker compose ps -q
+      args:
+        chdir: "{{ docker_compose_data_dir }}"
       register: final_status
       changed_when: false
       ignore_errors: true
