@@ -65,6 +65,7 @@
       - role_names
       - role_path
       - omit
+      - deployment_type
   tags:
     - always
 
