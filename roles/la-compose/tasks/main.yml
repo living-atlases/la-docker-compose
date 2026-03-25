@@ -22,16 +22,6 @@
       tags:
         - docker
 
-    - name: Install lxml for Ansible XML modules via pip (matches ansible_python_interpreter)
-      pip:
-        name: lxml
-        state: present
-        executable: "{{ 'pip' if ansible_python.version.major == 2 else 'pip3' }}"
-      become: true
-      tags:
-        - always
-        - dependencies
-
     - name: Ensure docker_compose_data_dir exists early
       file:
         path: "{{ docker_compose_data_dir }}"

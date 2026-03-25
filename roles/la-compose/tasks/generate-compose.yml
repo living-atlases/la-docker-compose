@@ -11,6 +11,16 @@
     - docker-compose
     - build
 
+# Enforce deployment_type=container for the entire generate-compose flow.
+# This uses set_fact (higher precedence than inventory vars) to prevent
+# ala-install roles (e.g. common/setfacts) from resetting it to 'vm'
+# via their own set_fact calls.
+- name: Enforce deployment_type=container for all included roles
+  set_fact:
+    deployment_type: container
+  tags:
+    - always
+
 - name: Ensure nginx_docker_internal_aliases is a list
   set_fact:
     nginx_docker_internal_aliases: "{{ nginx_docker_internal_aliases | from_json if nginx_docker_internal_aliases is string else nginx_docker_internal_aliases }}"
@@ -403,8 +413,6 @@
 - name: Run cas configuration generation
   include_role:
     name: cas5
-  vars:
-    deployment_type: container
   when:
     - "'cas' in services_enabled"
     - "service_aliases.get('cas-servers') is defined"
@@ -431,8 +439,6 @@
 - name: Run userdetails configuration generation
   include_role:
     name: userdetails
-  vars:
-    deployment_type: container
   when:
     - "'userdetails' in services_enabled"
     - "service_aliases.get('cas-servers') is defined"
@@ -459,8 +465,6 @@
 - name: Run apikey configuration generation
   include_role:
     name: apikey
-  vars:
-    deployment_type: container
   when:
     - "'apikey' in services_enabled"
     - "service_aliases.get('cas-servers') is defined"
@@ -487,8 +491,6 @@
 - name: Run cas-management configuration generation
   include_role:
     name: cas-management
-  vars:
-    deployment_type: container
   when:
     - "'cas_management' in services_enabled"
     - "service_aliases.get('cas-servers') is defined"
@@ -539,8 +541,7 @@
   include_role:
     name: collectory
   vars:
-    deployment_type: container
-    nginx_vhost_fast_mode: true
+      nginx_vhost_fast_mode: true
   when: 
     - "'collectory' in services_enabled"
     - "service_aliases.get('collectory') is defined"
@@ -568,8 +569,7 @@
   include_role:
     name: species-list
   vars:
-    deployment_type: container
-    nginx_vhost_fast_mode: true
+      nginx_vhost_fast_mode: true
   when: 
     - "'species_lists' in services_enabled"
     - "service_aliases.get('species-list') is defined"
@@ -597,9 +597,8 @@
   include_role:
     name: bie-hub
   vars:
-    deployment_type: container
-    bie_hub_docker_host: la_bie-hub
-    nginx_vhost_fast_mode: true
+      bie_hub_docker_host: la_bie-hub
+      nginx_vhost_fast_mode: true
   when: 
     - "'ala_bie' in services_enabled"
     - "service_aliases.get('bie-hub') is defined"
@@ -627,9 +626,8 @@
   include_role:
     name: bie-index
   vars:
-    deployment_type: container
-    bie_index_docker_host: la_bie-index
-    nginx_vhost_fast_mode: true
+      bie_index_docker_host: la_bie-index
+      nginx_vhost_fast_mode: true
   when: 
     - "'bie_index' in services_enabled"
     - "service_aliases.get('bie-index') is defined"
@@ -657,9 +655,8 @@
   include_role:
     name: biocache-hub
   vars:
-    deployment_type: container
-    biocache_hub_docker_host: la_biocache-hub
-    nginx_vhost_fast_mode: true
+      biocache_hub_docker_host: la_biocache-hub
+      nginx_vhost_fast_mode: true
   when:
     - "'ala_hub' in services_enabled"
     - "service_aliases.get('biocache-hub') is defined"
@@ -687,10 +684,9 @@
   include_role:
     name: biocache3-properties
   vars:
-    deployment_type: container
-    biocache_service_docker_host: la_biocache-service
-    biocache_db_host: la_cassandra
-    nginx_vhost_fast_mode: true
+      biocache_service_docker_host: la_biocache-service
+      biocache_db_host: la_cassandra
+      nginx_vhost_fast_mode: true
   when:
     - "'biocache_service' in services_enabled"
     - "service_aliases.get('biocache-service-clusterdb') is defined"
@@ -703,10 +699,9 @@
   include_role:
     name: biocache3-service
   vars:
-    deployment_type: container
-    biocache_service_docker_host: la_biocache-service
-    biocache_db_host: la_cassandra
-    nginx_vhost_fast_mode: true
+      biocache_service_docker_host: la_biocache-service
+      biocache_db_host: la_cassandra
+      nginx_vhost_fast_mode: true
   when:
     - "'biocache_service' in services_enabled"
     - "service_aliases.get('biocache-service-clusterdb') is defined"
