@@ -82,14 +82,14 @@
 
     - name: Load variables from collectory role if present on this server
       include_vars:
-        file: "{{ playbook_dir }}/../../ala-install/ansible/roles/collectory/vars/main.yml"
+        file: "{{ playbook_dir }}/../ala-install/ansible/roles/collectory/vars/main.yml"
       when: "'collectory' in physical_server_groups"
       tags:
         - always
 
     - name: Load variables from cas group role if present on this server
       include_vars:
-        file: "{{ playbook_dir }}/../../ala-install/ansible/roles/cas5/vars/main.yml"
+        file: "{{ playbook_dir }}/../ala-install/ansible/roles/cas5/vars/main.yml"
       when: "'cas-servers' in physical_server_groups"
       tags:
         - always

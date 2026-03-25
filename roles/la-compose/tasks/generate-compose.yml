@@ -374,14 +374,14 @@
 
 - name: Load nginx role defaults
   include_vars:
-    file: "{{ playbook_dir }}/../../ala-install/ansible/roles/nginx/defaults/main.yml"
+    file: "{{ playbook_dir }}/../ala-install/ansible/roles/nginx/defaults/main.yml"
   when: "'nginx' in services_enabled"
   tags:
     - docker-compose
 
 - name: Generate nginx.conf
   template:
-    src: "{{ playbook_dir }}/../../ala-install/ansible/roles/nginx/templates/nginx.conf.j2"
+    src: "{{ playbook_dir }}/../ala-install/ansible/roles/nginx/templates/nginx.conf.j2"
     dest: "{{ nginx_conf_dir }}/nginx.conf"
     mode: '0644'
     owner: "{{ docker_compose_userid }}"
@@ -503,7 +503,7 @@
 
 - name: Load collectory role variables if needed
   include_vars:
-    file: "{{ playbook_dir }}/../../ala-install/ansible/roles/collectory/vars/main.yml"
+    file: "{{ playbook_dir }}/../ala-install/ansible/roles/collectory/vars/main.yml"
   when: service_aliases.get('collectory') is defined
   tags:
     - docker-compose
@@ -1151,7 +1151,7 @@
 
 - name: Copy Solr configuration files from solrcloud_config role
   copy:
-    src: "{{ playbook_dir }}/../../ala-install/ansible/roles/solrcloud_config/files/"
+    src: "{{ playbook_dir }}/../ala-install/ansible/roles/solrcloud_config/files/"
     dest: "{{ docker_compose_data_dir }}/solr/init/"
     mode: '0644'
     owner: "{{ docker_compose_userid }}"
@@ -1163,7 +1163,7 @@
 
 - name: Copy Cassandra schema from biocache3-db role
   copy:
-    src: "{{ playbook_dir }}/../../ala-install/ansible/roles/biocache3-db/files/cassandra/cassandra3-schema.txt"
+    src: "{{ playbook_dir }}/../ala-install/ansible/roles/biocache3-db/files/cassandra/cassandra3-schema.txt"
     dest: "{{ docker_compose_data_dir }}/cassandra/init/schema.cql"
     mode: '0644'
     owner: "{{ docker_compose_userid }}"

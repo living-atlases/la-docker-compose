@@ -37,7 +37,7 @@
 
     - name: "Load CAS variables"
       include_vars:
-        file: "{{ playbook_dir }}/../../ala-install/ansible/roles/cas5/vars/main.yml"
+        file: "{{ playbook_dir }}/../ala-install/ansible/roles/cas5/vars/main.yml"
 
     - name: "Init: Start database containers"
       command: docker compose up -d mysql mongodb
@@ -95,13 +95,13 @@
       become: true
 
     - name: "Init: Initialize CAS admin account"
-      include_tasks: "{{ playbook_dir }}/../../ala-install/ansible/roles/cas5/tasks/admin-account.yml"
+      include_tasks: "{{ playbook_dir }}/../ala-install/ansible/roles/cas5/tasks/admin-account.yml"
       vars:
         cas_db_hostname: "{{ mysql_target_host }}"
         cas_mysql_src_host: "{{ db_src_host }}"
 
     - name: "Init: Register OIDC services"
-      include_tasks: "{{ playbook_dir }}/../../ala-install/ansible/roles/cas-management/tasks/oidc-tasks.yml"
+      include_tasks: "{{ playbook_dir }}/../ala-install/ansible/roles/cas-management/tasks/oidc-tasks.yml"
       vars:
         cas_services_host: "{{ mongodb_target_host }}"
         deployment_type: "vm"

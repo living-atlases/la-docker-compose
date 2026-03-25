@@ -16,16 +16,13 @@ pipeline {
         TARGET_HOSTS = "gbif-es-docker-cluster-2023-1 gbif-es-docker-cluster-2023-2 gbif-es-docker-cluster-2023-3"
 
         BASE_DIR = "${env.HOME}/ala-install-docker-tests"
-        ALA_DIR = "${BASE_DIR}/ala-install"
         GENERATOR_DIR = "${BASE_DIR}/generator-living-atlas"
         
         INVENTORY_PARENT_DIR = "${BASE_DIR}/lademo"
         INVENTORY_DIR = "${INVENTORY_PARENT_DIR}/lademo-inventories"
 
         VENV_DIR = "${BASE_DIR}/.venv-ansible"
-        ANSIBLE_CONFIG = "${workspace}/ansible.cfg"
 
-        ALA_GIT_URL = "https://github.com/vjrj/ala-install.git"
         GENERATOR_GIT_URL = "https://github.com/living-atlases/generator-living-atlas.git"
     }
 
@@ -44,11 +41,6 @@ pipeline {
             name: 'ONLY_CLEAN',
             defaultValue: false,
             description: 'Only clean machines and stop'
-        )
-        string(
-            name: 'ALA_INSTALL_BRANCH',
-            defaultValue: 'docker-compose-min-pr',
-            description: 'Branch of ala-install to use'
         )
         string(
             name: 'GENERATOR_BRANCH',
@@ -173,7 +165,11 @@ EOF
                     set -eu
                     
                     echo "Creating base directories..."
-                    mkdir -p "${BASE_DIR}" "${ALA_DIR}" "${GENERATOR_DIR}" "${INVENTORY_PARENT_DIR}" "${INVENTORY_DIR}"
+                    mkdir -p "${BASE_DIR}" "${GENERATOR_DIR}" "${INVENTORY_PARENT_DIR}" "${INVENTORY_DIR}"
+                    
+                    echo "Initializing ala-install submodule..."
+                    git submodule update --init --recursive --remote
+                    echo "ala-install submodule SHA: \$(git -C ala-install rev-parse HEAD)"
                     
                     echo "Setting up Python virtual environment for Ansible..."
                     if [ ! -d "${VENV_DIR}" ]; then
@@ -199,50 +195,25 @@ EOF
         stage('Update dependencies') {
             when { expression { !params.ONLY_CLEAN } }
             steps {
-                parallel(
-                    'Update ala-install': {
-                        sh """
-                            set -eu
-                            if [ ! -d "${ALA_DIR}/.git" ]; then
-                                rm -rf "${ALA_DIR}"
-                                git clone "${env.ALA_GIT_URL}" "${ALA_DIR}"
-                            else
-                                # Aggressively clean node_modules BEFORE git operations
-                                if [ -d "${ALA_DIR}/node_modules" ]; then
-                                    echo "Pre-cleaning node_modules in ala-install..."
-                                    chmod -R u+w "${ALA_DIR}/node_modules" 2>/dev/null || true
-                                    rm -rf "${ALA_DIR}/node_modules"
-                                fi
-                            fi
-                            cd "${ALA_DIR}"
-                            git fetch --prune origin
-                            git checkout -B "${params.ALA_INSTALL_BRANCH}" "origin/${params.ALA_INSTALL_BRANCH}"
-                            git reset --hard "origin/${params.ALA_INSTALL_BRANCH}"
-                            git clean -fdx
-                        """
-                    },
-                    'Update generator-living-atlas': {
-                        sh """
-                            set -eu
-                            if [ ! -d "${GENERATOR_DIR}/.git" ]; then
-                                rm -rf "${GENERATOR_DIR}"
-                                git clone "${env.GENERATOR_GIT_URL}" "${GENERATOR_DIR}"
-                            else
-                                # Aggressively clean node_modules BEFORE git operations
-                                if [ -d "${GENERATOR_DIR}/node_modules" ]; then
-                                    echo "Pre-cleaning node_modules in generator-living-atlas..."
-                                    chmod -R u+w "${GENERATOR_DIR}/node_modules" 2>/dev/null || true
-                                    rm -rf "${GENERATOR_DIR}/node_modules"
-                                fi
-                            fi
-                            cd "${GENERATOR_DIR}"
-                            git fetch --prune origin
-                            git checkout -B "${params.GENERATOR_BRANCH}" "origin/${params.GENERATOR_BRANCH}"
-                            git reset --hard "origin/${params.GENERATOR_BRANCH}"
-                            git clean -fdx
-                        """
-                    }
-                )
+                sh """
+                    set -eu
+                    if [ ! -d "${GENERATOR_DIR}/.git" ]; then
+                        rm -rf "${GENERATOR_DIR}"
+                        git clone "${env.GENERATOR_GIT_URL}" "${GENERATOR_DIR}"
+                    else
+                        # Aggressively clean node_modules BEFORE git operations
+                        if [ -d "${GENERATOR_DIR}/node_modules" ]; then
+                            echo "Pre-cleaning node_modules in generator-living-atlas..."
+                            chmod -R u+w "${GENERATOR_DIR}/node_modules" 2>/dev/null || true
+                            rm -rf "${GENERATOR_DIR}/node_modules"
+                        fi
+                    fi
+                    cd "${GENERATOR_DIR}"
+                    git fetch --prune origin
+                    git checkout -B "${params.GENERATOR_BRANCH}" "origin/${params.GENERATOR_BRANCH}"
+                    git reset --hard "origin/${params.GENERATOR_BRANCH}"
+                    git clean -fdx
+                """
             }
         }
 
@@ -260,28 +231,24 @@ EOF
                         def results = sh(
                             script: """
                                 set -eu
-                                ALA_SHA=\$(cd "${ALA_DIR}" && git rev-parse HEAD)
                                 GEN_SHA=\$(cd "${GENERATOR_DIR}" && git rev-parse HEAD)
                                 SELF_SHA=\$(git rev-parse HEAD)
                                 
-                                ALA_FILE="${BASE_DIR}/.last_sha_ala"
                                 GEN_FILE="${BASE_DIR}/.last_sha_gen"
                                 SELF_FILE="${BASE_DIR}/.last_sha_self"
                                 
                                 CHANGED="false"
-                                if [ ! -f "\$ALA_FILE" ] || [ "\$(cat "\$ALA_FILE")" != "\$ALA_SHA" ]; then echo "\$ALA_SHA" > "\$ALA_FILE"; CHANGED="true"; fi
                                 if [ ! -f "\$GEN_FILE" ] || [ "\$(cat "\$GEN_FILE")" != "\$GEN_SHA" ]; then echo "\$GEN_SHA" > "\$GEN_FILE"; CHANGED="true"; fi
                                 if [ ! -f "\$SELF_FILE" ] || [ "\$(cat "\$SELF_FILE")" != "\$SELF_SHA" ]; then echo "\$SELF_SHA" > "\$SELF_FILE"; CHANGED="true"; fi
                                 
-                                echo "\$CHANGED|\$ALA_SHA|\$GEN_SHA|\$SELF_SHA"
+                                echo "\$CHANGED|\$GEN_SHA|\$SELF_SHA"
                             """,
                             returnStdout: true
                         ).trim().split('\\|')
 
                         env.DO_REDEPLOY = (results[0] == 'true') ? 'true' : 'false'
-                        echo "ALA_SHA:  ${results[1]}"
-                        echo "GEN_SHA:  ${results[2]}"
-                        echo "SELF_SHA: ${results[3]}"
+                        echo "GEN_SHA:  ${results[1]}"
+                        echo "SELF_SHA: ${results[2]}"
                     }
                     echo "Redeploy needed: ${env.DO_REDEPLOY}"
                 }

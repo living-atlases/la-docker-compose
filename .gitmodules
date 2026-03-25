@@ -1,0 +1,4 @@
+[submodule "ala-install"]
+	path = ala-install
+	url = https://github.com/vjrj/ala-install.git
+	branch = docker-compose-min-pr
