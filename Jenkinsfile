@@ -453,6 +453,7 @@ EOF
                         set -eu
                         
                         export PATH="${VENV_DIR}/bin:\$PATH"
+                        export ANSIBLE_ROLES_PATH="${WORKSPACE}/ala-install/ansible/roles:${WORKSPACE}/roles"
                         export ANSIBLE_FORCE_COLOR=true
                         export ANSIBLE_STDOUT_CALLBACK=yaml
                         export ANSIBLE_HOST_KEY_CHECKING=False
