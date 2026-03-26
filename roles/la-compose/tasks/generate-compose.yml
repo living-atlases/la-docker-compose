@@ -1125,7 +1125,7 @@
     mode: '0644'
     owner: "{{ docker_compose_userid }}"
     group: "{{ docker_compose_usergid }}"
-  when: "'gatus' in services_enabled or gatus_enabled | default(true)"
+  when: "'gatus' in services_enabled"
   tags:
     - docker-compose
 
