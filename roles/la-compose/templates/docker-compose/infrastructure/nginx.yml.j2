@@ -40,8 +40,8 @@ services:
     networks:
       default: {}
       {{ docker_network | default('internal') }}:
-    depends_on:
 {% if use_la_site_certs %}
+    depends_on:
       certs-init:
         condition: service_completed_successfully
 {% endif %}
@@ -86,12 +86,14 @@ services:
     networks:
       default: {}
       {{ docker_network | default('internal') }}:
+{% if nginx_docker_internal_aliases %}
         aliases:
+          # These aliases allow services to reach nginx on the internal network using vhost hostnames
+          # Example: service can resolve auth-es.l-a.site to nginx container internally
 {% for alias in nginx_docker_internal_aliases %}
           - {{ alias }}
 {% endfor %}
-          # These aliases allow services to reach nginx on the internal network using vhost hostnames
-          # Example: service can resolve auth-es.l-a.site to nginx container internally
+{% endif %}
     healthcheck:
       test: ["CMD", "sh", "-c", "nc -z localhost 80 && nc -z localhost 443"]
       interval: 30s

@@ -108,7 +108,9 @@
   changed_when: false
   register: volume_exists_check
   failed_when: "'MISSING' in volume_exists_check.stdout"
-  when: docker_daemon_check.rc == 0
+  when:
+    - docker_daemon_check.rc == 0
+    - auto_deploy | default(true) | bool
 
 - name: "Validation Summary"
   debug:

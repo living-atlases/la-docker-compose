@@ -1,6 +1,15 @@
 # Deployment configuration
 deployment_type: container
 
+# Use nginx (not apache) - correct for container deployments
+# This prevents apache_vhost tasks from running (when: not webserver_nginx)
+webserver_nginx: true
+
+# Enable nginx vhost file generation (fast_mode=true skips all file writes)
+nginx_vhost_fast_mode: false
+# Suppress "fragments_to_clear must be defined" warning (not needed for container testing)
+nginx_vhost_fragments_to_clear_no_warning: true
+
 # Local inventory default version overrides to pass configuration checks
 cas_version: "6.6.6"
 userdetails_version: "3.2.0"
@@ -67,8 +76,142 @@ ssl_cert_file: "fullchain.pem"
 ssl_key_file: "privkey.pem"
 collectory_db_user: "collectory"
 collectory_db_name: "collectory"
+collectory_db_password: "password"
 mysql_root_password: "password"
+mongodb_root_username: "root"
+mongodb_root_password: "password"
 collectory_db_host_address: "mysql"
 docker_extra_hosts: []
 nginx_docker_internal_aliases: {}
 docker_default_user: "ubuntu"
+
+# Timezone (required by docker-compose templates, no default in templates)
+server_tz: "UTC"
+
+# i18n package (required by docker-compose templates, no default in templates)
+# Set to false for local testing to avoid extra volume mounts
+i18n_package_enabled: false
+
+# Tomcat version fallback (setfacts.yml only sets this for specific Ubuntu versions)
+tomcat: "tomcat9"
+
+# Service versions (required by docker-compose templates)
+species_list_version: "4.0.0"
+bie_hub_version: "4.0.0"
+bie_index_version: "4.0.0"
+biocache_hub_version: "4.0.0"
+biocache_service_version: "3.0.0"
+
+# Data directories for services (required by docker-compose templates)
+# These point to /tmp for local testing (no production data affected)
+cas_data_dir: "/tmp/la-test-data/cas"
+cas_management_data_dir: "/tmp/la-test-data/cas-management"
+userdetails_data_dir: "/tmp/la-test-data/userdetails"
+userdetails_docker_db_mysql_data_dir: "/tmp/la-test-data/userdetails/mysql"
+userdetails_docker_db_mongo_data_dir: "/tmp/la-test-data/userdetails/mongo"
+collectory_data_dir: "/tmp/la-test-data/collectory"
+collectory_docker_db_data_dir: "/tmp/la-test-data/collectory/mysql"
+species_list_data_dir: "/tmp/la-test-data/specieslist"
+species_list_docker_conf_dir: "/tmp/la-test-data/specieslist/conf"
+species_list_docker_db_data_dir: "/tmp/la-test-data/specieslist/mysql"
+
+# Species list DB credentials (required by docker-compose templates)
+specieslist_db_name: "specieslist"
+specieslist_db_username: "specieslist"
+specieslist_db_password: "password"
+
+# ── Service URLs (required by config templates, no defaults in roles) ─────────
+# collectory_url is used directly in biocache-hub, bie-hub templates (alias for collectory_base_url)
+collectory_url: "https://collections.ala.org.au/collectory"
+# biocollect_url is used in bie-index template
+biocollect_url: "https://biocollect.ala.org.au"
+# doi_service_url is used in biocache3-service templates
+doi_service_url: "https://doi.ala.org.au"
+
+auth_base_url: "https://auth.ala.org.au"
+auth_cas_url: "https://auth.ala.org.au/cas"
+apikey_auth_url: "https://auth.ala.org.au/apikey/ws/check"
+apikey_check_url: "https://auth.ala.org.au/apikey/ws/check"
+apikey_userdetails_url: "https://auth.ala.org.au/userdetails/userDetails"
+openapi_oauth_url: "https://auth.ala.org.au/cas/oidc"
+oidc_discovery_url: "https://auth.ala.org.au/cas/oidc/.well-known"
+
+collectory_base_url: "https://collections.ala.org.au"
+collectory_context_path: "collectory"
+collectory_enable_sync: false
+collectory_hostname: "collections.ala.org.au"
+
+biocache_hub_url: "https://biocache.ala.org.au"
+biocache_hub_base_url: "https://biocache.ala.org.au"
+biocache_hub_context_path: "ala-hub"
+biocache_hub_hostname: "biocache.ala.org.au"
+biocache_service_url: "https://biocache-ws.ala.org.au/ws"
+biocache_service_base_url: "https://biocache-ws.ala.org.au/ws"
+biocache_service_hostname: "biocache-ws.ala.org.au"
+# biocache3-service specific vars (context path and port for nginx vhost)
+biocache_service_context_path: "ws"
+biocache_service_server_port: "8080"
+
+bie_service_base_url: "https://bie.ala.org.au/ws"
+bie_index_base_url: "https://bie-index.ala.org.au/ws"
+bie_index_context_path: "bie-index"
+bie_index_hostname: "bie-index.ala.org.au"
+bie_hub_context_path: "ala-bie"
+bie_hub_hostname: "bie.ala.org.au"
+
+specieslist_base_url: "https://lists.ala.org.au"
+specieslist_context_path: "specieslist-webapp"
+specieslist_url: "https://lists.ala.org.au"
+specieslist_hostname: "lists.ala.org.au"
+specieslist_db_hostname: "la_mysql"
+specieslist_service_url: "https://lists.ala.org.au/ws"
+specieslist_uid: "dr1"
+species_list_ws_url: "https://lists.ala.org.au/ws"
+
+field_guide_base_url: "https://fieldguide.ala.org.au"
+logger_url: "https://logger.ala.org.au/service"
+solr_url: "http://localhost:8983/solr"
+
+# SolrCloud cluster sizing (required by solrcloud/templates/docker-compose.yml.j2)
+zookeeper_hosts: 1
+solr_hosts: 1
+solr_host: "la_solr"
+docker_zookeeper_servers: "zoo1:2888:3888"
+docker_solr_zk_hosts: "zoo1:2181"
+solr_jmx_port: 1099
+
+userdetails_api_url: "https://auth.ala.org.au/userdetails"
+userdetails_web_url: "https://auth.ala.org.au/userdetails"
+# userdetails_url: alias used as fallback in biocache3-properties template
+userdetails_url: "https://auth.ala.org.au/userdetails"
+# bie_base_url: alias used as fallback in biocache3-properties template
+bie_base_url: "https://bie.ala.org.au"
+
+security_apikey_auth_serviceUrl: "https://auth.ala.org.au/apikey/ws/check"
+security_apikey_userdetails_serviceUrl: "https://auth.ala.org.au/userdetails/userDetails"
+
+registry_api_key: "TEST-KEY"
+speciesList_api_key: "TEST-KEY"
+
+auth_cookie_name: "ALA-Auth"
+
+# biocache cassandra keyspace CQL (required by biocache3-properties template)
+cassandra_keyspace_create_cql: >
+  CREATE KEYSPACE IF NOT EXISTS occ
+  WITH replication = {'class': 'SimpleStrategy', 'replication_factor': '1'}
+  AND durable_writes = true;
+biocache_db_host: "la_cassandra"
+
+# bie-hub extra vars (required by bie-hub-config.yml.j2, no defaults in role)
+eol_html_allowAttributes: "href,src,alt,title,class"
+eol_html_allowedElements: "a,img,p,br,b,i,ul,ol,li,h1,h2,h3,h4,h5,h6"
+eol_sanitise: true
+update_file_location: "/tmp/la-test-data/bie-hub/update"
+vernacular_pull_categories: "PREFERRED"
+vernacular_pull_detail: "false"
+vernacular_pull_title: "false"
+
+# Test overrides: redirect generated configs to test data dir instead of /etc/nginx
+# This ensures nginx vhosts and gatus checks are verifiable in validate-local.sh
+nginx_conf_dir: "/tmp/la-test-data/nginx"
+gatus_config_dir: "/tmp/la-test-data/gatus/config"

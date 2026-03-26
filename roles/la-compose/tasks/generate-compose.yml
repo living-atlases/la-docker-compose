@@ -87,7 +87,7 @@
     cas_add_mongo_users: "{{ cas_add_mongo_users | default(true) }}"
   tags:
     - always
-    - docker-compose 
+    - docker-compose
   when: service_aliases.get('cas-servers') is defined
 
 - name: Set docker facts for namematching service
@@ -95,7 +95,7 @@
     namematching_user: "{{ docker_compose_userid | default(ansible_env.SUDO_USER) | default(docker_compose_userid) }}"
   tags:
     - always
-    - docker-compose    
+    - docker-compose
   when: service_aliases.get('namematching-service') is defined
 
 - name: Set docker facts for sensitive data service
@@ -156,7 +156,6 @@
     - always
     - only
     - docker-compose
-
 
 
 # Run common role from ala-install to set up all variables and facts (maven_repo_url, etc.)
@@ -250,7 +249,7 @@
 
     - name: Display fetched i18n version
       debug:
-        msg: "Latest ala-i18n version from apt.gbif.es: {{ i18n_version | default('unable to fetch') }}"      
+        msg: "Latest ala-i18n version from apt.gbif.es: {{ i18n_version | default('unable to fetch') }}"
   tags:
     - docker-compose
 
@@ -266,7 +265,7 @@
 
 - name: DEBUG - Inspect services detection
   debug:
-    msg: 
+    msg:
       - "Host: {{ inventory_hostname }}"
       - "Group Names: {{ group_names }}"
       - "Physical Server Groups: {{ physical_server_groups }}"
@@ -392,8 +391,6 @@
     - docker-compose
 
 
-
-
 # Bulk load all CAS5 variables from service alias context (before include_role)
 # This ensures ala-install cas5 role has access to all required configuration variables
 - name: "Bulk load CAS5 variables from service alias context"
@@ -500,8 +497,6 @@
     - config
 
 
-
-
 - name: Load collectory role variables if needed
   include_vars:
     file: "{{ playbook_dir }}/../ala-install/ansible/roles/collectory/vars/main.yml"
@@ -542,8 +537,8 @@
   include_role:
     name: collectory
   vars:
-      nginx_vhost_fast_mode: true
-  when: 
+    nginx_vhost_fast_mode: true
+  when:
     - "'collectory' in services_enabled"
     - "service_aliases.get('collectory') is defined"
   tags:
@@ -570,8 +565,8 @@
   include_role:
     name: species-list
   vars:
-      nginx_vhost_fast_mode: true
-  when: 
+    nginx_vhost_fast_mode: true
+  when:
     - "'species_lists' in services_enabled"
     - "service_aliases.get('species-list') is defined"
   tags:
@@ -598,9 +593,9 @@
   include_role:
     name: bie-hub
   vars:
-      bie_hub_docker_host: la_bie-hub
-      nginx_vhost_fast_mode: true
-  when: 
+    bie_hub_docker_host: la_bie-hub
+    nginx_vhost_fast_mode: true
+  when:
     - "'ala_bie' in services_enabled"
     - "service_aliases.get('bie-hub') is defined"
   tags:
@@ -627,9 +622,9 @@
   include_role:
     name: bie-index
   vars:
-      bie_index_docker_host: la_bie-index
-      nginx_vhost_fast_mode: true
-  when: 
+    bie_index_docker_host: la_bie-index
+    nginx_vhost_fast_mode: true
+  when:
     - "'bie_index' in services_enabled"
     - "service_aliases.get('bie-index') is defined"
   tags:
@@ -656,8 +651,8 @@
   include_role:
     name: biocache-hub
   vars:
-      biocache_hub_docker_host: la_biocache-hub
-      nginx_vhost_fast_mode: true
+    biocache_hub_docker_host: la_biocache-hub
+    nginx_vhost_fast_mode: true
   when:
     - "'ala_hub' in services_enabled"
     - "service_aliases.get('biocache-hub') is defined"
@@ -685,9 +680,9 @@
   include_role:
     name: biocache3-properties
   vars:
-      biocache_service_docker_host: la_biocache-service
-      biocache_db_host: la_cassandra
-      nginx_vhost_fast_mode: true
+    biocache_service_docker_host: la_biocache-service
+    biocache_db_host: la_cassandra
+    nginx_vhost_fast_mode: true
   when:
     - "'biocache_service' in services_enabled"
     - "service_aliases.get('biocache-service-clusterdb') is defined"
@@ -700,9 +695,9 @@
   include_role:
     name: biocache3-service
   vars:
-      biocache_service_docker_host: la_biocache-service
-      biocache_db_host: la_cassandra
-      nginx_vhost_fast_mode: true
+    biocache_service_docker_host: la_biocache-service
+    biocache_db_host: la_cassandra
+    nginx_vhost_fast_mode: true
   when:
     - "'biocache_service' in services_enabled"
     - "service_aliases.get('biocache-service-clusterdb') is defined"
@@ -1352,7 +1347,7 @@
     msg: |
       ✅ Docker Compose configuration successfully generated and validated!
       Location: {{ docker_compose_data_dir }}/
-      
+
       Files created:
         ✓ docker-compose.yml (v3.8)
         ✓ .env (with database credentials)
@@ -1360,7 +1355,7 @@
         ✓ services/ directory with service configs
         ✓ logs/ directory with service subdirectories
         ✓ External volumes created (mysql-data, postgres-data, mongodb-data)
-      
+
       Next steps:
         1. Review configuration: cat {{ data_dir }}/docker-compose.yml
         2. Start services: docker-compose -f {{ data_dir }}/docker-compose.yml up -d
@@ -1374,7 +1369,9 @@
   environment:
     DOCKER_HOST: "{{ docker_socket }}"
   become: true
-  when: not use_la_site_certs | bool
+  when:
+    - not use_la_site_certs | bool
+    - auto_deploy | default(true) | bool
   tags:
     - nginx-validation
 
@@ -1382,7 +1379,9 @@
   shell: |
     sleep 5 && docker ps | grep -q la_nginx && echo "nginx running"
   become: true
-  when: not use_la_site_certs | bool
+  when:
+    - not use_la_site_certs | bool
+    - auto_deploy | default(true) | bool
   register: nginx_check
   tags:
     - nginx-validation
@@ -1391,7 +1390,9 @@
   stat:
     path: "{{ inventory_dir }}/certs/letsencrypt/live/l-a.site/{{ ssl_cert_file }}"
   register: cert_file_stat
-  when: not use_la_site_certs | bool
+  when:
+    - not use_la_site_certs | bool
+    - auto_deploy | default(true) | bool
   tags:
     - nginx-validation
 
@@ -1401,7 +1402,9 @@
       - cert_file_stat.stat.exists or ansible_check_mode
     fail_msg: "Certificate file not found: {{ inventory_dir }}/certs/letsencrypt/live/l-a.site/{{ ssl_cert_file }}"
     success_msg: "Certificate file exists: {{ ssl_cert_file }}"
-  when: not use_la_site_certs | bool
+  when:
+    - not use_la_site_certs | bool
+    - auto_deploy | default(true) | bool
   tags:
     - nginx-validation
 
@@ -1409,7 +1412,9 @@
   stat:
     path: "{{ inventory_dir }}/certs/letsencrypt/live/l-a.site/{{ ssl_key_file }}"
   register: key_file_stat
-  when: not use_la_site_certs | bool
+  when:
+    - not use_la_site_certs | bool
+    - auto_deploy | default(true) | bool
   tags:
     - nginx-validation
 
@@ -1419,7 +1424,9 @@
       - key_file_stat.stat.exists or ansible_check_mode
     fail_msg: "Key file not found: {{ inventory_dir }}/certs/letsencrypt/live/l-a.site/{{ ssl_key_file }}"
     success_msg: "Key file exists: {{ ssl_key_file }}"
-  when: not use_la_site_certs | bool
+  when:
+    - not use_la_site_certs | bool
+    - auto_deploy | default(true) | bool
   tags:
     - nginx-validation
 
@@ -1427,18 +1434,20 @@
   debug:
     msg: |
       ✅ SSL Local Certificates Validated Successfully!
-      
+
       Configuration:
       - Source: Local inventory directory
       - Certificate directory: {{ ssl_certificate_server_dir }}
       - Certificate file: {{ ssl_cert_file }}
       - Key file: {{ ssl_key_file }}
-      
+
       Status:
       ✓ Certificate file found in nginx
       ✓ Key file found in nginx
       ✓ Nginx container running with SSL enabled
-  when: not use_la_site_certs | bool
+  when:
+    - not use_la_site_certs | bool
+    - auto_deploy | default(true) | bool
   tags:
     - nginx-validation
 
@@ -1446,12 +1455,12 @@
   debug:
     msg: |
       ℹ️  Using Docker Image Certificates
-      
+
       Configuration:
       - Source: Docker image livingatlases/l-a-site-certs:latest
       - Certificates will be provided by the Docker image
       - Configure ssl_certificate_server_dir to match image certificate location
-      
+
       Note: Certificate validation skipped (using Docker image source)
   when: use_la_site_certs | bool
   tags:
@@ -1481,7 +1490,7 @@
   debug:
     msg: |
       ✅ Docker Compose generation completed successfully!
-      
+
       📋 Validation checks passed:
         ✓ Docker daemon available
         ✓ Database volumes created (external)
@@ -1492,9 +1501,9 @@
         {% else %}
         ✓ No 'ala-install' references in generated files
         {% endif %}
-      
+
       📁 Location: {{ data_dir }}/
-      
+
       🚀 Ready to deploy with:
          docker-compose up -d
   tags:
