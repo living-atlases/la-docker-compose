@@ -1,0 +1,143 @@
+---
+# Permission verification test for docker-compose deployment
+# Verifies that all config directories and files are owned by UID/GID 1000
+# Run this before deploying to catch permission mismatches early
+
+- name: Verify UID/GID 1000 ownership on config files
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  
+  vars:
+    expected_uid: 1000
+    expected_gid: 1000
+    # Default to ~/la-docker-compose but allow override via -e compose_dir=/path
+    compose_dir: "{{ compose_dir | default(lookup('env', 'HOME') + '/la-docker-compose') }}"
+    
+    # Services that must have correct ownership
+    critical_services:
+      - cas
+      - collectory
+      - userdetails
+      - apikey
+      - cas-management
+      - namematching-service
+      - sensitive-data-service
+      - species-list
+      - image-service
+      - logger-service
+      - spatial-hub
+      - spatial-service
+      - regions
+      - biocache-service
+      - biocache-cli
+      - pipelines
+  
+  tasks:
+    - name: Check if compose directory exists
+      ansible.builtin.stat:
+        path: "{{ compose_dir }}"
+      register: compose_dir_stat
+      
+    - name: Fail if compose directory doesn't exist
+      ansible.builtin.fail:
+        msg: "Compose directory {{ compose_dir }} does not exist. Run config-gen.yml first."
+      when: not compose_dir_stat.stat.exists
+      
+    - name: Find all config directories
+      ansible.builtin.find:
+        paths: "{{ compose_dir }}/config"
+        file_type: directory
+        recurse: true
+      register: config_dirs
+      
+    - name: Find all config files
+      ansible.builtin.find:
+        paths: "{{ compose_dir }}/config"
+        file_type: file
+        recurse: true
+      register: config_files
+      
+    - name: Check directory ownership
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+      register: dir_stats
+      loop: "{{ config_dirs.files }}"
+      loop_control:
+        label: "{{ item.path }}"
+      
+    - name: Check file ownership
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+      register: file_stats
+      loop: "{{ config_files.files }}"
+      loop_control:
+        label: "{{ item.path }}"
+      
+    - name: Report directories with wrong ownership
+      ansible.builtin.debug:
+        msg: "❌ Directory {{ item.item.path }} has UID={{ item.stat.uid }} GID={{ item.stat.gid }} (expected {{ expected_uid }}:{{ expected_gid }})"
+      loop: "{{ dir_stats.results }}"
+      loop_control:
+        label: "{{ item.item.path }}"
+      when: item.stat.uid != expected_uid or item.stat.gid != expected_gid
+      register: dir_failures
+      
+    - name: Report files with wrong ownership
+      ansible.builtin.debug:
+        msg: "❌ File {{ item.item.path }} has UID={{ item.stat.uid }} GID={{ item.stat.gid }} (expected {{ expected_uid }}:{{ expected_gid }})"
+      loop: "{{ file_stats.results }}"
+      loop_control:
+        label: "{{ item.item.path }}"
+      when: item.stat.uid != expected_uid or item.stat.gid != expected_gid
+      register: file_failures
+      
+    - name: Count permission violations
+      ansible.builtin.set_fact:
+        dir_violation_count: "{{ dir_stats.results | selectattr('stat.uid', 'ne', expected_uid) | list | length + dir_stats.results | selectattr('stat.gid', 'ne', expected_gid) | list | length }}"
+        file_violation_count: "{{ file_stats.results | selectattr('stat.uid', 'ne', expected_uid) | list | length + file_stats.results | selectattr('stat.gid', 'ne', expected_gid) | list | length }}"
+        
+    - name: Check critical service configs exist
+      ansible.builtin.stat:
+        path: "{{ compose_dir }}/config/{{ item }}"
+      register: critical_service_stats
+      loop: "{{ critical_services }}"
+      loop_control:
+        label: "{{ item }}"
+      
+    - name: Report missing critical service configs
+      ansible.builtin.debug:
+        msg: "⚠️  Critical service {{ item.item }} has no config directory"
+      loop: "{{ critical_service_stats.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+      when: not item.stat.exists
+      
+    - name: Summary report
+      ansible.builtin.debug:
+        msg: |
+          
+          ========================================
+          Permission Verification Summary
+          ========================================
+          Expected UID:GID = {{ expected_uid }}:{{ expected_gid }}
+          
+          Directories checked: {{ config_dirs.files | length }}
+          Files checked: {{ config_files.files | length }}
+          
+          Directory violations: {{ dir_violation_count | int }}
+          File violations: {{ file_violation_count | int }}
+          
+          Total violations: {{ (dir_violation_count | int) + (file_violation_count | int) }}
+          
+          {% if ((dir_violation_count | int) + (file_violation_count | int)) == 0 %}
+          ✅ All files have correct ownership
+          {% else %}
+          ❌ Permission violations detected - review output above
+          {% endif %}
+          ========================================
+          
+    - name: Fail if any violations detected
+      ansible.builtin.fail:
+        msg: "Permission violations detected. All config files must be owned by UID:GID {{ expected_uid }}:{{ expected_gid }}"
+      when: ((dir_violation_count | int) + (file_violation_count | int)) > 0

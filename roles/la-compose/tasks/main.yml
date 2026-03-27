@@ -2,10 +2,10 @@
 # Docker Compose Role - Main Tasks
 # Orchestrates docker-compose generation and deployment for Living Atlas
 
-- name: Capture original user details for file ownership
+- name: Set container user UID/GID for file ownership
   set_fact:
-    docker_compose_userid: "{{ ansible_user_id }}"
-    docker_compose_usergid: "{{ ansible_user_gid }}"
+    docker_compose_userid: "{{ docker_container_uid }}"
+    docker_compose_usergid: "{{ docker_container_gid }}"
   tags:
     - always
     - only

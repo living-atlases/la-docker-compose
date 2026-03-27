@@ -19,7 +19,7 @@ auto_deploy: true
 # Skip handlers as we're generating docker-compose files, not deploying to VMs
 skip_handlers: true
 
-supported_ansible_version: { full: 2.17.3, major: 2, minor: 17, revision: 3 }
+supported_ansible_version: {full: 2.17.3, major: 2, minor: 17, revision: 3}
 
 # Instance name for docker-compose project identification
 # Used for docker compose --project-name and container naming
@@ -60,6 +60,14 @@ cas_services_host: mongodb
 # Docker Users
 # ============================================
 
+# Container runtime UID/GID - MUST match la-docker-images Dockerfiles
+# All ALA service containers run as uid/gid 1000 (hardcoded in la-docker-images)
+# This ensures config files created by Ansible can be read by containers
+docker_container_uid: 1000
+docker_container_gid: 1000
+
+# Service user variables - will be overridden in generate-compose.yml
+# These defaults are here for reference but are immediately replaced
 tomcat_user: "{{ docker_default_user }}"
 cas_user: "{{ docker_default_user }}"
 collectory_user: "{{ docker_default_user }}"

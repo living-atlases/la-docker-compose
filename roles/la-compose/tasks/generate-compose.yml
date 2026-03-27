@@ -71,19 +71,19 @@
 
 - name: Set docker facts for all services
   set_fact:
-    # Core user variables for all services
-    tomcat_user: "{{ docker_compose_userid | default(ansible_env.SUDO_USER) | default(docker_compose_userid) }}"
-    nginx_user: "{{ docker_compose_userid | default(ansible_env.SUDO_USER) | default(docker_compose_userid) }}"
+    # Core user variables for all services - use numeric UID to match container runtime
+    tomcat_user: "{{ docker_container_uid }}"
+    nginx_user: "{{ docker_container_uid }}"
   tags:
     - always
     - docker-compose
 
 - name: Set docker facts for cas services
   set_fact:
-    cas_user: "{{ docker_compose_userid | default(ansible_env.SUDO_USER) | default(docker_compose_userid) }}"
-    collectory_user: "{{ docker_compose_userid | default(ansible_env.SUDO_USER) | default(docker_compose_userid) }}"
-    userdetails_user: "{{ docker_compose_userid | default(ansible_env.SUDO_USER) | default(docker_compose_userid) }}"
-    apikey_user: "{{ docker_compose_userid | default(ansible_env.SUDO_USER) | default(docker_compose_userid) }}"
+    cas_user: "{{ docker_container_uid }}"
+    collectory_user: "{{ docker_container_uid }}"
+    userdetails_user: "{{ docker_container_uid }}"
+    apikey_user: "{{ docker_container_uid }}"
     cas_add_mongo_users: "{{ cas_add_mongo_users | default(true) }}"
   tags:
     - always
@@ -92,7 +92,7 @@
 
 - name: Set docker facts for namematching service
   set_fact:
-    namematching_user: "{{ docker_compose_userid | default(ansible_env.SUDO_USER) | default(docker_compose_userid) }}"
+    namematching_user: "{{ docker_container_uid }}"
   tags:
     - always
     - docker-compose
@@ -100,7 +100,7 @@
 
 - name: Set docker facts for sensitive data service
   set_fact:
-    sensitive_data_user: "{{ docker_compose_userid | default(ansible_env.SUDO_USER) | default(docker_compose_userid) }}"
+    sensitive_data_user: "{{ docker_container_uid }}"
   tags:
     - always
     - docker-compose
@@ -149,7 +149,8 @@
 - name: Debug - Docker user configuration
   debug:
     msg: |
-      Docker users - tomcat: {{ tomcat_user }}, nginx: {{ nginx_user }}, cas: {{ cas_user }}, collectory: {{ collectory_user }}, userdetails: {{ userdetails_user }}, apikey: {{ apikey_user }}
+      Container UID/GID: {{ docker_compose_userid }}/{{ docker_compose_usergid }}
+      Service users - tomcat: {{ tomcat_user }}, nginx: {{ nginx_user }}, cas: {{ cas_user | default('N/A') }}, collectory: {{ collectory_user | default('N/A') }}, userdetails: {{ userdetails_user | default('N/A') }}, apikey: {{ apikey_user | default('N/A') }}
       Nginx Docker Internal Resolver: {{ nginx_docker_internal_resolver }}
       Deployment Type: {{ deployment_type }}
   tags:
