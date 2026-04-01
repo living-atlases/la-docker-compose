@@ -2,6 +2,7 @@
 services:
   db-backup:
     container_name: la_db-backup
+    # Sucessor: nfrastack/db-backup or ghcr.io/nfrastack/container-db-backup:latest
     image: tiredofit/db-backup:latest
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     volumes:
