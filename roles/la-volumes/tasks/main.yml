@@ -79,7 +79,10 @@
   tags:
     - db-init
     - docker-volumes
-  when: "'cassandra5' in (physical_server_groups | default([])) or 'cassandra3' in (physical_server_groups | default([])) or 'cassandra' in (physical_server_groups | default([]))"
+  when: >
+    'cassandra5' in (physical_server_groups | default([]))
+    or 'cassandra3' in (physical_server_groups | default([]))
+    or 'cassandra' in (physical_server_groups | default([]))
 
 - name: "Database volumes: Create Elasticsearch external volume"
   docker_volume:
@@ -91,7 +94,11 @@
   tags:
     - db-init
     - docker-volumes
-  when: "'image-service' in (physical_server_groups | default([])) or 'events' in (physical_server_groups | default([])) or 'doi-service' in (physical_server_groups | default([])) or 'ecodata' in (physical_server_groups | default([]))"
+  when: >
+    'image-service' in (physical_server_groups | default([]))
+    or 'events' in (physical_server_groups | default([]))
+    or 'doi-service' in (physical_server_groups | default([]))
+    or 'ecodata' in (physical_server_groups | default([]))
 
 - name: "Database volumes: Create SSL certificates external volume"
   docker_volume:

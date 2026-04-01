@@ -7,8 +7,8 @@
 # ============================================
 
 # Deployment type and environment
-deployment_type: container # Fixed for docker-compose
-deployment_env: production # Options: dev, staging, production
+deployment_type: container  # Fixed for docker-compose
+deployment_env: production  # Options: dev, staging, production
 
 # Auto-deploy: Start services after generating config (like traditional ala-install)
 auto_deploy: true
@@ -81,7 +81,9 @@ species_list_user: "{{ docker_default_user }}"
 
 data_dir: /data
 docker_compose_data_dir: /data/docker-compose
-nginx_conf_dir: /etc/nginx
+# Host path where Ansible writes nginx tree (conf.d, sites-*). Container paths in generated
+# nginx.conf still come from nginx_conf_path / nginx_vhost_path (typically under /etc/nginx).
+nginx_conf_dir: "{{ docker_compose_data_dir }}/nginx"
 docker_output_dir: "{{ docker_compose_output_dir | default('docker-compose-output') }}"
 
 # ============================================

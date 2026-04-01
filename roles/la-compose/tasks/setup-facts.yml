@@ -53,9 +53,30 @@
 
 - name: Determine if MySQL is required
   set_fact:
-    enable_mysql: "{{ 'mysql' in physical_server_groups or 'cas-servers' in physical_server_groups or 'collectory' in physical_server_groups or 'species-list' in physical_server_groups or 'logger-service' in physical_server_groups or 'alerts-service' in physical_server_groups }}"
-    enable_postgres: "{{ 'postgres' in physical_server_groups or 'spatial' in physical_server_groups or 'image-service' in physical_server_groups or 'doi-service' in physical_server_groups or 'data_quality_filter_service' in physical_server_groups }}"
-    enable_mongo: "{{ 'mongo' in physical_server_groups or 'mongodb' in physical_server_groups or 'cas-servers' in physical_server_groups or 'ecodata' in physical_server_groups }}"
+    enable_mysql: >-
+      {{
+        'mysql' in physical_server_groups
+        or 'cas-servers' in physical_server_groups
+        or 'collectory' in physical_server_groups
+        or 'species-list' in physical_server_groups
+        or 'logger-service' in physical_server_groups
+        or 'alerts-service' in physical_server_groups
+      }}
+    enable_postgres: >-
+      {{
+        'postgres' in physical_server_groups
+        or 'spatial' in physical_server_groups
+        or 'image-service' in physical_server_groups
+        or 'doi-service' in physical_server_groups
+        or 'data_quality_filter_service' in physical_server_groups
+      }}
+    enable_mongo: >-
+      {{
+        'mongo' in physical_server_groups
+        or 'mongodb' in physical_server_groups
+        or 'cas-servers' in physical_server_groups
+        or 'ecodata' in physical_server_groups
+      }}
   tags:
     - always
     - docker-compose
@@ -67,7 +88,11 @@
   set_fact:
     service_aliases: >-
       {%- set result = {} -%}
-      {%- for service in ['cas-servers', 'collectory', 'species-list', 'bie-hub', 'bie-index', 'biocache-hub', 'biocache-service-clusterdb', 'logger-service', 'image-service', 'namematching-service', 'sensitive-data-service'] -%}
+      {%- for service in [
+        'cas-servers', 'collectory', 'species-list', 'bie-hub', 'bie-index', 'biocache-hub',
+        'biocache-service-clusterdb', 'logger-service', 'image-service', 'namematching-service',
+        'sensitive-data-service',
+      ] -%}
         {%- if service in groups -%}
           {%- set matching = groups[service] | select('match', '^' + ansible_host + '\\.') | list -%}
           {%- if matching | length > 0 -%}
@@ -83,13 +108,17 @@
 - name: Normalize database hostnames for Docker network
   set_fact:
     cas_db_hostname: "{{ 'mysql' if (cas_db_hostname | default('localhost') in ['localhost', '127.0.0.1']) else cas_db_hostname }}"
-    collectory_db_host_address: "{{ 'mysql' if (collectory_db_host_address | default('localhost') in ['localhost', '127.0.0.1']) else collectory_db_host_address }}"
+    collectory_db_host_address: >-
+      {{ 'mysql' if (collectory_db_host_address | default('localhost') in ['localhost', '127.0.0.1'])
+         else collectory_db_host_address }}
     collectory_db_host: "{{ 'mysql' if (collectory_db_host | default('localhost') in ['localhost', '127.0.0.1']) else collectory_db_host }}"
     user_store_db_hostname: "{{ 'mysql' if (user_store_db_hostname | default('localhost') in ['localhost', '127.0.0.1']) else user_store_db_hostname }}"
     apikey_db_hostname: "{{ 'mysql' if (apikey_db_hostname | default('localhost') in ['localhost', '127.0.0.1']) else apikey_db_hostname }}"
     specieslist_db_hostname: "{{ 'mysql' if (specieslist_db_hostname | default('localhost') in ['localhost', '127.0.0.1']) else specieslist_db_hostname }}"
-    
-    ticket_registry_db_hostname: "{{ 'mongodb' if (ticket_registry_db_hostname | default('localhost') in ['localhost', '127.0.0.1']) else ticket_registry_db_hostname }}"
+
+    ticket_registry_db_hostname: >-
+      {{ 'mongodb' if (ticket_registry_db_hostname | default('localhost') in ['localhost', '127.0.0.1'])
+         else ticket_registry_db_hostname }}
     cas_audit_host: "{{ 'mongodb' if (cas_audit_host | default('localhost') in ['localhost', '127.0.0.1']) else cas_audit_host }}"
     cas_spring_session_host: "{{ 'mongodb' if (cas_spring_session_host | default('localhost') in ['localhost', '127.0.0.1']) else cas_spring_session_host }}"
     cas_tickets_host: "{{ 'mongodb' if (cas_tickets_host | default('localhost') in ['localhost', '127.0.0.1']) else cas_tickets_host }}"

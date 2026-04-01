@@ -509,14 +509,14 @@ docker_services_desc:
     desc: 'gatus monitoring service'
     optional: true
     sample: 'https://status.twin.sh/'
-#  portainer:
-#    name: 'portainer'
-#    nameInt: 'portainer'
-#    role: 'portainer'
-#    group: 'portainer'
-#    optional: true
-#    allowMultipleDeploys: true
-#    desc: 'portainer docker management service'
+  #  portainer:
+  #    name: 'portainer'
+  #    nameInt: 'portainer'
+  #    role: 'portainer'
+  #    group: 'portainer'
+  #    optional: true
+  #    allowMultipleDeploys: true
+  #    desc: 'portainer docker management service'
   cassandra:
     name: 'cassandra'
     nameInt: 'cassandra'

@@ -1,0 +1,40 @@
+---
+extends: default
+
+rules:
+  # Space-only “blank” lines inside literal block scalars (e.g. multiline msg: |) are valid YAML
+  # but trigger false-positive errors; keep as warning so hooks/CI stay usable.
+  trailing-spaces:
+    level: warning
+
+  # Allow long lines (Ansible templates/tasks often have long strings)
+  line-length:
+    max: 160
+    level: warning
+
+  # Allow both quoted/unquoted truthy values (Ansible uses 'yes'/'no' etc.)
+  truthy:
+    allowed-values: ['true', 'false', 'yes', 'no', 'on', 'off']
+    check-keys: false
+
+  # Allow comments without space after #
+  comments:
+    min-spaces-from-content: 2
+
+  # Ignore indentation in templates (Jinja2 blocks)
+  indentation:
+    spaces: 2
+    indent-sequences: true
+    check-multi-line-strings: false
+
+  # Allow empty lines at end of file
+  empty-lines:
+    max: 2
+    max-start: 0
+    max-end: 1
+
+ignore: |
+  ala-install/
+  .git/
+  molecule/
+  *.j2

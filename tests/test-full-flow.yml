@@ -13,7 +13,7 @@
   vars:
     data_dir: /data
     docker_compose_data_dir: /data/docker-compose
-    nginx_conf_dir: /etc/nginx
+    nginx_conf_dir: "{{ docker_compose_data_dir }}/nginx"
     deployment_type: container
     docker_compose_userid: 1000
     docker_compose_usergid: 1000
@@ -87,7 +87,7 @@
   vars:
     data_dir: /data
     docker_compose_data_dir: /data/docker-compose
-    nginx_conf_dir: /etc/nginx
+    nginx_conf_dir: "{{ docker_compose_data_dir }}/nginx"
     deployment_type: container
     docker_compose_userid: 1000
     docker_compose_usergid: 1000
