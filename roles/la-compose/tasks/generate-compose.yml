@@ -72,8 +72,8 @@
 - name: Set docker facts for all services
   set_fact:
     # Core user variables for all services - use numeric UID to match container runtime
+    # nginx_user stays at role default (nginx): official nginx image requires a passwd name, not a numeric UID
     tomcat_user: "{{ docker_container_uid }}"
-    nginx_user: "{{ docker_container_uid }}"
   tags:
     - always
     - docker-compose
