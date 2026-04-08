@@ -743,6 +743,16 @@
   tags:
     - docker-compose
 
+- name: Build MongoDB URIs for CAS services (requires normalized hosts)
+  set_fact:
+    cas_audit_uri: "mongodb://{{ cas_audit_username }}:{{ cas_audit_password }}@{{ cas_audit_host | default('mongodb') }}:{{ cas_audit_port | default('27017') }}/{{ cas_audit_db }}?retryWrites=true&ssl=false"
+    cas_services_uri: "mongodb://{{ cas_services_username }}:{{ cas_services_password }}@{{ cas_services_host | default('mongodb') }}:{{ cas_services_port | default('27017') }}/{{ cas_services_db }}?retryWrites=true&ssl=false"
+    cas_tickets_uri: "mongodb://{{ cas_tickets_username }}:{{ cas_tickets_password }}@{{ cas_tickets_host | default('mongodb') }}:{{ cas_tickets_port | default('27017') }}/{{ cas_tickets_db }}?retryWrites=true&ssl=false"
+    spring_session_mongo_uri: "mongodb://{{ cas_spring_session_username }}:{{ cas_spring_session_password }}@{{ cas_spring_session_host | default('mongodb') }}:{{ cas_spring_session_port | default('27017') }}/{{ spring_session_mongo_collection }}?retryWrites=true&ssl=false"
+  when: "'cas' in services_enabled"
+  tags:
+    - docker-compose
+
 # Build JAVA_OPTS for each service from inventory variables
 - name: Initialize temp_java_opts variable
   set_fact:
