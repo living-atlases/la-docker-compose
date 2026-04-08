@@ -17,10 +17,6 @@ services:
       {{ docker_network | default('internal') }}:
         aliases:
           - {{ mail_host | default('mailhog') }}
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8025", "||", "exit", "1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
+    # Health check disabled - mailhog image is a minimal Go binary without shell tools
+    # The service starts quickly and is for development only, so health check is not critical
 {% endif %}
