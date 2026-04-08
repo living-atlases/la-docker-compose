@@ -13,13 +13,14 @@
     mongodb_target_host: "127.0.0.1"
 
   tasks:
-    - name: Ensure Docker is installed
-      import_role:
-        name: docker
-      become: true
-      tags:
-        - always
-        - docker
+    # Docker role commented out - docker already installed on target hosts
+    # - name: Ensure Docker is installed
+    #   import_role:
+    #     name: docker
+    #   become: true
+    #   tags:
+    #     - always
+    #     - docker
 
     - name: "Ensure necessary tools are present for DB init"
       package:

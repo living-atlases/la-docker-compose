@@ -89,10 +89,10 @@
               debug:
                 msg: |
                   ✗ Health check FAILED - Diagnostics collected
-                  
+
                   Review diagnostic reports at:
                   {{ data_dir }}/diagnostics/SUMMARY.md
-                  
+
                   Key files:
                   - system-info.txt (host and docker stats)
                   - docker-compose-config.txt (current configuration)
@@ -103,10 +103,10 @@
               fail:
                 msg: |
                   ✗ Post-deployment health check FAILED
-                  
+
                   Diagnostics saved to: {{ data_dir }}/diagnostics/
                   Start with: {{ data_dir }}/diagnostics/SUMMARY.md
-                  
+
                   Common solutions:
                   1. Check available disk space with: df -h
                   2. Check Docker logs with: docker logs <container>
@@ -196,19 +196,19 @@
       debug:
         msg: |
           ✓ Post-deployment validation PASSED
-          
+
           Deployment Status:
           - Instance: {{ instance_name }}
           - Services Running: {{ running_services }}/{{ expected_services }}
           - Health Check: PASSED
           - All critical checks completed
-          
+
           Next steps:
           1. Access the Living Atlas at https://{{ inventory_hostname }}/
           2. Monitor logs with: docker compose logs -f
           3. Check service health at: https://{{ inventory_hostname }}/status (if available)
           4. Review deployment with: docker ps
-          
+
           For issues or questions, check:
           {{ data_dir }}/diagnostics/ (if created)
           {{ data_dir }}/logs/deployment.log
@@ -218,10 +218,10 @@
       fail:
         msg: |
           ✗ Post-deployment validation FAILED
-          
+
           Services may not have started correctly.
           Check diagnostics at: {{ data_dir }}/diagnostics/
-          
+
           Troubleshooting steps:
           1. docker compose ps        # Show container status
           2. docker compose logs      # Show recent logs

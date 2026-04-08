@@ -153,6 +153,16 @@
         - deploy
       ignore_errors: true
 
+    - name: Initialize databases (if CAS server on this host)
+      include_tasks: init-databases.yml
+      when:
+        - auto_deploy | default(true) | bool
+        - "'cas-servers' in physical_server_groups"
+      tags:
+        - docker-compose
+        - deploy
+        - db-init
+
     - name: Start Docker Compose services
       command: docker compose up -d --remove-orphans
       args:

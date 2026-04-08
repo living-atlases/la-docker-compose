@@ -1,0 +1,134 @@
+---
+# Database Initialization Tasks
+# Called from main.yml before starting all Docker Compose services
+
+- name: "DB Init: Ensure necessary database client tools are present"
+  package:
+    name:
+      - mysql-client
+      - python3-mysqldb
+      - python3-pymongo
+    state: present
+  become: true
+  ignore_errors: true
+  tags:
+    - db-init
+
+- name: "DB Init: Load CAS variables for database configuration"
+  include_vars:
+    file: "{{ playbook_dir }}/../ala-install/ansible/roles/cas5/vars/main.yml"
+  when: "'cas-servers' in physical_server_groups"
+  tags:
+    - db-init
+
+- name: "DB Init: Start database containers only (MySQL and MongoDB)"
+  command: docker compose up -d mysql mongodb
+  args:
+    chdir: "{{ docker_compose_data_dir }}"
+  become: true
+  tags:
+    - db-init
+
+- name: "DB Init: Wait for MySQL to be healthy"
+  shell: |
+    docker inspect --format='{{ "{{" }}.State.Health.Status{{ "}}" }}' la_mysql
+  register: mysql_health
+  until: 'mysql_health.stdout == "healthy"'
+  retries: 30
+  delay: 5
+  become: true
+  tags:
+    - db-init
+
+- name: "DB Init: Wait for MongoDB to be healthy"
+  shell: |
+    docker inspect --format='{{ "{{" }}.State.Health.Status{{ "}}" }}' la_mongodb
+  register: mongodb_health
+  until: 'mongodb_health.stdout == "healthy"'
+  retries: 30
+  delay: 5
+  become: true
+  tags:
+    - db-init
+
+- name: "DB Init: Check if databases are already initialized"
+  include_tasks: validate-db-init.yml
+  register: db_check_result
+  ignore_errors: true
+  tags:
+    - db-init
+
+- name: "DB Init: Initialize databases and users from host"
+  import_role:
+    name: cas5-dbs
+  vars:
+    cas_db_hostname: "127.0.0.1"
+    user_store_db_hostname: "127.0.0.1"
+    apikey_db_hostname: "127.0.0.1"
+    cas_tickets_host: "127.0.0.1"
+    cas_services_host: "127.0.0.1"
+    cas_audit_host: "127.0.0.1"
+    cas_spring_session_host: "127.0.0.1"
+    cas_mysql_src_host: "%"
+    apikey_mysql_src_host: "%"
+    cas_add_mongo_users: true
+  when:
+    - "'cas-servers' in physical_server_groups"
+    - db_check_result is failed or force_db_init | default(false)
+  become: true
+  tags:
+    - db-init
+
+- name: "DB Init: Start CAS temporarily for Flyway migrations"
+  command: docker compose up -d cas
+  args:
+    chdir: "{{ docker_compose_data_dir }}"
+  become: true
+  when: "'cas-servers' in physical_server_groups"
+  tags:
+    - db-init
+
+- name: "DB Init: Wait for CAS to be healthy (Flyway migrations complete)"
+  shell: |
+    docker inspect --format='{{ "{{" }}.State.Health.Status{{ "}}" }}' la_cas
+  register: cas_health
+  until: 'cas_health.stdout == "healthy"'
+  retries: 30
+  delay: 10
+  become: true
+  when: "'cas-servers' in physical_server_groups"
+  tags:
+    - db-init
+
+- name: "DB Init: Initialize CAS admin account"
+  include_tasks: "{{ playbook_dir }}/../ala-install/ansible/roles/cas5/tasks/admin-account.yml"
+  vars:
+    cas_db_hostname: "127.0.0.1"
+    cas_mysql_src_host: "%"
+  when: "'cas-servers' in physical_server_groups"
+  tags:
+    - db-init
+
+- name: "DB Init: Register OIDC services"
+  include_tasks: "{{ playbook_dir }}/../ala-install/ansible/roles/cas-management/tasks/oidc-tasks.yml"
+  vars:
+    cas_services_host: "127.0.0.1"
+    deployment_type: "container"
+  when: "'cas-servers' in physical_server_groups"
+  tags:
+    - db-init
+
+- name: "DB Init: Stop CAS after initialization"
+  command: docker compose stop cas
+  args:
+    chdir: "{{ docker_compose_data_dir }}"
+  become: true
+  when: "'cas-servers' in physical_server_groups"
+  tags:
+    - db-init
+
+- name: "DB Init: Database initialization completed successfully"
+  debug:
+    msg: "✅ Database initialization completed. Ready to start all services."
+  tags:
+    - db-init
