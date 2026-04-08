@@ -1,0 +1,16 @@
+---
+# la-compose role variables - override ala-install defaults
+# These vars have higher precedence than defaults but lower than set_fact
+#
+# CRITICAL: These paths ensure config files go to the docker-compose data directory
+# instead of the default VM paths used by ala-install roles
+
+# Override gatus_config_dir to use docker-compose directory structure
+# Default in ala-install common role: {{ data_dir }}/gatus/config
+# We need: {{ docker_compose_data_dir }}/gatus/config
+gatus_config_dir: "{{ docker_compose_data_dir }}/gatus/config"
+
+# Override nginx_conf_dir to use docker-compose directory structure
+# Default in ala-install nginx_vhost role: /etc/nginx
+# We need: {{ docker_compose_data_dir }}/nginx
+nginx_conf_dir: "{{ docker_compose_data_dir }}/nginx"

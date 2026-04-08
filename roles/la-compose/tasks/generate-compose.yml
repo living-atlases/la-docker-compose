@@ -419,6 +419,14 @@
     - config
     - bulk-load
 
+- name: Re-normalize database hostnames after CAS5 bulk load
+  include_tasks: normalize-hostnames.yml
+  when: service_aliases.get('cas-servers') is defined
+  tags:
+    - cas
+    - config
+    - normalize
+
 - name: Run cas configuration generation
   include_role:
     name: cas5
@@ -444,6 +452,14 @@
     - userdetails
     - config
     - bulk-load
+
+- name: Re-normalize database hostnames after USERDETAILS bulk load
+  include_tasks: normalize-hostnames.yml
+  when: service_aliases.get('cas-servers') is defined
+  tags:
+    - userdetails
+    - config
+    - normalize
 
 - name: Run userdetails configuration generation
   include_role:
@@ -471,6 +487,14 @@
     - config
     - bulk-load
 
+- name: Re-normalize database hostnames after APIKEY bulk load
+  include_tasks: normalize-hostnames.yml
+  when: service_aliases.get('cas-servers') is defined
+  tags:
+    - apikey
+    - config
+    - normalize
+
 - name: Run apikey configuration generation
   include_role:
     name: apikey
@@ -496,6 +520,14 @@
     - cas-management
     - config
     - bulk-load
+
+- name: Re-normalize database hostnames after CAS-MANAGEMENT bulk load
+  include_tasks: normalize-hostnames.yml
+  when: service_aliases.get('cas-servers') is defined
+  tags:
+    - cas-management
+    - config
+    - normalize
 
 - name: Run cas-management configuration generation
   include_role:
@@ -544,6 +576,14 @@
     - config
     - bulk-load
 
+- name: Re-normalize database hostnames after COLLECTORY bulk load
+  include_tasks: normalize-hostnames.yml
+  when: service_aliases.get('collectory') is defined
+  tags:
+    - collectory
+    - config
+    - normalize
+
 - name: Run collectory configuration generation (asset copy, config templates)
   include_role:
     name: collectory
@@ -571,6 +611,14 @@
     - species-list
     - config
     - bulk-load
+
+- name: Re-normalize database hostnames after SPECIES-LIST bulk load
+  include_tasks: normalize-hostnames.yml
+  when: service_aliases.get('species-list') is defined
+  tags:
+    - species-list
+    - config
+    - normalize
 
 - name: Run species-list configuration generation (asset copy, config templates)
   include_role:

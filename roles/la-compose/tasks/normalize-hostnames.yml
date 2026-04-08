@@ -1,0 +1,38 @@
+---
+# Reusable task file to normalize database hostnames for Docker network
+# This should be included AFTER any bulk load that may have overwritten normalized values
+# with inventory values containing 'localhost' or '127.0.0.1'
+#
+# Usage:
+#   - name: Re-normalize database hostnames after bulk load
+#     include_tasks: normalize-hostnames.yml
+#     tags: [config, normalize]
+
+- name: Re-normalize database hostnames for Docker network (post bulk-load)
+  set_fact:
+    # MySQL hostnames
+    cas_db_hostname: "{{ 'mysql' if (cas_db_hostname | default('localhost') in ['localhost', '127.0.0.1']) else cas_db_hostname }}"
+    collectory_db_host_address: >-
+      {{ 'mysql' if (collectory_db_host_address | default('localhost') in ['localhost', '127.0.0.1'])
+         else collectory_db_host_address }}
+    collectory_db_host: "{{ 'mysql' if (collectory_db_host | default('localhost') in ['localhost', '127.0.0.1']) else collectory_db_host }}"
+    user_store_db_hostname: "{{ 'mysql' if (user_store_db_hostname | default('localhost') in ['localhost', '127.0.0.1']) else user_store_db_hostname }}"
+    apikey_db_hostname: "{{ 'mysql' if (apikey_db_hostname | default('localhost') in ['localhost', '127.0.0.1']) else apikey_db_hostname }}"
+    specieslist_db_hostname: "{{ 'mysql' if (specieslist_db_hostname | default('localhost') in ['localhost', '127.0.0.1']) else specieslist_db_hostname }}"
+
+    # MongoDB hostnames
+    ticket_registry_db_hostname: >-
+      {{ 'mongodb' if (ticket_registry_db_hostname | default('localhost') in ['localhost', '127.0.0.1'])
+         else ticket_registry_db_hostname }}
+    cas_audit_host: "{{ 'mongodb' if (cas_audit_host | default('localhost') in ['localhost', '127.0.0.1']) else cas_audit_host }}"
+    cas_spring_session_host: "{{ 'mongodb' if (cas_spring_session_host | default('localhost') in ['localhost', '127.0.0.1']) else cas_spring_session_host }}"
+    cas_tickets_host: "{{ 'mongodb' if (cas_tickets_host | default('localhost') in ['localhost', '127.0.0.1']) else cas_tickets_host }}"
+    cas_services_host: "{{ 'mongodb' if (cas_services_host | default('localhost') in ['localhost', '127.0.0.1']) else cas_services_host }}"
+
+    # Other service hostnames
+    solr_host: "{{ 'solr' if (solr_host | default('localhost') in ['localhost', '127.0.0.1']) else solr_host }}"
+    biocache_db_host: "{{ 'cassandra' if (biocache_db_host | default('localhost') in ['localhost', '127.0.0.1']) else biocache_db_host }}"
+  tags:
+    - config
+    - normalize
+    - docker-compose
