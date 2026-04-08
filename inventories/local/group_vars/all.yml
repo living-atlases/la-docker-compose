@@ -85,6 +85,15 @@ docker_extra_hosts: []
 nginx_docker_internal_aliases: {}
 docker_default_user: "ubuntu"
 
+# Root for generated configs (override with -e data_dir=... for isolated test runs).
+data_dir: "/tmp/la-test-data"
+docker_compose_data_dir: "{{ data_dir }}/docker-compose"
+
+# cas5 include_tasks docker-common/common.yml without import_role, so docker-common vars/main.yml is not loaded.
+# Use a user that exists on the control node when become=true (ubuntu may not exist on Debian dev hosts).
+nginx_user: root
+nginx_conf_dir: "{{ docker_compose_data_dir }}/nginx"
+
 # Timezone (required by docker-compose templates, no default in templates)
 server_tz: "UTC"
 
@@ -103,17 +112,16 @@ biocache_hub_version: "4.0.0"
 biocache_service_version: "3.0.0"
 
 # Data directories for services (required by docker-compose templates)
-# These point to /tmp for local testing (no production data affected)
-cas_data_dir: "/tmp/la-test-data/cas"
-cas_management_data_dir: "/tmp/la-test-data/cas-management"
-userdetails_data_dir: "/tmp/la-test-data/userdetails"
-userdetails_docker_db_mysql_data_dir: "/tmp/la-test-data/userdetails/mysql"
-userdetails_docker_db_mongo_data_dir: "/tmp/la-test-data/userdetails/mongo"
-collectory_data_dir: "/tmp/la-test-data/collectory"
-collectory_docker_db_data_dir: "/tmp/la-test-data/collectory/mysql"
-species_list_data_dir: "/tmp/la-test-data/specieslist"
-species_list_docker_conf_dir: "/tmp/la-test-data/specieslist/conf"
-species_list_docker_db_data_dir: "/tmp/la-test-data/specieslist/mysql"
+cas_data_dir: "{{ data_dir }}/cas"
+cas_management_data_dir: "{{ data_dir }}/cas-management"
+userdetails_data_dir: "{{ data_dir }}/userdetails"
+userdetails_docker_db_mysql_data_dir: "{{ data_dir }}/userdetails/mysql"
+userdetails_docker_db_mongo_data_dir: "{{ data_dir }}/userdetails/mongo"
+collectory_data_dir: "{{ data_dir }}/collectory"
+collectory_docker_db_data_dir: "{{ data_dir }}/collectory/mysql"
+species_list_data_dir: "{{ data_dir }}/specieslist"
+species_list_docker_conf_dir: "{{ data_dir }}/specieslist/conf"
+species_list_docker_db_data_dir: "{{ data_dir }}/specieslist/mysql"
 
 # Species list DB credentials (required by docker-compose templates)
 specieslist_db_name: "specieslist"
@@ -206,12 +214,10 @@ biocache_db_host: "la_cassandra"
 eol_html_allowAttributes: "href,src,alt,title,class"
 eol_html_allowedElements: "a,img,p,br,b,i,ul,ol,li,h1,h2,h3,h4,h5,h6"
 eol_sanitise: true
-update_file_location: "/tmp/la-test-data/bie-hub/update"
+update_file_location: "{{ data_dir }}/bie-hub/update"
 vernacular_pull_categories: "PREFERRED"
 vernacular_pull_detail: "false"
 vernacular_pull_title: "false"
 
-# Test overrides: redirect generated configs to test data dir instead of /etc/nginx
-# This ensures nginx vhosts and gatus checks are verifiable in validate-local.sh
-nginx_conf_dir: "/tmp/la-test-data/nginx"
-gatus_config_dir: "/tmp/la-test-data/gatus/config"
+# Gatus output (nginx paths: docker-common sets nginx_conf_dir from data_dir)
+gatus_config_dir: "{{ data_dir }}/gatus/config"

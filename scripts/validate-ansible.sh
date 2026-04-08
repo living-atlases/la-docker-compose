@@ -76,15 +76,42 @@ run_check() {
     fi
 }
 
+# Detect common broken environment: ansible CLI and python module mismatch.
+ansible_lint_should_skip() {
+    if ! command -v ansible-lint >/dev/null 2>&1; then
+        return 1
+    fi
+    ansible-lint roles/ -f brief >/dev/null 2>&1
+    local rc=$?
+    if [ $rc -eq 0 ]; then
+        return 1
+    fi
+    if ansible-lint roles/ -f brief 2>&1 | head -5 | grep -q "Ansible CLI .* and python module .* versions do not match"; then
+        return 0
+    fi
+    return 1
+}
+
 # 1. YAML Lint Check (validates YAML structure)
 run_check "YAML Lint (roles & playbooks)" \
     "yamllint -c .yamllint roles/ playbooks/" \
     "yamllint"
 
 # 2. Ansible Lint Check
-run_check "Ansible Lint (local roles)" \
-    "ansible-lint roles/ -f parseable" \
-    "ansible-lint"
+if [ "${LA_SKIP_ANSIBLE_LINT:-}" = "1" ]; then
+    echo -e "\n${BLUE}▶ Ansible Lint (local roles)${NC}"
+    echo -e "${YELLOW}⊘ Ansible Lint (local roles) skipped (LA_SKIP_ANSIBLE_LINT=1)${NC}"
+    ((SKIPPED++))
+elif ansible_lint_should_skip; then
+    echo -e "\n${BLUE}▶ Ansible Lint (local roles)${NC}"
+    echo -e "${YELLOW}⊘ Ansible Lint (local roles) skipped (ansible/ansible-lint environment mismatch)${NC}"
+    echo -e "${YELLOW}  Tip: use a venv with aligned ansible-core + ansible-lint versions${NC}"
+    ((SKIPPED++))
+else
+    run_check "Ansible Lint (local roles)" \
+        "ansible-lint roles/ -f brief" \
+        "ansible-lint"
+fi
 
 # Summary
 echo -e "\n${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"

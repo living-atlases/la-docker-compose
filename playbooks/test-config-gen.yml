@@ -1,0 +1,96 @@
+---
+# test-config-gen.yml - Local configuration generation test
+#
+# Runs the same config-gen flow as config-gen.yml but:
+#   - Generates output in /tmp/la-test-data/ (no sudo required)
+#   - Does NOT start containers (auto_deploy=false)
+#   - Does NOT install Docker or system packages
+#   - Safe to run repeatedly as any user
+#
+# Usage:
+#   # Via validate-local.sh (recommended):
+#   ./scripts/validate-local.sh config
+#
+#   # Direct invocation:
+#   ANSIBLE_ROLES_PATH="ala-install/ansible/roles:roles" \
+#   ansible-playbook -i inventories/local playbooks/test-config-gen.yml
+#
+#   # With explicit output dir:
+#   ANSIBLE_ROLES_PATH="ala-install/ansible/roles:roles" \
+#   ansible-playbook -i inventories/local playbooks/test-config-gen.yml \
+#     -e "data_dir=/tmp/my-test docker_compose_data_dir=/tmp/my-test/docker-compose"
+#
+# After running, inspect generated files:
+#   ls -la /tmp/la-test-data/docker-compose/
+#   cat /tmp/la-test-data/docker-compose/docker-compose.yml
+#   docker compose -f /tmp/la-test-data/docker-compose/docker-compose.yml config
+
+- hosts: docker_compose
+  gather_facts: yes
+  # become: true needed for system dirs like /var/log/atlas, /etc/nginx
+  # data_dir and docker_compose_data_dir are overridden to /tmp so no actual
+  # service files are written to production paths.
+  become: true
+  vars:
+    # ── Output directory (safe tmp location, no sudo required) ────────────────
+    # Paths under inventories/local/group_vars/all.yml also use {{ data_dir }}; keep in sync.
+    data_dir: /tmp/la-test-data
+    docker_compose_data_dir: "{{ data_dir }}/docker-compose"
+
+    # ── Skip deployment (config generation only) ─────────────────────────────
+    auto_deploy: false
+
+    # ── Skip Docker and system-level operations ───────────────────────────────
+    skip_docker_install: true
+    skip_handlers: true
+
+  pre_tasks:
+    - name: "TEST-CONFIG-GEN: Ensure test output directory exists"
+      file:
+        path: "{{ docker_compose_data_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: "TEST-CONFIG-GEN: Show test configuration"
+      debug:
+        msg:
+          - "Output directory: {{ docker_compose_data_dir }}"
+          - "Inventory host: {{ inventory_hostname }}"
+          - "auto_deploy: {{ auto_deploy }}"
+          - "deployment_type: {{ deployment_type | default('not set') }}"
+
+  tasks:
+    - name: Generate docker-compose deployment files
+      import_role:
+        name: la-compose
+
+  post_tasks:
+    - name: "TEST-CONFIG-GEN: Verify docker-compose.yml was generated"
+      stat:
+        path: "{{ docker_compose_data_dir }}/docker-compose.yml"
+      register: compose_file_stat
+
+    - name: "TEST-CONFIG-GEN: Assert docker-compose.yml exists"
+      assert:
+        that:
+          - compose_file_stat.stat.exists
+          - compose_file_stat.stat.size > 0
+        success_msg: "docker-compose.yml generated successfully ({{ compose_file_stat.stat.size }} bytes)"
+        fail_msg: "docker-compose.yml not generated at {{ docker_compose_data_dir }}/docker-compose.yml"
+
+    - name: "TEST-CONFIG-GEN: Validate docker-compose.yml is valid YAML"
+      command: python3 -c "import yaml; yaml.safe_load(open('{{ docker_compose_data_dir }}/docker-compose.yml'))"
+      changed_when: false
+      register: yaml_check
+
+    - name: "TEST-CONFIG-GEN: Show generation result"
+      debug:
+        msg:
+          - "Output location: {{ docker_compose_data_dir }}"
+          - "docker-compose.yml: {{ compose_file_stat.stat.size }} bytes"
+          - "YAML syntax: VALID"
+          - ""
+          - "Inspect with:"
+          - "  ls -la {{ docker_compose_data_dir }}/"
+          - "  cat {{ docker_compose_data_dir }}/docker-compose.yml | head -80"
+          - "  docker compose -f {{ docker_compose_data_dir }}/docker-compose.yml config"

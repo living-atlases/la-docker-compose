@@ -4,8 +4,8 @@ Generate local/localhost inventories from lademo template.
 Transforms multi-host docker_compose setup to single localhost setup.
 
 Usage:
-    python3 scripts/create_local_inventory.py > /tmp/inventory.ini
-    cp /tmp/inventory.ini inventories/local/hosts.ini
+    python3 scripts/create_local_inventory.py > inventories/local/hosts
+    python3 scripts/create_local_inventory.py dev > inventories/dev/hosts
 """
 
 # Map of service key to hostname alias for full inventory
