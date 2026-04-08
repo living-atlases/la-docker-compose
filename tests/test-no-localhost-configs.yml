@@ -1,0 +1,92 @@
+---
+# Test to verify that generated configurations don't contain 'localhost' references
+# These should use container names like: la_mysql, la_mongodb, la_postgres, etc.
+#
+# Usage:
+#   ansible-playbook tests/test-no-localhost-configs.yml -e config_dir=/tmp/la-test-data
+
+- name: Verify no localhost references in generated configs
+  hosts: localhost
+  gather_facts: false
+  vars:
+    config_dir: "{{ config_dir | default('/tmp/la-test-data') }}"
+    
+  tasks:
+    - name: Check if config directory exists
+      stat:
+        path: "{{ config_dir }}"
+      register: config_dir_stat
+      
+    - name: Fail if config directory doesn't exist
+      fail:
+        msg: "Config directory {{ config_dir }} does not exist. Run generate-compose.yml first."
+      when: not config_dir_stat.stat.exists
+      
+    - name: Find all generated config files
+      find:
+        paths: "{{ config_dir }}"
+        patterns: "*.properties,*.yml,*.yaml,*.conf"
+        recurse: true
+      register: config_files
+      
+    - name: Display number of config files found
+      debug:
+        msg: "Found {{ config_files.files | length }} configuration files to check"
+        
+    - name: Check for localhost references (SHOULD NOT EXIST in docker-compose)
+      shell: |
+        # Exclude acceptable nginx patterns: "server_name localhost;" in nginx configs
+        grep -n "localhost" "{{ item.path }}" 2>/dev/null | grep -v "server_name localhost;" || true
+      loop: "{{ config_files.files }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+      register: localhost_check
+      changed_when: false
+      
+    - name: Filter files with localhost
+      set_fact:
+        files_with_localhost: "{{ localhost_check.results | selectattr('stdout', 'ne', '') | list }}"
+        
+    - name: Report files with localhost
+      debug:
+        msg: "❌ {{ item.item.path | relpath(config_dir) }}: {{ item.stdout }}"
+      loop: "{{ files_with_localhost }}"
+      when: files_with_localhost | length > 0
+      
+    - name: Display summary
+      debug:
+        msg: |
+          {% if files_with_localhost | length == 0 %}
+          ✅ SUCCESS: No 'localhost' references found in {{ config_files.files | length }} config files
+          {% else %}
+          ❌ FAILURE: Found 'localhost' in {{ files_with_localhost | length }} files:
+          {% for f in files_with_localhost %}
+            - {{ f.item.path | relpath(config_dir) }}
+          {% endfor %}
+          {% endif %}
+          
+    - name: Fail if localhost found
+      assert:
+        that:
+          - files_with_localhost | length == 0
+        fail_msg: |
+          ❌ Found 'localhost' references in {{ files_with_localhost | length }} generated config files!
+          
+          This indicates incorrect variable resolution for docker-compose deployment.
+          
+          Common issues:
+          - Database hostname variables not normalized (should be 'la_mysql' not 'localhost')
+          - MongoDB URIs built with wrong host variable (should be 'la_mongodb')
+          - Service URLs using localhost instead of container names
+          
+          Check:
+          - cas_db_hostname should be 'la_mysql' not 'localhost'
+          - cas_audit_host should be 'la_mongodb' not 'localhost'
+          - collectory_db_hostname should be 'la_mysql' not 'localhost'
+          - userdetails_db_hostname should be 'la_mysql' not 'localhost'
+          
+          Files affected:
+          {% for f in files_with_localhost %}
+          - {{ f.item.path | relpath(config_dir) }}
+          {% endfor %}
+        success_msg: "✅ No localhost references found in generated configs"
