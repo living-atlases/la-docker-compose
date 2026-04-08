@@ -180,6 +180,16 @@
   tags:
     - docker-compose
 
+# Enable gatus endpoint generation when gatus group exists
+- name: Set use_gatus fact
+  set_fact:
+    use_gatus: true
+  when: groups['gatus'] is defined and groups['gatus']|length > 0
+  tags:
+    - docker-compose
+    - config
+    - gatus
+
 - name: Ensure output directory exists
   file:
     path: "{{ docker_compose_data_dir }}"
@@ -1117,6 +1127,33 @@
   when: enable_postgres | bool
   tags:
     - docker-compose
+
+# Generate gatus configuration when gatus group exists
+- name: Create gatus config directory
+  file:
+    path: "{{ docker_compose_data_dir }}/gatus/config"
+    state: directory
+    mode: '0755'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: groups['gatus'] is defined and groups['gatus']|length > 0
+  tags:
+    - docker-compose
+    - config
+    - gatus
+
+- name: Generate gatus config.yaml
+  template:
+    src: docker-compose/gatus/config.yaml.j2
+    dest: "{{ docker_compose_data_dir }}/gatus/config/config.yaml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: groups['gatus'] is defined and groups['gatus']|length > 0
+  tags:
+    - docker-compose
+    - config
+    - gatus
 
 - name: Generate db-backup.yml
   template:

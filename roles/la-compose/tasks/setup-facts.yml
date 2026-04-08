@@ -91,7 +91,7 @@
       {%- for service in [
         'cas-servers', 'collectory', 'species-list', 'bie-hub', 'bie-index', 'biocache-hub',
         'biocache-service-clusterdb', 'logger-service', 'image-service', 'namematching-service',
-        'sensitive-data-service',
+        'sensitive-data-service', 'gatus',
       ] -%}
         {%- if service in groups -%}
           {%- set matching = groups[service] | select('match', '^' + ansible_host + '\\.') | list -%}
