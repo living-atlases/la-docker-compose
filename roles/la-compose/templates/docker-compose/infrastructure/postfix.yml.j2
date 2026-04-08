@@ -19,7 +19,7 @@ services:
         aliases:
           - {{ mail_host | default('postfix') }}
     healthcheck:
-      test: [ "CMD-SHELL", "nc -z localhost 25" ]
+      test: ["CMD", "sh", "-c", "timeout 1 echo quit | telnet localhost 25 2>/dev/null | grep -q '220' || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
