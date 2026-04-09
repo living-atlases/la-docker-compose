@@ -51,6 +51,19 @@
   tags:
     - db-init
 
+- name: "DB Init: Wait for database ports to be accessible"
+  wait_for:
+    host: 127.0.0.1
+    port: "{{ item }}"
+    timeout: 30
+    delay: 2
+  loop:
+    - 3306   # MySQL
+    - 27017  # MongoDB
+  become: true
+  tags:
+    - db-init
+
 - name: "DB Init: Check if databases are already initialized"
   include_tasks: validate-db-init.yml
   register: db_check_result
@@ -126,6 +139,13 @@
   when: "'cas-servers' in physical_server_groups"
   tags:
     - db-init
+
+- name: "DB Init: Verify database initialization completed successfully"
+  include_tasks: validate-db-init.yml
+  when: "'cas-servers' in physical_server_groups"
+  tags:
+    - db-init
+    - db-validation
 
 - name: "DB Init: Database initialization completed successfully"
   debug:
