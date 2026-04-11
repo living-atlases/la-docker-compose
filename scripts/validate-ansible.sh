@@ -93,9 +93,24 @@ ansible_lint_should_skip() {
 }
 
 # 1. YAML Lint Check (validates YAML structure)
-run_check "YAML Lint (roles & playbooks)" \
-    "yamllint -c .yamllint roles/ playbooks/" \
-    "yamllint"
+# Only lint staged (tracked) files when running from a pre-commit hook to avoid
+# failing on untracked/work-in-progress files that are not part of the commit.
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    STAGED_YAML=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(yml|yaml)$' | xargs -I{} sh -c 'test -f "{}" && echo "{}"' 2>/dev/null || true)
+    if [ -n "$STAGED_YAML" ]; then
+        run_check "YAML Lint (staged files)" \
+            "echo '$STAGED_YAML' | xargs yamllint -c .yamllint" \
+            "yamllint"
+    else
+        run_check "YAML Lint (roles & playbooks)" \
+            "yamllint -c .yamllint roles/ playbooks/" \
+            "yamllint"
+    fi
+else
+    run_check "YAML Lint (roles & playbooks)" \
+        "yamllint -c .yamllint roles/ playbooks/" \
+        "yamllint"
+fi
 
 # 2. Ansible Lint Check
 if [ "${LA_SKIP_ANSIBLE_LINT:-}" = "1" ]; then

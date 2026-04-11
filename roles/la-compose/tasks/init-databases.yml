@@ -51,16 +51,27 @@
   tags:
     - db-init
 
-- name: "DB Init: Wait for database ports to be accessible"
-  wait_for:
-    host: 127.0.0.1
-    port: "{{ item }}"
-    timeout: 30
-    delay: 2
-  loop:
-    - 3306   # MySQL
-    - 27017  # MongoDB
+- name: "DB Init: Verify MySQL is accepting connections (via docker exec)"
+  command: >
+    docker exec la_mysql mysqladmin ping -h localhost -u root -p{{ mysql_root_password }} --silent
+  register: mysql_ping
+  until: mysql_ping.rc == 0
+  retries: 10
+  delay: 3
   become: true
+  changed_when: false
+  tags:
+    - db-init
+
+- name: "DB Init: Verify MongoDB is accepting connections (via docker exec)"
+  command: >
+    docker exec la_mongodb mongosh --quiet --eval "db.adminCommand('ping').ok" --username {{ mongodb_root_username }} --password {{ mongodb_root_password }}
+  register: mongo_ping
+  until: mongo_ping.rc == 0
+  retries: 10
+  delay: 3
+  become: true
+  changed_when: false
   tags:
     - db-init
 

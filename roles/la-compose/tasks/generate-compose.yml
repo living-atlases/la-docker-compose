@@ -716,7 +716,7 @@
     name: bie-index
   vars:
     bie_index_docker_host: la_bie-index
-    nginx_vhost_fast_mode: true
+    nginx_vhost_fast_mode: false  # bie-index has is_websocket paths; fast_mode skips the map directive
   when:
     - "'bie_index' in services_enabled"
     - "service_aliases.get('bie-index') is defined"
