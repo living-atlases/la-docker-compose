@@ -1,18 +1,19 @@
 ---
 # Validate that databases and tables were created correctly
-# This task validates using native Ansible modules (no shell dependencies)
+# Uses docker exec to connect inside the running containers - no host port exposure needed.
 # 1. MySQL databases (emmet, apikey) and tables
 # 2. MongoDB collections
 # 3. OIDC services in MongoDB
 
 - name: "Database validation: Validate MySQL emmet database tables"
-  community.mysql.mysql_query:
-    login_host: "127.0.0.1"
-    login_user: "{{ mysql_root_username }}"
-    login_password: "{{ mysql_root_password }}"
-    query: "SHOW TABLES FROM {{ cas_db_name | default('emmet') }}"
+  command: >
+    docker exec la_mysql mysql
+    -u root -p{{ mysql_root_password }}
+    -e "SHOW TABLES FROM {{ cas_db_name | default('emmet') }};"
   register: emmet_tables
-  ignore_errors: yes
+  become: true
+  ignore_errors: true
+  changed_when: false
   tags:
     - db-init
     - db-validation
@@ -21,23 +22,24 @@
   assert:
     that:
       - emmet_tables is not failed
-      - emmet_tables.query_result | length > 0
+      - emmet_tables.stdout_lines | length > 1
     fail_msg: |
-      ❌ FAILED: Emmet database validation failed!
-      Error: {{ emmet_tables.msg if emmet_tables is failed else 'No tables found' }}
-    success_msg: "✅ OK - Emmet database has {{ emmet_tables.query_result | length }} tables"
+      FAILED: Emmet database validation failed!
+      Error: {{ emmet_tables.stderr | default('No tables found') }}
+    success_msg: "OK - Emmet database has {{ (emmet_tables.stdout_lines | length) - 1 }} tables"
   tags:
     - db-init
     - db-validation
 
 - name: "Database validation: Validate MySQL apikey database tables"
-  community.mysql.mysql_query:
-    login_host: "127.0.0.1"
-    login_user: "{{ mysql_root_username }}"
-    login_password: "{{ mysql_root_password }}"
-    query: "SHOW TABLES FROM {{ apikey_db_name | default('apikey') }}"
+  command: >
+    docker exec la_mysql mysql
+    -u root -p{{ mysql_root_password }}
+    -e "SHOW TABLES FROM {{ apikey_db_name | default('apikey') }};"
   register: apikey_tables
-  ignore_errors: yes
+  become: true
+  ignore_errors: true
+  changed_when: false
   tags:
     - db-init
     - db-validation
@@ -46,25 +48,26 @@
   assert:
     that:
       - apikey_tables is not failed
-      - apikey_tables.query_result | length > 0
+      - apikey_tables.stdout_lines | length > 1
     fail_msg: |
-      ❌ FAILED: Apikey database validation failed!
-      Error: {{ apikey_tables.msg if apikey_tables is failed else 'No tables found' }}
-    success_msg: "✅ OK - Apikey database has {{ apikey_tables.query_result | length }} tables"
+      FAILED: Apikey database validation failed!
+      Error: {{ apikey_tables.stderr | default('No tables found') }}
+    success_msg: "OK - Apikey database has {{ (apikey_tables.stdout_lines | length) - 1 }} tables"
   tags:
     - db-init
     - db-validation
 
 - name: "Database validation: Validate MongoDB cas-ticket-registry collections"
-  community.mongodb.mongodb_info:
-    login_host: "127.0.0.1"
-    login_port: "{{ cas_tickets_port | default(27017) }}"
-    login_user: "{{ cas_tickets_username }}"
-    login_password: "{{ cas_tickets_password }}"
-    filter:
-      - collections
+  command: >
+    docker exec la_mongodb mongosh --quiet
+    --username {{ cas_tickets_username | default('cas') }}
+    --password {{ cas_tickets_password }}
+    --eval "db.getMongo().getDBNames().join('\n')"
+    {{ cas_tickets_db | default('cas-ticket-registry') }}
   register: ticket_registry_info
-  ignore_errors: yes
+  become: true
+  ignore_errors: true
+  changed_when: false
   tags:
     - db-init
     - db-validation
@@ -73,11 +76,11 @@
   debug:
     msg: |
       {% if ticket_registry_info is not failed %}
-      ✅ MongoDB CAS Ticket Registry initialized
-      Databases: {{ ticket_registry_info.databases | default([]) | length }}
+      MongoDB CAS Ticket Registry initialized
+      Output: {{ ticket_registry_info.stdout | default('') }}
       {% else %}
-      ⚠️  MongoDB CAS Ticket Registry validation skipped
-      Reason: {{ ticket_registry_info.msg | default('Connection failed') }}
+      MongoDB CAS Ticket Registry validation skipped
+      Reason: {{ ticket_registry_info.stderr | default('Connection failed') }}
       Note: MongoDB may still be initializing, this is not critical
       {% endif %}
   tags:
@@ -85,15 +88,16 @@
     - db-validation
 
 - name: "Database validation: Validate MongoDB cas-service-registry collections"
-  community.mongodb.mongodb_info:
-    login_host: "127.0.0.1"
-    login_port: "{{ cas_services_port | default(27017) }}"
-    login_user: "{{ cas_services_username }}"
-    login_password: "{{ cas_services_password }}"
-    filter:
-      - collections
+  command: >
+    docker exec la_mongodb mongosh --quiet
+    --username {{ cas_services_username | default('cas') }}
+    --password {{ cas_services_password }}
+    --eval "db.getCollectionNames().join('\n')"
+    {{ cas_services_db | default('cas-service-registry') }}
   register: service_registry_info
-  ignore_errors: yes
+  become: true
+  ignore_errors: true
+  changed_when: false
   tags:
     - db-init
     - db-validation
@@ -102,11 +106,11 @@
   debug:
     msg: |
       {% if service_registry_info is not failed %}
-      ✅ MongoDB CAS Service Registry initialized
-      Databases: {{ service_registry_info.databases | default([]) | length }}
+      MongoDB CAS Service Registry initialized
+      Collections: {{ service_registry_info.stdout | default('') }}
       {% else %}
-      ⚠️  MongoDB CAS Service Registry validation skipped
-      Reason: {{ service_registry_info.msg | default('Connection failed') }}
+      MongoDB CAS Service Registry validation skipped
+      Reason: {{ service_registry_info.stderr | default('Connection failed') }}
       Note: MongoDB may still be initializing, this is not critical
       {% endif %}
   tags:
@@ -114,15 +118,16 @@
     - db-validation
 
 - name: "Database validation: Check OIDC services count (MongoDB)"
-  community.mongodb.mongodb_shell:
-    login_host: "127.0.0.1"
-    login_port: "{{ cas_services_port | default(27017) }}"
-    login_user: "{{ cas_services_username }}"
-    login_password: "{{ cas_services_password }}"
-    database: "{{ cas_services_db | default('cas-service-registry') }}"
-    eval: "db.OAuthRegisteredService.find().toArray()"
+  command: >
+    docker exec la_mongodb mongosh --quiet
+    --username {{ cas_services_username | default('cas') }}
+    --password {{ cas_services_password }}
+    --eval "db.OAuthRegisteredService.countDocuments()"
+    {{ cas_services_db | default('cas-service-registry') }}
   register: oidc_services
-  ignore_errors: yes
+  become: true
+  ignore_errors: true
+  changed_when: false
   tags:
     - db-init
     - db-validation
@@ -130,13 +135,11 @@
 - name: "Database validation: Display OIDC services status"
   debug:
     msg: |
-      {% if oidc_services is not failed and oidc_services.transformed_output is defined %}
-      ✅ OIDC Services registered: {{ oidc_services.transformed_output | length }}
-      {% elif oidc_services is not failed %}
-      ✅ OIDC query successful (may be empty during first initialization)
+      {% if oidc_services is not failed %}
+      OIDC Services registered: {{ oidc_services.stdout | default('0') }}
       {% else %}
-      ⚠️  OIDC services check skipped
-      Reason: {{ oidc_services.msg | default('Query failed') }}
+      OIDC services check skipped
+      Reason: {{ oidc_services.stderr | default('Query failed') }}
       Note: This is normal during initial setup
       {% endif %}
   tags:
@@ -144,15 +147,17 @@
     - db-validation
 
 - name: "Database validation: Validate MongoDB cas-audit-repository collections"
-  community.mongodb.mongodb_info:
-    login_host: "127.0.0.1"
-    login_port: "{{ cas_audit_port | default(27017) }}"
-    login_user: "{{ mongodb_root_username }}"
-    login_password: "{{ mongodb_root_password }}"
-    filter:
-      - collections
+  command: >
+    docker exec la_mongodb mongosh --quiet
+    --username {{ mongodb_root_username }}
+    --password {{ mongodb_root_password }}
+    --authenticationDatabase admin
+    --eval "db.getCollectionNames().join('\n')"
+    {{ cas_audit_db | default('cas-audit-repository') }}
   register: audit_repository_info
-  ignore_errors: yes
+  become: true
+  ignore_errors: true
+  changed_when: false
   tags:
     - db-init
     - db-validation
@@ -161,11 +166,11 @@
   debug:
     msg: |
       {% if audit_repository_info is not failed %}
-      ✅ MongoDB CAS Audit Repository initialized
-      Databases: {{ audit_repository_info.databases | default([]) | length }}
+      MongoDB CAS Audit Repository initialized
+      Collections: {{ audit_repository_info.stdout | default('') }}
       {% else %}
-      ⚠️  MongoDB CAS Audit Repository validation skipped
-      Reason: {{ audit_repository_info.msg | default('Connection failed') }}
+      MongoDB CAS Audit Repository validation skipped
+      Reason: {{ audit_repository_info.stderr | default('Connection failed') }}
       Note: MongoDB may still be initializing, this is not critical
       {% endif %}
   tags:
@@ -173,15 +178,17 @@
     - db-validation
 
 - name: "Database validation: Validate MongoDB spring-sessions collections"
-  community.mongodb.mongodb_info:
-    login_host: "127.0.0.1"
-    login_port: "{{ cas_spring_session_port | default(27017) }}"
-    login_user: "{{ mongodb_root_username }}"
-    login_password: "{{ mongodb_root_password }}"
-    filter:
-      - collections
+  command: >
+    docker exec la_mongodb mongosh --quiet
+    --username {{ mongodb_root_username }}
+    --password {{ mongodb_root_password }}
+    --authenticationDatabase admin
+    --eval "db.getCollectionNames().join('\n')"
+    {{ cas_spring_session_db | default('spring-sessions') }}
   register: spring_session_info
-  ignore_errors: yes
+  become: true
+  ignore_errors: true
+  changed_when: false
   tags:
     - db-init
     - db-validation
@@ -190,11 +197,11 @@
   debug:
     msg: |
       {% if spring_session_info is not failed %}
-      ✅ MongoDB Spring Sessions initialized
-      Databases: {{ spring_session_info.databases | default([]) | length }}
+      MongoDB Spring Sessions initialized
+      Collections: {{ spring_session_info.stdout | default('') }}
       {% else %}
-      ⚠️  MongoDB Spring Sessions validation skipped
-      Reason: {{ spring_session_info.msg | default('Connection failed') }}
+      MongoDB Spring Sessions validation skipped
+      Reason: {{ spring_session_info.stderr | default('Connection failed') }}
       Note: MongoDB may still be initializing, this is not critical
       {% endif %}
   tags:
@@ -204,16 +211,17 @@
 - name: "Database validation: Final summary"
   debug:
     msg: |
-      ✅ Database Validation Complete!
-      
+      Database Validation Complete!
+
       Summary:
-      ✓ MySQL Emmet database: {{ emmet_tables.query_result | length }} tables
-      ✓ MySQL Apikey database: {{ apikey_tables.query_result | length }} tables
-      ✓ MongoDB CAS Ticket Registry: Initialized
-      ✓ MongoDB CAS Service Registry: Initialized with {% if oidc_services is not failed and oidc_services.transformed_output is defined %}{{ oidc_services.transformed_output | length }}{% else %}0{% endif %} OIDC services
-      ✓ MongoDB CAS Audit Repository: Initialized
-      ✓ MongoDB Spring Sessions: Initialized
-      
+      MySQL Emmet database:    {{ 'OK (' + ((emmet_tables.stdout_lines | length) - 1 | string) + ' tables)' if emmet_tables is not failed else 'FAILED' }}
+      MySQL Apikey database:   {{ 'OK (' + ((apikey_tables.stdout_lines | length) - 1 | string) + ' tables)' if apikey_tables is not failed else 'FAILED' }}
+      MongoDB Ticket Registry: {{ 'OK' if ticket_registry_info is not failed else 'SKIPPED' }}
+      MongoDB Service Registry:{{ 'OK' if service_registry_info is not failed else 'SKIPPED' }}
+      OIDC Services:           {{ oidc_services.stdout | default('0') + ' registered' if oidc_services is not failed else 'SKIPPED' }}
+      MongoDB Audit Repository:{{ 'OK' if audit_repository_info is not failed else 'SKIPPED' }}
+      MongoDB Spring Sessions: {{ 'OK' if spring_session_info is not failed else 'SKIPPED' }}
+
       All database initialization validations passed!
   tags:
     - db-init

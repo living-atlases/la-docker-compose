@@ -2,18 +2,6 @@
 # Database Initialization Tasks
 # Called from main.yml before starting all Docker Compose services
 
-- name: "DB Init: Ensure necessary database client tools are present"
-  package:
-    name:
-      - mysql-client
-      - python3-mysqldb
-      - python3-pymongo
-    state: present
-  become: true
-  ignore_errors: true
-  tags:
-    - db-init
-
 - name: "DB Init: Load CAS variables for database configuration"
   include_vars:
     file: "{{ playbook_dir }}/../ala-install/ansible/roles/cas5/vars/main.yml"
