@@ -7,7 +7,7 @@
 
 - name: "Database validation: Validate MySQL emmet database tables"
   command: >
-    docker exec la_mysql mysql
+    docker exec la_mysql mysql -N
     -u root -p{{ mysql_root_password }}
     -e "SHOW TABLES FROM {{ cas_db_name | default('emmet') }};"
   register: emmet_tables
@@ -22,18 +22,18 @@
   assert:
     that:
       - emmet_tables is not failed
-      - emmet_tables.stdout_lines | length > 1
+      - emmet_tables.stdout_lines | length >= 1
     fail_msg: |
       FAILED: Emmet database validation failed!
       Error: {{ emmet_tables.stderr | default('No tables found') }}
-    success_msg: "OK - Emmet database has {{ (emmet_tables.stdout_lines | length) - 1 }} tables"
+    success_msg: "OK - Emmet database has {{ emmet_tables.stdout_lines | length }} tables"
   tags:
     - db-init
     - db-validation
 
 - name: "Database validation: Validate MySQL apikey database tables"
   command: >
-    docker exec la_mysql mysql
+    docker exec la_mysql mysql -N
     -u root -p{{ mysql_root_password }}
     -e "SHOW TABLES FROM {{ apikey_db_name | default('apikey') }};"
   register: apikey_tables
@@ -48,11 +48,11 @@
   assert:
     that:
       - apikey_tables is not failed
-      - apikey_tables.stdout_lines | length > 1
+      - apikey_tables.stdout_lines | length >= 1
     fail_msg: |
       FAILED: Apikey database validation failed!
       Error: {{ apikey_tables.stderr | default('No tables found') }}
-    success_msg: "OK - Apikey database has {{ (apikey_tables.stdout_lines | length) - 1 }} tables"
+    success_msg: "OK - Apikey database has {{ apikey_tables.stdout_lines | length }} tables"
   tags:
     - db-init
     - db-validation
@@ -214,8 +214,8 @@
       Database Validation Complete!
 
       Summary:
-      MySQL Emmet database:    {{ 'OK (' + ((emmet_tables.stdout_lines | length) - 1 | string) + ' tables)' if emmet_tables is not failed else 'FAILED' }}
-      MySQL Apikey database:   {{ 'OK (' + ((apikey_tables.stdout_lines | length) - 1 | string) + ' tables)' if apikey_tables is not failed else 'FAILED' }}
+      MySQL Emmet database:    {{ 'OK (' + (emmet_tables.stdout_lines | length | string) + ' tables)' if emmet_tables is not failed else 'FAILED' }}
+      MySQL Apikey database:   {{ 'OK (' + (apikey_tables.stdout_lines | length | string) + ' tables)' if apikey_tables is not failed else 'FAILED' }}
       MongoDB Ticket Registry: {{ 'OK' if ticket_registry_info is not failed else 'SKIPPED' }}
       MongoDB Service Registry:{{ 'OK' if service_registry_info is not failed else 'SKIPPED' }}
       OIDC Services:           {{ oidc_services.stdout | default('0') + ' registered' if oidc_services is not failed else 'SKIPPED' }}
