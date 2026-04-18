@@ -63,10 +63,28 @@
   tags:
     - db-init
 
-- name: "DB Init: Check if databases are already initialized"
-  include_tasks: validate-db-init.yml
-  register: db_check_result
+- name: "DB Init: Check if MySQL databases exist (no table count check)"
+  command: >
+    docker exec la_mysql mysql -N
+    -u root -p{{ mysql_root_password }}
+    -e "SELECT SCHEMA_NAME FROM information_schema.SCHEMATA
+        WHERE SCHEMA_NAME IN ('{{ cas_db_name | default('emmet') }}',
+                              '{{ apikey_db_name | default('apikey') }}');"
+  register: mysql_databases_exist
+  become: true
   ignore_errors: true
+  changed_when: false
+  tags:
+    - db-init
+
+- name: "DB Init: Determine if initialization is needed"
+  set_fact:
+    needs_db_init: >-
+      {{
+        mysql_databases_exist is failed
+        or mysql_databases_exist.stdout_lines | length < 2
+        or force_db_init | default(false)
+      }}
   tags:
     - db-init
 
@@ -86,7 +104,7 @@
     cas_add_mongo_users: true
   when:
     - "'cas-servers' in physical_server_groups"
-    - db_check_result is failed or force_db_init | default(false)
+    - needs_db_init | bool
   become: true
   tags:
     - db-init
