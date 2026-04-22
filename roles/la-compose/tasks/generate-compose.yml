@@ -1219,6 +1219,24 @@
   tags:
     - docker-compose
 
+- name: Create gatus nginx vhost
+  include_role:
+    name: nginx_vhost
+  vars:
+    appname: "gatus"
+    hostname: "{{ gatus_url }}"
+    context_path: "/"
+    nginx_upstream_host: "la_gatus_service"
+    nginx_vhost_fast_mode: true
+  when:
+    - "'gatus' in services_enabled"
+    - "groups['gatus'] is defined and groups['gatus'] | length > 0"
+    - "gatus_url is defined"
+  tags:
+    - gatus
+    - nginx_vhost
+    - config
+
 - name: Generate gatus.yml
   template:
     src: docker-compose/infrastructure/gatus.yml.j2
