@@ -1,0 +1,48 @@
+---
+# CAS Admin Account Initialization
+# Called from main.yml AFTER all Docker Compose services are running
+# Requires CAS container to be healthy and accessible on port 9000
+
+- name: "CAS Admin: Load CAS variables"
+  include_vars:
+    file: "{{ playbook_dir }}/../ala-install/ansible/roles/cas5/vars/main.yml"
+  when: "'cas-servers' in hostvars[inventory_hostname].service_aliases"
+  tags:
+    - cas-admin
+
+- name: "CAS Admin: Wait for CAS to be healthy"
+  shell: |
+    docker inspect --format='{{ "{{" }}.State.Health.Status{{ "}}" }}' la_cas
+  register: cas_health
+  until: 'cas_health.stdout == "healthy"'
+  retries: 30
+  delay: 10
+  become: true
+  when: "'cas-servers' in hostvars[inventory_hostname].service_aliases"
+  tags:
+    - cas-admin
+
+- name: "CAS Admin: Initialize CAS admin account"
+  include_tasks: "{{ playbook_dir }}/../ala-install/ansible/roles/cas5/tasks/admin-account.yml"
+  vars:
+    cas_db_hostname: "127.0.0.1"
+    cas_mysql_src_host: "%"
+  when: "'cas-servers' in hostvars[inventory_hostname].service_aliases"
+  tags:
+    - cas-admin
+
+- name: "CAS Admin: Register OIDC services"
+  include_tasks: "{{ playbook_dir }}/../ala-install/ansible/roles/cas-management/tasks/oidc-tasks.yml"
+  vars:
+    cas_services_host: "127.0.0.1"
+    deployment_type: "container"
+  when: "'cas-servers' in hostvars[inventory_hostname].service_aliases"
+  tags:
+    - cas-admin
+
+- name: "CAS Admin: Initialization completed successfully"
+  debug:
+    msg: "✅ CAS admin account and OIDC services configured successfully."
+  when: "'cas-servers' in hostvars[inventory_hostname].service_aliases"
+  tags:
+    - cas-admin

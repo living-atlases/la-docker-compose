@@ -174,6 +174,16 @@
         - docker-compose
         - deploy
 
+    - name: "CAS: Initialize admin account and OIDC services"
+      include_tasks: init-cas-admin.yml
+      when:
+        - auto_deploy | default(true) | bool
+        - "'cas-servers' in hostvars[inventory_hostname].service_aliases"
+      tags:
+        - docker-compose
+        - deploy
+        - cas-admin
+
     - name: "CAPA 3 & 4: Post-deployment validation and health check"
       include_tasks: validate-post-deploy.yml
       when: auto_deploy | default(true) | bool
