@@ -1,0 +1,97 @@
+---
+- name: "CAS Databases Quick Initialization"
+  hosts: docker_compose
+  vars:
+    db_src_host: "%"
+    mysql_target_host: "127.0.0.1"
+    mongodb_target_host: "127.0.0.1"
+  tasks:
+    - name: "Ensure database containers are running"
+      command: docker compose up -d mysql mongodb
+      args:
+        chdir: "/data/docker-compose"
+      become: true
+
+    - name: "Wait for MySQL"
+      shell: |
+        docker inspect --format='{{ "{{" }}.State.Health.Status{{ "}}" }}' la_mysql
+      register: mysql_health
+      until: 'mysql_health.stdout == "healthy"'
+      retries: 30
+      delay: 5
+      become: true
+
+    - name: "Wait for MongoDB"
+      shell: |
+        docker inspect --format='{{ "{{" }}.State.Health.Status{{ "}}" }}' la_mongodb
+      register: mongodb_health
+      until: 'mongodb_health.stdout == "healthy"'
+      retries: 30
+      delay: 5
+      become: true
+
+    - name: "Create CAS MySQL databases"
+      community.mysql.mysql_db:
+        name: "{{ item }}"
+        state: present
+        login_host: "{{ mysql_target_host }}"
+        login_port: 3306
+        login_user: "{{ mysql_root_username }}"
+        login_password: "{{ mysql_root_password }}"
+      with_items:
+        - "{{ cas_db_name | default('emmet') }}"
+        - "{{ user_store_db | default('cas-user-store') }}"
+        - "{{ apikey_db_name | default('apikey') }}"
+      become: true
+
+    - name: "Create CAS MySQL users"
+      community.mysql.mysql_user:
+        name: "{{ item.user }}"
+        password: "{{ item.password }}"
+        host: "{{ db_src_host }}"
+        priv: "{{ item.db }}.*:ALL"
+        login_host: "{{ mysql_target_host }}"
+        login_port: 3306
+        login_user: "{{ mysql_root_username }}"
+        login_password: "{{ mysql_root_password }}"
+        state: present
+      with_items:
+        - {user: "{{ cas_db_username }}", password: "{{ cas_db_password }}", db: "{{ cas_db_name | default('emmet') }}"}
+        - {user: "{{ user_store_username }}", password: "{{ user_store_password }}", db: "{{ user_store_db | default('cas-user-store') }}"}
+        - {user: "{{ apikey_db_username }}", password: "{{ apikey_db_password }}", db: "{{ apikey_db_name | default('apikey') }}"}
+      become: true
+
+    - name: "Create MongoDB users for CAS"
+      community.mongodb.mongodb_user:
+        database: "{{ item.database }}"
+        name: "{{ item.user }}"
+        password: "{{ item.password }}"
+        roles: "{{ item.roles }}"
+        login_host: "{{ mongodb_target_host }}"
+        login_port: 27017
+        login_user: "{{ mongodb_root_username }}"
+        login_password: "{{ mongodb_root_password }}"
+        login_database: admin
+        state: present
+      with_items:
+        - {user: "{{ cas_tickets_username }}", password: "{{ cas_tickets_password }}", database: "{{ cas_tickets_db | default('cas-ticket-registry') }}", roles: "readWrite"}
+        - {user: "{{ cas_services_username }}", password: "{{ cas_services_password }}", database: "{{ cas_services_db | default('cas-service-registry') }}", roles: "readWrite"}
+        - {user: "{{ cas_audit_username | default('cas') }}", password: "{{ cas_audit_password | default('password') }}", database: "{{ cas_audit_db | default('cas-audit-repository') }}", roles: "readWrite"}
+        - {user: "{{ cas_spring_session_username | default('cas') }}", password: "{{ cas_spring_session_password | default('password') }}", database: "{{ spring_session_mongo_collection | default('spring-sessions') }}", roles: "readWrite"}
+      become: true
+
+    - name: "Verify MongoDB users"
+      command: >
+        docker exec la_mongodb mongosh
+        -u {{ mongodb_root_username }}
+        -p {{ mongodb_root_password }}
+        --authenticationDatabase admin
+        cas-service-registry
+        --quiet
+        --eval 'db.getUsers()'
+      register: mongo_users
+      become: true
+
+    - name: "Show MongoDB users"
+      debug:
+        var: mongo_users.stdout_lines

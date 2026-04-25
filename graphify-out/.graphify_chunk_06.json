@@ -1,0 +1,669 @@
+{
+  "nodes": [
+    {
+      "id": "solr4_legacy_search",
+      "label": "Solr4 (Legacy Search System)",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/solr4",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "solrcloud_search",
+      "label": "SolrCloud (Modern Search System)",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/solr-template",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "solr4_bie_index",
+      "label": "Solr4 BIE Index Configuration",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/solr4/files/solr/bie",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "solr4_bie_synonyms",
+      "label": "Solr4 BIE Synonyms",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/solr4/files/solr/bie/conf/synonyms.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "solr4_bie_stopwords",
+      "label": "Solr4 BIE Stopwords",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/solr4/files/solr/bie/conf/stopwords.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "solr4_bie_bie_stopwords",
+      "label": "Solr4 BIE-specific Stopwords",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/solr4/files/solr/bie/conf/bie_stopwords.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "solr4_bie_protwords",
+      "label": "Solr4 BIE Protected Words",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/solr4/files/solr/bie/conf/protwords.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "solr4_bie_spellings",
+      "label": "Solr4 BIE Spellings",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/solr4/files/solr/bie/conf/spellings.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "solr4_bie_iso_mapping",
+      "label": "Solr4 BIE ISOLatin1 Accent Mapping",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/solr4/files/solr/bie/conf/mapping-ISOLatin1Accent.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "solr4_bie_admin_html",
+      "label": "Solr4 BIE Admin Extra HTML",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/solr4/files/solr/bie/conf/admin-extra.html",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "solr4_bie_admin_menu_top",
+      "label": "Solr4 BIE Admin Menu Top HTML",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/solr4/files/solr/bie/conf/admin-extra.menu-top.html",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "solr4_bie_admin_menu_bottom",
+      "label": "Solr4 BIE Admin Menu Bottom HTML",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/solr4/files/solr/bie/conf/admin-extra.menu-bottom.html",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "solr4_biocache_index",
+      "label": "Solr4 Biocache Index Configuration",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/solr4/files/solr/biocache",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "solr4_biocache_synonyms",
+      "label": "Solr4 Biocache Synonyms",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/solr4/files/solr/biocache/conf/synonyms.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "solr4_biocache_stopwords",
+      "label": "Solr4 Biocache Stopwords",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/solr4/files/solr/biocache/conf/stopwords.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "solr4_biocache_protwords",
+      "label": "Solr4 Biocache Protected Words",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/solr4/files/solr/biocache/conf/protwords.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "solr4_biocache_spellings",
+      "label": "Solr4 Biocache Spellings",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/solr4/files/solr/biocache/conf/spellings.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "solr4_biocache_admin_html",
+      "label": "Solr4 Biocache Admin Extra HTML",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/solr4/files/solr/biocache/conf/admin-extra.html",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "solr4_biocache_admin_menu_top",
+      "label": "Solr4 Biocache Admin Menu Top HTML",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/solr4/files/solr/biocache/conf/admin-extra.menu-top.html",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "solr4_biocache_admin_menu_bottom",
+      "label": "Solr4 Biocache Admin Menu Bottom HTML",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/solr4/files/solr/biocache/conf/admin-extra.menu-bottom.html",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "biocachecli_solr_template",
+      "label": "Biocache-CLI SolrCloud Template Configuration",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/solr-template/biocache",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "biocachecli_synonyms",
+      "label": "Biocache-CLI SolrCloud Synonyms",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/solr-template/biocache/conf/synonyms.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "biocachecli_stopwords",
+      "label": "Biocache-CLI SolrCloud Stopwords",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/solr-template/biocache/conf/stopwords.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "biocachecli_protwords",
+      "label": "Biocache-CLI SolrCloud Protected Words",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/solr-template/biocache/conf/protwords.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "biocachecli_spellings",
+      "label": "Biocache-CLI SolrCloud Spellings",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/solr-template/biocache/conf/spellings.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "oznome_state_emblems",
+      "label": "Australian State Emblems Vocabulary",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/oznome-demo/files/stateEmblems.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "elasticsearch_role",
+      "label": "Elasticsearch Ansible Role",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/elasticsearch/README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "oznome_demo_role",
+      "label": "Oznome Demo Ansible Role",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/oznome-demo",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "biocachecli_role",
+      "label": "Biocache-CLI Ansible Role",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/biocache-cli",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "solr4_role",
+      "label": "Solr4 Ansible Role",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/solr4",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "solr4_legacy_search",
+      "target": "solrcloud_search",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "ala-install/ansible/roles/solr4",
+      "source_location": null,
+      "weight": 0.85
+    },
+    {
+      "source": "solr4_role",
+      "target": "solr4_bie_index",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/solr4/files/solr/bie",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "solr4_role",
+      "target": "solr4_biocache_index",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/solr4/files/solr/biocache",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "solr4_bie_index",
+      "target": "solr4_bie_synonyms",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/solr4/files/solr/bie/conf/synonyms.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "solr4_bie_index",
+      "target": "solr4_bie_stopwords",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/solr4/files/solr/bie/conf/stopwords.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "solr4_bie_index",
+      "target": "solr4_bie_bie_stopwords",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/solr4/files/solr/bie/conf/bie_stopwords.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "solr4_bie_index",
+      "target": "solr4_bie_protwords",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/solr4/files/solr/bie/conf/protwords.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "solr4_bie_index",
+      "target": "solr4_bie_spellings",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/solr4/files/solr/bie/conf/spellings.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "solr4_bie_index",
+      "target": "solr4_bie_iso_mapping",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/solr4/files/solr/bie/conf/mapping-ISOLatin1Accent.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "solr4_bie_index",
+      "target": "solr4_bie_admin_html",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/solr4/files/solr/bie/conf/admin-extra.html",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "solr4_bie_index",
+      "target": "solr4_bie_admin_menu_top",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/solr4/files/solr/bie/conf/admin-extra.menu-top.html",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "solr4_bie_index",
+      "target": "solr4_bie_admin_menu_bottom",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/solr4/files/solr/bie/conf/admin-extra.menu-bottom.html",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "solr4_biocache_index",
+      "target": "solr4_biocache_synonyms",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/solr4/files/solr/biocache/conf/synonyms.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "solr4_biocache_index",
+      "target": "solr4_biocache_stopwords",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/solr4/files/solr/biocache/conf/stopwords.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "solr4_biocache_index",
+      "target": "solr4_biocache_protwords",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/solr4/files/solr/biocache/conf/protwords.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "solr4_biocache_index",
+      "target": "solr4_biocache_spellings",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/solr4/files/solr/biocache/conf/spellings.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "solr4_biocache_index",
+      "target": "solr4_biocache_admin_html",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/solr4/files/solr/biocache/conf/admin-extra.html",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "solr4_biocache_index",
+      "target": "solr4_biocache_admin_menu_top",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/solr4/files/solr/biocache/conf/admin-extra.menu-top.html",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "solr4_biocache_index",
+      "target": "solr4_biocache_admin_menu_bottom",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/solr4/files/solr/biocache/conf/admin-extra.menu-bottom.html",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "biocachecli_role",
+      "target": "biocachecli_solr_template",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/solr-template/biocache",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "biocachecli_solr_template",
+      "target": "biocachecli_synonyms",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/solr-template/biocache/conf/synonyms.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "biocachecli_solr_template",
+      "target": "biocachecli_stopwords",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/solr-template/biocache/conf/stopwords.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "biocachecli_solr_template",
+      "target": "biocachecli_protwords",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/solr-template/biocache/conf/protwords.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "biocachecli_solr_template",
+      "target": "biocachecli_spellings",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/solr-template/biocache/conf/spellings.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "solr4_biocache_synonyms",
+      "target": "biocachecli_synonyms",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/solr-template/biocache/conf/synonyms.txt",
+      "source_location": null,
+      "weight": 0.85
+    },
+    {
+      "source": "solr4_biocache_stopwords",
+      "target": "biocachecli_stopwords",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/solr-template/biocache/conf/stopwords.txt",
+      "source_location": null,
+      "weight": 0.85
+    },
+    {
+      "source": "solr4_biocache_protwords",
+      "target": "biocachecli_protwords",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/solr-template/biocache/conf/protwords.txt",
+      "source_location": null,
+      "weight": 0.85
+    },
+    {
+      "source": "solr4_biocache_spellings",
+      "target": "biocachecli_spellings",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/solr-template/biocache/conf/spellings.txt",
+      "source_location": null,
+      "weight": 0.85
+    },
+    {
+      "source": "solr4_biocache_index",
+      "target": "biocachecli_solr_template",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/solr-template/biocache",
+      "source_location": null,
+      "weight": 0.8
+    },
+    {
+      "source": "elasticsearch_role",
+      "target": "solr4_legacy_search",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.7,
+      "source_file": "ala-install/ansible/roles/elasticsearch/README.md",
+      "source_location": null,
+      "weight": 0.7
+    },
+    {
+      "source": "elasticsearch_role",
+      "target": "solrcloud_search",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.7,
+      "source_file": "ala-install/ansible/roles/elasticsearch/README.md",
+      "source_location": null,
+      "weight": 0.7
+    },
+    {
+      "source": "oznome_demo_role",
+      "target": "oznome_state_emblems",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/oznome-demo/files/stateEmblems.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "oznome_state_emblems",
+      "target": "solr4_bie_index",
+      "relation": "shares_data_with",
+      "confidence": "INFERRED",
+      "confidence_score": 0.65,
+      "source_file": "ala-install/ansible/roles/oznome-demo/files/stateEmblems.txt",
+      "source_location": null,
+      "weight": 0.65
+    }
+  ],
+  "hyperedges": [],
+  "input_tokens": 0,
+  "output_tokens": 0
+}

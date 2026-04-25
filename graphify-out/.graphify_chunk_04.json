@@ -1,0 +1,656 @@
+{
+  "nodes": [
+    {
+      "id": "solr_bie_index",
+      "label": "BIE Solr Index",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/solrcloud_config/files/bie/conf",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "solr_biocache_index",
+      "label": "Biocache Solr Index",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/solrcloud_config/files/biocache/conf",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "solr_bie_offline_index",
+      "label": "BIE Offline Solr Index",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/solrcloud_config/files/bie-offline/conf",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "solrcloud_config_role",
+      "label": "SolrCloud Config Ansible Role",
+      "file_type": "code",
+      "source_file": "ala-install/ansible/roles/solrcloud_config",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "config_stopwords",
+      "label": "Stopwords Configuration",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/solrcloud_config/files/bie/conf/bie_stopwords.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "config_synonyms",
+      "label": "Synonyms Configuration",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/solrcloud_config/files/biocache/conf/synonyms.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "config_protwords",
+      "label": "Protected Words Configuration",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/solrcloud_config/files/bie/conf/protwords.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "config_spellings",
+      "label": "Spellings Configuration",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/solrcloud_config/files/bie/conf/spellings.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "config_mapping_isolatin1",
+      "label": "ISO Latin1 Accent Mapping",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/solrcloud_config/files/bie/conf/mapping-ISOLatin1Accent.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "config_admin_extra_html",
+      "label": "Solr Admin Extra HTML",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/solrcloud_config/files/bie/conf/admin-extra.html",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "biocache_cli_role",
+      "label": "Biocache CLI Ansible Role",
+      "file_type": "code",
+      "source_file": "ala-install/ansible/roles/biocache-cli",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "vocab_dwc",
+      "label": "Darwin Core Vocabulary",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/vocab/dwc.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "vocab_establishment_means",
+      "label": "Establishment Means Vocabulary",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/vocab/establishmentMeans.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "dwc_scientific_name",
+      "label": "DwC: scientificName",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/vocab/dwc.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "dwc_occurrence_id",
+      "label": "DwC: occurrenceID",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/vocab/dwc.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "dwc_basis_of_record",
+      "label": "DwC: basisOfRecord",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/vocab/dwc.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "dwc_event_date",
+      "label": "DwC: eventDate",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/vocab/dwc.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "dwc_decimal_latitude",
+      "label": "DwC: decimalLatitude",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/vocab/dwc.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "dwc_decimal_longitude",
+      "label": "DwC: decimalLongitude",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/vocab/dwc.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "dwc_taxon_rank",
+      "label": "DwC: taxonRank",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/vocab/dwc.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "dwc_establishment_means",
+      "label": "DwC: establishmentMeans",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/vocab/dwc.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "dwc_recorded_by",
+      "label": "DwC: recordedBy",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/vocab/dwc.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "dwc_kingdom",
+      "label": "DwC: kingdom",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/vocab/dwc.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "dwc_taxon_id",
+      "label": "DwC: taxonID",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/vocab/dwc.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "sandbox_role",
+      "label": "Sandbox Ansible Role",
+      "file_type": "code",
+      "source_file": "ala-install/ansible/roles/sandbox",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "sandbox_index_html",
+      "label": "Sandbox Index HTML Template",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/sandbox/templates/index.html",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "standard_darwin_core",
+      "label": "Darwin Core Standard (TDWG)",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/vocab/dwc.txt",
+      "source_location": null,
+      "source_url": "https://dwc.tdwg.org/",
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "solrcloud_config_role",
+      "target": "solr_bie_index",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/solrcloud_config/files/bie/conf",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "solrcloud_config_role",
+      "target": "solr_biocache_index",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/solrcloud_config/files/biocache/conf",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "solrcloud_config_role",
+      "target": "solr_bie_offline_index",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/solrcloud_config/files/bie-offline/conf",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "solr_bie_index",
+      "target": "config_stopwords",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/solrcloud_config/files/bie/conf/bie_stopwords.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "solr_bie_index",
+      "target": "config_protwords",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/solrcloud_config/files/bie/conf/protwords.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "solr_bie_index",
+      "target": "config_spellings",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/solrcloud_config/files/bie/conf/spellings.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "solr_bie_index",
+      "target": "config_mapping_isolatin1",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/solrcloud_config/files/bie/conf/mapping-ISOLatin1Accent.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "solr_bie_index",
+      "target": "config_admin_extra_html",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/solrcloud_config/files/bie/conf/admin-extra.html",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "solr_biocache_index",
+      "target": "config_synonyms",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/solrcloud_config/files/biocache/conf/synonyms.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "solr_biocache_index",
+      "target": "config_stopwords",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/solrcloud_config/files/biocache/conf/stopwords.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "solr_biocache_index",
+      "target": "config_protwords",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/solrcloud_config/files/biocache/conf/protwords.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "solr_bie_offline_index",
+      "target": "config_stopwords",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/solrcloud_config/files/bie-offline/conf/bie_stopwords.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "solr_bie_offline_index",
+      "target": "config_synonyms",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/solrcloud_config/files/bie-offline/conf/synonyms.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "solr_bie_offline_index",
+      "target": "config_protwords",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/solrcloud_config/files/bie-offline/conf/protwords.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "solr_bie_offline_index",
+      "target": "config_spellings",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/solrcloud_config/files/bie-offline/conf/spellings.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "solr_bie_offline_index",
+      "target": "config_mapping_isolatin1",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/solrcloud_config/files/bie-offline/conf/mapping-ISOLatin1Accent.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "solr_bie_offline_index",
+      "target": "solr_bie_index",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "ala-install/ansible/roles/solrcloud_config/files/bie-offline/conf",
+      "source_location": null,
+      "weight": 0.9
+    },
+    {
+      "source": "biocache_cli_role",
+      "target": "vocab_dwc",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/vocab/dwc.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "biocache_cli_role",
+      "target": "vocab_establishment_means",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/vocab/establishmentMeans.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "vocab_dwc",
+      "target": "standard_darwin_core",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/vocab/dwc.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "vocab_dwc",
+      "target": "dwc_scientific_name",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/vocab/dwc.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "vocab_dwc",
+      "target": "dwc_occurrence_id",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/vocab/dwc.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "vocab_dwc",
+      "target": "dwc_basis_of_record",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/vocab/dwc.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "vocab_dwc",
+      "target": "dwc_event_date",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/vocab/dwc.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "vocab_dwc",
+      "target": "dwc_decimal_latitude",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/vocab/dwc.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "vocab_dwc",
+      "target": "dwc_decimal_longitude",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/vocab/dwc.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "vocab_dwc",
+      "target": "dwc_taxon_rank",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/vocab/dwc.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "vocab_dwc",
+      "target": "dwc_establishment_means",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/vocab/dwc.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "vocab_dwc",
+      "target": "dwc_recorded_by",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/vocab/dwc.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "vocab_dwc",
+      "target": "dwc_kingdom",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/vocab/dwc.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "vocab_dwc",
+      "target": "dwc_taxon_id",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/vocab/dwc.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "dwc_establishment_means",
+      "target": "vocab_establishment_means",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/biocache-cli/files/vocab/establishmentMeans.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "solr_biocache_index",
+      "target": "vocab_dwc",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "ala-install/ansible/roles/solrcloud_config/files/biocache/conf",
+      "source_location": null,
+      "weight": 0.85
+    },
+    {
+      "source": "sandbox_role",
+      "target": "sandbox_index_html",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/sandbox/templates/index.html",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "sandbox_role",
+      "target": "solr_biocache_index",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.7,
+      "source_file": "ala-install/ansible/roles/sandbox/templates/index.html",
+      "source_location": null,
+      "weight": 0.7
+    }
+  ],
+  "hyperedges": [],
+  "input_tokens": 2800,
+  "output_tokens": 950
+}

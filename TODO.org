@@ -1,0 +1,8 @@
+#+COMMENT: Read-only for AI agents. Propose changes as diffs only. Ignore DONE tasks.
+* apikey en nginx con upstream 127.0.0.1 no es correcto (ver otros), debe usarse el container
+proxy_pass http://127.0.0.1:9002/apikey;
+* cas no consigue escribir en /tmp, creía que habia añadido un fix en ../la-docker-images para esto
+* cas sigue sin arrancar, se ha incializado las dbs con users y passwords como se hace en el rol cas5-dbs de ala-install?
+* nginx esta reiniciando
+la_nginx  | nginx: [emerg] host not found in upstream "la_cas-management" in /etc/nginx/sites-enabled/auth.l-a.site.conf:93
+esto no es admisible, que todo falle pq un container no está disponible todavía. Hay que buscar otra estrategia

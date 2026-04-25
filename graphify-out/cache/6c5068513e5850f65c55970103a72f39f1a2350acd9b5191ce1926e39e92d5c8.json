@@ -1,0 +1,1 @@
+{"nodes": [], "edges": [{"source": "solr_biocache_index", "target": "config_protwords", "relation": "references", "confidence": "EXTRACTED", "confidence_score": 1.0, "source_file": "ala-install/ansible/roles/solrcloud_config/files/biocache/conf/protwords.txt", "source_location": null, "weight": 1.0}], "hyperedges": []}

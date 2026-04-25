@@ -10,6 +10,7 @@ services:
     environment:
       TZ: {{ server_tz | default('UTC') }}
       SOLR_JAVA_MEM: "-Xms512m -Xmx2g"
+      SOLR_MODE: solrcloud
     volumes:
       - la_solr-data:/var/solr
     networks:

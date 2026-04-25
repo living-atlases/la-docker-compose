@@ -1,0 +1,1 @@
+{"nodes": [{"id": "es_issue_test_spec", "label": "Elasticsearch Issue Test Spec", "file_type": "code", "source_file": "ala-install/ansible/roles/ansible-elasticsearch/test/integration/helpers/serverspec/issue_test_spec.rb", "source_location": null, "source_url": null, "captured_at": null, "author": null, "contributor": null}], "edges": [], "hyperedges": []}

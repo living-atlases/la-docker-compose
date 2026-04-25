@@ -1,0 +1,511 @@
+{
+  "nodes": [
+    {
+      "id": "datadog_monitoring_role",
+      "label": "Datadog Ansible Role",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/datadog.datadog/README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "datadog_changelog",
+      "label": "Datadog Role Changelog",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/datadog.datadog/CHANGELOG.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "datadog_contributing",
+      "label": "Datadog Role Contributing Guide",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/datadog.datadog/CONTRIBUTING.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "datadog_manual_tests",
+      "label": "Datadog Manual Tests Readme",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/datadog.datadog/manual_tests/readme.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "datadog_sql_user_role",
+      "label": "Datadog SQL User Ansible Role",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/datadog_sql_user/README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "hadoop_role",
+      "label": "Hadoop Ansible Role",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/hadoop/README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "hadoop_molecule_cluster",
+      "label": "Hadoop Molecule Cluster Test Config",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/hadoop/molecule/cluster/INSTALL.rst",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "hadoop_molecule_default",
+      "label": "Hadoop Molecule Default Test Config",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/hadoop/molecule/default/INSTALL.rst",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "spark_role",
+      "label": "Spark Ansible Role",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/spark/README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "biocache_download_readme",
+      "label": "Biocache Download README Template",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/biocache-service/templates/config/download-readme.html",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "biocache_download_email",
+      "label": "Biocache Download Email Template",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/biocache-service/templates/config/download-email.html",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "biocache_download_doi_readme",
+      "label": "Biocache Download DOI README Template",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/biocache-service/templates/config/download-doi-readme.html",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "biocache_download_doi_email",
+      "label": "Biocache Download DOI Email Template",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/biocache-service/templates/config/download-doi-email.html",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "biocache_download_csdm_email",
+      "label": "Biocache Download CSDM Email Template",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/biocache-service/templates/config/download-csdm-email.html",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "phylolink_opentree_nexml",
+      "label": "PhyloLink OpenTree Nexml Phylogenetic Data",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/phylolink/files/bootstrap/ot_29.nexml.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "regions_state_emblems",
+      "label": "Australian State Emblems Data",
+      "file_type": "document",
+      "source_file": "ala-install/ansible/roles/regions/files/stateEmblems.txt",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "demo_glyphicons_svg",
+      "label": "Glyphicons Icon Font SVG (UI Component)",
+      "file_type": "image",
+      "source_file": "ala-install/ansible/roles/demo/files/fonts/glyphicons-halflings-regular.svg",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "tests_readme",
+      "label": "Tests README",
+      "file_type": "document",
+      "source_file": "tests/README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "tests_delegate_readme",
+      "label": "Delegate To Test README",
+      "file_type": "document",
+      "source_file": "tests/delegate_to_test/README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "biocache_service_role",
+      "label": "Biocache Service Ansible Role",
+      "file_type": "code",
+      "source_file": "ala-install/ansible/roles/biocache-service",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "phylolink_role",
+      "label": "PhyloLink Ansible Role",
+      "file_type": "code",
+      "source_file": "ala-install/ansible/roles/phylolink",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "la_infrastructure",
+      "label": "Living Atlas Infrastructure",
+      "file_type": "code",
+      "source_file": "ala-install/ansible/roles",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "datadog_changelog",
+      "target": "datadog_monitoring_role",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/datadog.datadog/CHANGELOG.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "datadog_contributing",
+      "target": "datadog_monitoring_role",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/datadog.datadog/CONTRIBUTING.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "datadog_manual_tests",
+      "target": "datadog_monitoring_role",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/datadog.datadog/manual_tests/readme.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "datadog_monitoring_role",
+      "target": "la_infrastructure",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "ala-install/ansible/roles/datadog.datadog/README.md",
+      "source_location": null,
+      "weight": 0.85
+    },
+    {
+      "source": "datadog_sql_user_role",
+      "target": "datadog_monitoring_role",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "ala-install/ansible/roles/datadog_sql_user/README.md",
+      "source_location": null,
+      "weight": 0.9
+    },
+    {
+      "source": "hadoop_role",
+      "target": "la_infrastructure",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "ala-install/ansible/roles/hadoop/README.md",
+      "source_location": null,
+      "weight": 0.8
+    },
+    {
+      "source": "hadoop_molecule_cluster",
+      "target": "hadoop_role",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/hadoop/molecule/cluster/INSTALL.rst",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "hadoop_molecule_default",
+      "target": "hadoop_role",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/hadoop/molecule/default/INSTALL.rst",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "spark_role",
+      "target": "la_infrastructure",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "ala-install/ansible/roles/spark/README.md",
+      "source_location": null,
+      "weight": 0.8
+    },
+    {
+      "source": "spark_role",
+      "target": "hadoop_role",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "ala-install/ansible/roles/spark/README.md",
+      "source_location": null,
+      "weight": 0.8
+    },
+    {
+      "source": "biocache_download_email",
+      "target": "biocache_service_role",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/biocache-service/templates/config/download-email.html",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "biocache_download_readme",
+      "target": "biocache_service_role",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/biocache-service/templates/config/download-readme.html",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "biocache_download_doi_email",
+      "target": "biocache_service_role",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/biocache-service/templates/config/download-doi-email.html",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "biocache_download_doi_readme",
+      "target": "biocache_service_role",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/biocache-service/templates/config/download-doi-readme.html",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "biocache_download_csdm_email",
+      "target": "biocache_service_role",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/biocache-service/templates/config/download-csdm-email.html",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "biocache_download_doi_email",
+      "target": "biocache_download_email",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.75,
+      "source_file": "ala-install/ansible/roles/biocache-service/templates/config/download-doi-email.html",
+      "source_location": null,
+      "weight": 0.75
+    },
+    {
+      "source": "biocache_download_csdm_email",
+      "target": "biocache_download_email",
+      "relation": "semantically_similar_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.75,
+      "source_file": "ala-install/ansible/roles/biocache-service/templates/config/download-csdm-email.html",
+      "source_location": null,
+      "weight": 0.75
+    },
+    {
+      "source": "biocache_service_role",
+      "target": "la_infrastructure",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "ala-install/ansible/roles/biocache-service",
+      "source_location": null,
+      "weight": 0.85
+    },
+    {
+      "source": "phylolink_opentree_nexml",
+      "target": "phylolink_role",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "ala-install/ansible/roles/phylolink/files/bootstrap/ot_29.nexml.txt",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "phylolink_role",
+      "target": "la_infrastructure",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "ala-install/ansible/roles/phylolink",
+      "source_location": null,
+      "weight": 0.8
+    },
+    {
+      "source": "demo_glyphicons_svg",
+      "target": "la_infrastructure",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.7,
+      "source_file": "ala-install/ansible/roles/demo/files/fonts/glyphicons-halflings-regular.svg",
+      "source_location": null,
+      "weight": 0.7
+    },
+    {
+      "source": "regions_state_emblems",
+      "target": "la_infrastructure",
+      "relation": "references",
+      "confidence": "INFERRED",
+      "confidence_score": 0.75,
+      "source_file": "ala-install/ansible/roles/regions/files/stateEmblems.txt",
+      "source_location": null,
+      "weight": 0.75
+    },
+    {
+      "source": "tests_delegate_readme",
+      "target": "tests_readme",
+      "relation": "references",
+      "confidence": "INFERRED",
+      "confidence_score": 0.7,
+      "source_file": "tests/delegate_to_test/README.md",
+      "source_location": null,
+      "weight": 0.7
+    },
+    {
+      "source": "tests_readme",
+      "target": "la_infrastructure",
+      "relation": "references",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "tests/README.md",
+      "source_location": null,
+      "weight": 0.8
+    },
+    {
+      "source": "datadog_monitoring_role",
+      "target": "hadoop_role",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.65,
+      "source_file": "ala-install/ansible/roles/datadog.datadog/README.md",
+      "source_location": null,
+      "weight": 0.65
+    },
+    {
+      "source": "datadog_monitoring_role",
+      "target": "spark_role",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.65,
+      "source_file": "ala-install/ansible/roles/datadog.datadog/README.md",
+      "source_location": null,
+      "weight": 0.65
+    }
+  ],
+  "hyperedges": [],
+  "input_tokens": 0,
+  "output_tokens": 0
+}

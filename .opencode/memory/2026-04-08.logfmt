@@ -1,0 +1,12 @@
+ts=2026-04-08T08:42:16.846Z type=learning scope=openchamber-fix content="Fixed parameter expansion bugs in openchamber wrapper scripts. Issues were:
+1. Line 41: for i in \"${!@}\" syntax caused \"variable name invalid\" error 
+2. Line 43: \"${!i}\" and \"${@:$((i+1)):1}\" caused \"variable unassigned\" error
+3. --foreground check only looked at $1, not all arguments
+
+Solutions applied:
+- Replaced complex parameter expansion with simple array iteration
+- Added help/version passthrough to avoid triggering server start
+- Fixed foreground detection to scan all arguments
+- Updated examples in status script to reflect fixes
+
+All scripts now handle --help, --version, --foreground, and --port correctly."
