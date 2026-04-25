@@ -20,8 +20,16 @@ Thumb.db
 # Local development and documentation (sensitive/drafts)
 opencode.json*
 *.old
+*.backup
 test-inventory.yml
 docker-plan.md
 la-docker-compose-*.md
 HEALTH_CHECKS.md
-AGENTS.md.backup
+BUILD_83_FIX.md
+
+# Graphify output
+graphify-out/
+
+# Local inventories (generated, not committed)
+inventories/local/hosts
+inventories/dev/hosts

@@ -1,1 +1,0 @@
-{"nodes": [{"id": "es_oss_spec", "label": "Elasticsearch OSS Spec", "file_type": "code", "source_file": "ala-install/ansible/roles/ansible-elasticsearch/test/integration/helpers/serverspec/oss_spec.rb", "source_location": null, "source_url": null, "captured_at": null, "author": null, "contributor": null}], "edges": [], "hyperedges": []}
