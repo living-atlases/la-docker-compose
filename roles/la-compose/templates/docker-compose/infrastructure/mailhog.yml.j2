@@ -17,6 +17,8 @@ services:
       {{ docker_network | default('internal') }}:
         aliases:
           - {{ mail_host | default('mailhog') }}
-    # Health check disabled - mailhog image is a minimal Go binary without shell tools
-    # The service starts quickly and is for development only, so health check is not critical
+    # Health check disabled - mailhog image defines its own healthcheck but it's unreliable
+    # Disabling explicitly to prevent wait-for-health.sh from waiting indefinitely
+    healthcheck:
+      disable: true
 {% endif %}
