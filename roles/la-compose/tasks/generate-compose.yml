@@ -117,6 +117,10 @@
 - name: Set nginx Docker resolver configuration
   set_fact:
     nginx_docker_internal_resolver: "{{ (deployment_type in ['swarm', 'container']) | bool }}"
+    # nginx_vhost role uses nginx_docker_swarm_resolver — map our internal var to that name
+    # This activates resolver 127.0.0.11 + variable proxy_pass pattern in fragment_73_location.j2
+    # preventing nginx startup failures when upstream containers aren't ready yet
+    nginx_docker_swarm_resolver: "{{ (deployment_type in ['swarm', 'container']) | bool }}"
   tags:
     - docker-compose
 
