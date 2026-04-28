@@ -126,6 +126,12 @@
 
     solr_host: "{{ 'solr' if (solr_host | default('localhost') in ['localhost', '127.0.0.1']) else solr_host }}"
     biocache_db_host: "{{ 'cassandra' if (biocache_db_host | default('localhost') in ['localhost', '127.0.0.1']) else biocache_db_host }}"
+    mail_smtp_host: >-
+      {{ 'mailhog' if (docker_mail_development_mode | default(false) | bool and
+         mail_smtp_host | default('localhost') in ['localhost', '127.0.0.1'])
+         else ('postfix' if (not (docker_mail_development_mode | default(false) | bool) and
+         mail_smtp_host | default('localhost') in ['localhost', '127.0.0.1'])
+         else mail_smtp_host | default('postfix')) }}
   tags:
     - always
     - docker-compose
