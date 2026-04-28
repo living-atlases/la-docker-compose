@@ -9,7 +9,7 @@ services:
     container_name: la_certs-init
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     entrypoint: /bin/sh
-    command: -c 'set -e && echo "[*] Checking source certificates in image..." && ls -lah /certs/ && test -f /certs/fullchain.pem && test -s /certs/fullchain.pem && test -f /certs/privkey.pem && test -s /certs/privkey.pem && echo "[OK] Source certificates validated" && echo "[*] Extracting certificates to volume..." && mkdir -p /out/l-a.site && cat /certs/fullchain.pem > /out/l-a.site/fullchain.pem && cat /certs/privkey.pem > /out/l-a.site/privkey.pem && cat /certs/chain.pem > /out/l-a.site/chain.pem 2>/dev/null || true && chmod 644 /out/l-a.site/*.pem && echo "[*] Extracted certificates:" && ls -lah /out/l-a.site/ && test -s /out/l-a.site/fullchain.pem && test -s /out/l-a.site/privkey.pem && echo "[SUCCESS] Certificates extracted successfully"'
+    command: -c 'set -e && echo "[*] Checking source certificates in image..." && ls -lah /certs/ && test -f /certs/fullchain.pem && test -s /certs/fullchain.pem && test -f /certs/privkey.pem && test -s /certs/privkey.pem && echo "[OK] Source certificates validated" && echo "[*] Extracting certificates to volume..." && cat /certs/fullchain.pem > /out/fullchain.pem && cat /certs/privkey.pem > /out/privkey.pem && cat /certs/chain.pem > /out/chain.pem 2>/dev/null || true && chmod 644 /out/*.pem && echo "[*] Extracted certificates:" && ls -lah /out/ && test -s /out/fullchain.pem && test -s /out/privkey.pem && echo "[SUCCESS] Certificates extracted successfully"'
     volumes:
       - la-site-certs:/out
     networks:
