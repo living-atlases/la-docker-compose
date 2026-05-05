@@ -116,11 +116,15 @@ pipeline {
                                     sleep 2
                                 fi
 
-                                # 2. Wait for apt/dpkg locks
+                                # 2. Kill unattended-upgrades (safe: CI nodes are being wiped anyway)
+                                echo "  - Stopping unattended-upgrades if running..."
+                                sudo systemctl stop unattended-upgrades 2>/dev/null || true
+                                sudo pkill -9 -f unattended-upgrades 2>/dev/null || true
+                                # Wait for dpkg lock to release (max 2 min)
                                 i=0
-                                while pgrep -x apt-get >/dev/null 2>&1 || pgrep -x apt >/dev/null 2>&1 || pgrep -x dpkg >/dev/null 2>&1 || pgrep -f unattended-upgrades >/dev/null 2>&1; do
+                                while pgrep -x apt-get >/dev/null 2>&1 || pgrep -x apt >/dev/null 2>&1 || pgrep -x dpkg >/dev/null 2>&1; do
                                     i=\$((i+1))
-                                    if [ "\$i" -ge 60 ]; then echo "ERROR: apt busy for too long"; exit 1; fi
+                                    if [ "\$i" -ge 24 ]; then echo "ERROR: apt/dpkg busy for too long after kill"; exit 1; fi
                                     sleep 5
                                 done
 
