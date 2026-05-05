@@ -120,13 +120,16 @@ pipeline {
                                 echo "  - Stopping unattended-upgrades if running..."
                                 sudo systemctl stop unattended-upgrades 2>/dev/null || true
                                 sudo pkill -9 -f unattended-upgrades 2>/dev/null || true
-                                # Wait for dpkg lock to release (max 2 min)
+                                # Wait for dpkg lock-frontend to be released (max 2 min)
+                                # flock rc=0 means lock acquired (free), rc=1 means locked
                                 i=0
-                                while pgrep -x apt-get >/dev/null 2>&1 || pgrep -x apt >/dev/null 2>&1 || pgrep -x dpkg >/dev/null 2>&1; do
+                                while ! sudo flock --nonblock /var/lib/dpkg/lock-frontend true 2>/dev/null; do
                                     i=\$((i+1))
-                                    if [ "\$i" -ge 24 ]; then echo "ERROR: apt/dpkg busy for too long after kill"; exit 1; fi
+                                    echo "  - dpkg lock held, waiting... (\${i}/24)"
+                                    if [ "\$i" -ge 24 ]; then echo "ERROR: dpkg lock busy for too long"; exit 1; fi
                                     sleep 5
                                 done
+                                echo "  - dpkg lock free, continuing"
 
                                 # 3. Wipe /data (preserving lost+found and var-lib-containerd for volume caching)
                                 if [ -d /data ]; then
