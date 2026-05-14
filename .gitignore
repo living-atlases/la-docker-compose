@@ -25,7 +25,7 @@ test-inventory.yml
 docker-plan.md
 la-docker-compose-*.md
 HEALTH_CHECKS.md
-BUILD_83_FIX.md
+BUILD*
 
 # Graphify output
 graphify-out/
@@ -38,3 +38,6 @@ inventories/dev/hosts
 # Copy from la-toolkit or generate with: yo living-atlas --replay-dont-ask --force
 inventories/testing/*-passwords.ini
 inventories/testing/*-local-passwords.ini
+CLAUDE.md
+docs
+AUDIT_REPORT.md
