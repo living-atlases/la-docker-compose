@@ -68,7 +68,7 @@ spinner() {
     local spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
     while kill -0 "$pid" 2>/dev/null; do
         i=$(( (i+1) % 10 ))
-        printf "\r${BLUE}${spinstr:$i:1} Running validate-config-gen.sh...${NC}"
+        printf "\r${BLUE}${spinstr:$i:1} Running: %s...${NC}" "${2:-validate-config-gen.sh}"
         sleep "$delay"
     done
     printf "\r"
@@ -112,17 +112,16 @@ run_tests() {
 
     start_change_collector
 
-    {
+    local exit_file
+    exit_file=$(mktemp)
+
+    (
+        # shellcheck disable=SC2064
+        trap "echo \$? > '$exit_file'" EXIT
         echo "=== $(date '+%Y-%m-%d %H:%M:%S') ==="
         echo ""
         echo "── Step 1: validate-config-gen.sh ──────────────────────────"
-        "$ROOT_DIR/scripts/validate-config-gen.sh"
-        local validate_rc=$?
-        if [ $validate_rc -ne 0 ]; then
-            echo ""
-            echo "Step 1 failed (exit $validate_rc) — skipping ansiblew deploy"
-            exit $validate_rc
-        fi
+        "$ROOT_DIR/scripts/validate-config-gen.sh" || exit $?
 
         echo ""
         echo "── Step 2: ansiblew → /data/docker-compose ──────────────────"
@@ -136,29 +135,21 @@ run_tests() {
             --tags=docker-compose \
             --skip=docker \
             all
-    } > "$LAST_LOG" 2>&1 &
-    local pid=$!
+    ) 2>&1 | tee "$LAST_LOG" | tee -a "$LOG_FILE"
 
-    spinner "$pid" "validate + ansiblew deploy"
-    wait "$pid"
-    local exit_code=$?
-
-    # Append last run to rolling log
-    cat "$LAST_LOG" >> "$LOG_FILE"
+    local exit_code
+    exit_code=$(cat "$exit_file" 2>/dev/null || echo 1)
+    rm -f "$exit_file"
 
     stop_change_collector
 
-    if [ $exit_code -eq 0 ]; then
+    echo ""
+    if [ "$exit_code" -eq 0 ]; then
         echo -e "${GREEN}${BOLD}✔ ALL CHECKS PASSED${NC}"
         send_notification "✔ LA Docker — OK" "All checks passed ($timestamp)" "low" "dialog-information"
     else
         echo -e "${RED}${BOLD}✗ CHECKS FAILED (exit $exit_code)${NC}"
-        echo ""
-        echo -e "${RED}Last 30 lines:${NC}"
-        echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        tail -30 "$LAST_LOG"
-        echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        send_notification "✗ LA Docker — FAILED" "validate-config-gen.sh failed (exit $exit_code)" "critical" "dialog-error"
+        send_notification "✗ LA Docker — FAILED" "Checks failed (exit $exit_code)" "critical" "dialog-error"
     fi
 
     if [ -f "$CHANGES_FLAG" ]; then
