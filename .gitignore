@@ -1,1 +1,46 @@
+# Ansible
+*.retry
+ansible.log
+.ansible_cache
+
+# Generated output
+docker-compose-output/
+tmp/
+
+# OS files
+.DS_Store
+Thumb.db
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local development and documentation (sensitive/drafts)
+opencode.json*
+*.old
+*.backup
+test-inventory.yml
+docker-plan.md
+la-docker-compose-*.md
+HEALTH_CHECKS.md
+BUILD*
+
+# Graphify output
+graphify-out/
+
+# Local inventories (generated, not committed)
+inventories/local/hosts
+inventories/dev/hosts
+
+# Passwords/secrets inventory files (contain DB passwords, API keys, etc.)
+# Copy from la-toolkit or generate with: yo living-atlas --replay-dont-ask --force
+inventories/testing/*-passwords.ini
+inventories/testing/*-local-passwords.ini
+CLAUDE.md
+docs
+AUDIT_REPORT.md
 inventories/testing/lademo-inventories/lademo-local-passwords.ini
+TODO.org
+AGENTS.md
