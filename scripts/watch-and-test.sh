@@ -104,7 +104,7 @@ run_tests() {
 
     echo ""
     echo -e "${BLUE}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${YELLOW}[${timestamp}] Triggered — running validate-config-gen.sh${NC}"
+    echo -e "${YELLOW}[${timestamp}] Triggered — validate + ansiblew deploy${NC}"
     echo -e "${BLUE}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo -e "  ${CYAN}Full log:${NC} $LOG_FILE"
     echo -e "  ${CYAN}Last run:${NC} $LAST_LOG"
@@ -114,11 +114,32 @@ run_tests() {
 
     {
         echo "=== $(date '+%Y-%m-%d %H:%M:%S') ==="
+        echo ""
+        echo "── Step 1: validate-config-gen.sh ──────────────────────────"
         "$ROOT_DIR/scripts/validate-config-gen.sh"
+        local validate_rc=$?
+        if [ $validate_rc -ne 0 ]; then
+            echo ""
+            echo "Step 1 failed (exit $validate_rc) — skipping ansiblew deploy"
+            exit $validate_rc
+        fi
+
+        echo ""
+        echo "── Step 2: ansiblew → /data/docker-compose ──────────────────"
+        cd "$ROOT_DIR/inventories/testing/lademo-inventories" || exit 1
+        ANSIBLE_CONFIG="$ROOT_DIR/playbooks/ansible.cfg" \
+        ./ansiblew \
+            --alainstall=/dev/null \
+            --ladocker="$ROOT_DIR" \
+            --nodryrun \
+            --docker-local \
+            --tags=docker-compose \
+            --skip=docker \
+            all
     } > "$LAST_LOG" 2>&1 &
     local pid=$!
 
-    spinner "$pid"
+    spinner "$pid" "validate + ansiblew deploy"
     wait "$pid"
     local exit_code=$?
 
