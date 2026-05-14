@@ -17,7 +17,7 @@ INVENTORY="${1:-inventories/testing/lademo-inventories}"
 # NOTE: Docker Desktop on Linux does not share /tmp by default.
 # Use $HOME to ensure the cert-validator container can mount the path.
 # If using Docker Desktop, also add this directory to Settings > Resources > File sharing.
-OUTPUT_DIR="${2:-$HOME/la-docker-config-test}"
+OUTPUT_DIR="${2:-/data/la-docker-config-test}"
 VENV_MOLECULE="${VENV_MOLECULE:-.venv-molecule}"
 COMPOSE_DIR="${OUTPUT_DIR}"
 
