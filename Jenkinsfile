@@ -119,7 +119,7 @@ pipeline {
                                 # 2. Kill unattended-upgrades (safe: CI nodes are being wiped anyway)
                                 echo "  - Stopping unattended-upgrades if running..."
                                 sudo systemctl stop unattended-upgrades 2>/dev/null || true
-                                sudo pkill -9 -f unattended-upgrades 2>/dev/null || true
+                                sudo pkill -9 -x unattended-upgrades 2>/dev/null || true
                                 # Wait for dpkg lock-frontend to be released (max 2 min)
                                 # flock rc=0 means lock acquired (free), rc=1 means locked
                                 i=0
