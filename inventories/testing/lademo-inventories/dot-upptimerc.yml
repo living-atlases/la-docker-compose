@@ -11,6 +11,8 @@
 # Change these first
 owner: LADemo # Your GitHub organization or username, where this repository lives (for instance, biodiversiydata-se in the case of https://github.com/biodiversitydata-se)
 repo: status # The name of this repository (for instance, like: https://github.com/GBIFes/status)
+
+
 sites:
   - name: Living Atlas Demo
     url: https://l-a.site
@@ -94,3 +96,5 @@ status-website:
 # For instance, you can send notifications to a telegram group
 #
 # See https://upptime.js.org/docs/configuration
+
+

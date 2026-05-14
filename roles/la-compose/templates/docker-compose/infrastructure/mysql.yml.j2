@@ -2,7 +2,7 @@
 services:
   mysql:
     container_name: la_mysql
-    profiles: [dbs, full]
+    profiles: [dbs, core-auth, app-core, full]
     image: mysql:8.0-debian
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     volumes:
