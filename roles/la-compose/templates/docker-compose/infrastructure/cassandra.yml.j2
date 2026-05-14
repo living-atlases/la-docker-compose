@@ -3,6 +3,7 @@ services:
   cassandra:
     image: cassandra:{{ cassandra_version | default('5.0.6') }}
     container_name: la_cassandra
+    profiles: [dbs, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     restart: unless-stopped
     expose:
@@ -37,6 +38,7 @@ services:
   cassandra-load-keyspace:
     image: cassandra:{{ cassandra_version | default('5.0.6') }}
     container_name: la_cassandra_init
+    profiles: [dbs, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     restart: "no"
     command:

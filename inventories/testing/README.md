@@ -1,41 +1,18 @@
-# inventories/testing/
+## Living Atlas Demo: Ansible Inventories and Branding 
 
-Test inventories for local docker-compose deployment. Copied from a `yo living-atlas`-generated
-lademo inventory with sensitive values removed.
+### Inventories
 
-## Origin
+Steps to deploy your inventories:
+- Install `ansible` following: https://github.com/AtlasOfLivingAustralia/ala-install/#ansible-version
+- Follow the [Before-Start-Your-LA-Installation](https://github.com/AtlasOfLivingAustralia/documentation/wiki/Before-Start-Your-LA-Installation) recommendations. There are some generated inventories in `lademo-pre-deploy/` to help with these tasks.
+- We auto-generated some passwords in `lademo-inventories/lademo-local-passwords.ini` for you, but you can change them prior to deploy your services.
+- Follow the `lademo-pre-deploy/README.md`, the `lademo-post-deploy/README.md` and `lademo-inventories/README.md` for instructions of how to deploy using ansible.
 
-Files here are copies of:
-- `/data/la-toolkit/config/lademo/lademo-inventories/lademo-dev-docker-inventory.ini`
-- `/data/la-toolkit/config/lademo/lademo-inventories/lademo-local-extras.ini`
+other steps from our [LA-Quick-Start-Guide](https://github.com/AtlasOfLivingAustralia/documentation/wiki/LA-Quick-Start-Guide) can be done using the `lademo-post-deploy/` inventories.
 
-The generator (`yo living-atlas`) is the source of truth. Re-copy from there when the generator
-updates inventory structure.
 
-## Secrets stripped
+### LA Branding
 
-The following vars are cleared (left empty) so the generator autogenerates new values on first run:
+Initially, do a `git submodule update --init --recursive --depth=1` in your branding to download the dependencies, and later follow the `lademo-branding/README.md` instructions.
 
-- `pac4j_cookie_signing_key`
-- `pac4j_cookie_encryption_key`
-- `cas_webflow_signing_key`
-- `cas_webflow_encryption_key`
-- `doi_datacite_password`
 
-## Usage
-
-```bash
-cd /path/to/lademo-inventories
-
-./ansiblew \
-  --alainstall=../ala-install \
-  --ladocker=../la-docker-compose \
-  --docker-local \
-  --nodryrun all
-```
-
-`--docker-local` makes ansiblew use `lademo-dev-docker-inventory.ini` (all hosts on 127.0.0.1)
-instead of `lademo-inventory.ini` (remote hosts).
-
-`--ladocker` makes ansiblew run `la-docker-compose` playbooks instead of ala-install playbooks
-for docker container hosts.

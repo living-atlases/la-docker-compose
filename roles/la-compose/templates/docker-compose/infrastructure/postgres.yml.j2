@@ -2,6 +2,7 @@
 services:
   postgres:
     container_name: la_postgres
+    profiles: [dbs, full]
     image: postgres:16-alpine
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     volumes:

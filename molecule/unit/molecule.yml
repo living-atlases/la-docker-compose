@@ -1,0 +1,42 @@
+---
+# Molecule unit scenario for testing Ansible task files without Docker.
+# Uses 'default' driver (managed: false) so tests run on localhost with no container lifecycle.
+# Note: 'delegated' driver was removed in molecule 6.x, 'default' is the equivalent.
+#
+# Setup: scripts/setup-molecule.sh  (creates .venv-molecule with molecule installed)
+# Run:   molecule test -s unit       (from project root)
+
+dependency:
+  name: galaxy
+
+driver:
+  name: default
+  options:
+    managed: false
+
+platforms:
+  - name: localhost
+
+provisioner:
+  name: ansible
+  inventory:
+    hosts:
+      all:
+        hosts:
+          localhost:
+            ansible_connection: local
+            ansible_python_interpreter: "{{ ansible_playbook_python }}"
+
+verifier:
+  name: ansible
+
+scenario:
+  name: unit
+  test_sequence:
+    - syntax
+    - converge
+    - verify
+  create_sequence:
+    - create
+  destroy_sequence:
+    - destroy

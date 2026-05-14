@@ -1,0 +1,96 @@
+# UPPTIME configuration
+#
+# Follow these instructions to create a status page like https://github.com/GBIFes/status for your LA Portal:
+#
+#
+# 1) Follow the https://upptime.js.org/docs/get-started/ instructions
+# 2) copy the dot-upptimerc.yml as .upptimerc.yml in your uptime status created repository
+# 3) Update the github owner/repo and for instance the icons in this configuration
+# 4) That is
+
+# Change these first
+owner: LADemo # Your GitHub organization or username, where this repository lives (for instance, biodiversiydata-se in the case of https://github.com/biodiversitydata-se)
+repo: status # The name of this repository (for instance, like: https://github.com/GBIFes/status)
+sites:
+  - name: Living Atlas Demo
+    url: https://l-a.site
+  - name: Alerts service
+    url: https://alerts.l-a.site
+    maxRedirects: 10
+  - name: Apikey service
+    url: https://auth.l-a.site/apikey
+  - name: CAS service
+    url: https://auth.l-a.site/cas
+    maxRedirects: 10
+  - name: CAS management service
+    url: https://auth.l-a.site/cas-management/
+    maxRedirects: 10
+  - name: Userdetails service
+    url: https://auth.l-a.site/userdetails
+  - name: Species service (bie)
+    url: https://species.l-a.site
+  - name: Species web services (bie-index)
+    url: https://species-ws.l-a.site
+  - name: Records service (biocache)
+    url: https://records.l-a.site
+  - name: Records web services (biocache-service)
+    url: https://records-ws.l-a.site
+  - name: Collections service
+    url: https://collections.l-a.site
+  - name: Collections web services
+    url: https://collections.l-a.site/ws
+  - name: Data quality service
+    url: https://data-quality.l-a.site
+  - name: Data quality profiles
+    url: https://data-quality.l-a.site/api/v1/data-profiles?enabled=true
+  - name: DOI web services
+    url: https://doi.l-a.site/api/
+  - name: DOI service
+    url: https://doi.l-a.site
+  - name: Branding website
+    url: https://branding.l-a.site/brand-2023
+  - name: Image service
+    url: https://images.l-a.site
+  - name: Logger service
+    url: https://logger.l-a.site
+  - name: Logger reasons url
+    url: https://logger.l-a.site/service/logger/reasons
+  - name: Namematching service
+    url: https://namematching.l-a.site
+  - name: Regions service
+    url: https://regions.l-a.site
+  - name: Sensitive service
+    url: https://sds.l-a.site
+  - name: Spatial hub service
+    url: https://spatial.l-a.site
+  - name: Spatial web service
+    url: https://spatial.l-a.site/ws
+  - name: Spatial fields
+    url: https://spatial.l-a.site/ws/fields
+  - name: Geonetwork service
+    url: https://spatial.l-a.site/geonetwork
+  - name: Geoserver service
+    url: https://spatial.l-a.site/geoserver
+  - name: Species Lists service
+    url: https://lists.l-a.site
+  - name: Sensitive data service
+    url: https://sensitive-data-service.l-a.site
+
+status-website:
+  #cname: demo.upptime.js.org
+  baseUrl: /status
+  logoUrl: https://raw.githubusercontent.com/living-atlases/artwork/master/favicon.ico
+  name: LADemo status
+  introTitle: "Living Atlas Demo (LADemo)"
+  introMessage: Live status page of LADemo services
+  navbar:
+    - title: Status
+      href: /
+      icon: https://raw.githubusercontent.com/living-atlases/artwork/master/favicon.ico
+    - title: GitHub
+      href: https://github.com/$OWNER/$REPO
+
+# Upptime also supports notifications, assigning issues, and more
+# For instance, you can send notifications to a telegram group
+#
+# See https://upptime.js.org/docs/configuration

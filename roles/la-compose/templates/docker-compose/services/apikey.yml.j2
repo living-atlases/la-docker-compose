@@ -2,6 +2,7 @@
 services:
   apikey:
     container_name: la_apikey
+    profiles: [core-auth, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}apikey:{{ apikey_version | default('latest') }}
     volumes:
@@ -11,6 +12,9 @@ services:
     environment:
       TZ: {{ server_tz | default('UTC') }}
       JAVA_OPTS: ${APIKEY_JAVA_OPTS}
+      # Override LOG_DIR so logback writes to the bind-mounted data volume
+      # (the image default /var/log/atlas/apikey does not exist in the container)
+      LOG_DIR: /data/apikey/logs
     expose:
       - {{ apikey_port | default('9002') }}
     networks:

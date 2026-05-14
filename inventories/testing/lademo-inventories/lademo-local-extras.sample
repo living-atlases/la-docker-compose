@@ -7,9 +7,6 @@
 
 [all:vars]
 
-
-build_images = true
-
 # favicon_url = https://www.gbif.org/favicon.ico
 # skin_favicon = https://www.gbif.org/favicon.ico
 # technical_contact = support@l-a.site
@@ -51,14 +48,15 @@ commonname_lang = en
 spatial_hub_locale = default
 
 # BIE local vars
-# A list sources that should not have articles fetched from an external site. This is usually because the article is subject to controversy or is not correct (separator: |)
-# blacklist_source="https?://www\\.example\\.com/.*|https?://example\\.com/.*"
-blacklist_source =
-#blacklist_file = blacklist-prod.json
 # default_map_lat =
 # default_map_lon =
 vernacular_language = en
 eol_lang = en
+
+# Format entries separated by | source, title, name regexes separated by $ trailing elements can be ignored
+# blacklist_source="https?://nyis\\\\.info/.*|$.*plant.*$POGONOPHORA"
+# Blacklist file in inventories
+# blacklist_file=blacklist-prod.json
 
 # LA API keys moved to local-passwords.ini
 
@@ -139,21 +137,66 @@ tracking_id=UA-XXXXX
 
 # [logger-service:vars]
 
-# [solr7-server:vars]
+# [solr-server:vars]
+
+# [solrcloud:vars]
+
+# [zookeeper:vars]
 
 # [cas-servers:vars]
 
-# [biocache-db:vars]
-
-# [biocache-cli:vars]
-
-# [nameindexer:vars]
-
 # [spatial:vars]
+
+# [alerts-service:vars]
+
+# [doi-service:vars]
+
+# [sds:vars]
+
+# [pipelines:vars]
+
+# [spark:vars]
+
+# [hadoop:vars]
+
+# [data_quality_filter_service:vars]
+
+# [namematching-service:vars]
+
+# [sensitive-data-service:vars]
 
 # [branding:vars]
 
+# [docker_compose:vars]
 
+# [docker-common:vars]
+
+# [gatus:vars]
+
+# [portainer:vars]
+
+# [cassandra3:vars]
+
+
+[alerts-service:vars]
+
+email_sender = atlas-alerts@l-a.site
+email_alert_address_title = Atlas alerts
+email_info_address_title = Atlas of Living Australia
+email_default_resource_name = Atlas of Living Australia
+email_info_sender = atlas-alerts@ala.org.au
+enable_email = false
+
+# Overwrite this variables in your local-extras with proper values
+occurrence_searchTitle = occurrence search
+occurrence_searchUrl = https://biocache.ala.org.au/occurrences/search?q=passer
+regions_searchTitle = ACT
+regions_searchUrl = https://regions.ala.org.au/states/Australian+Capital+Territory
+speciesPages_searchTitle = Shingle-back
+speciesPages_searchUrl = https://bie.ala.org.au/species/Tiliqua+rugosa
+collection_searchTitle = ANIC
+collection_searchUrl = https://collections.ala.org.au/public/show/co13
+alerts_apikey_whitelist =
 
 [cas-servers:vars]
 

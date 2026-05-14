@@ -3,6 +3,7 @@ services:
   biocache-hub:
     image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}ala-hub:{{ biocache_hub_version | default('latest') }}
     container_name: la_biocache-hub
+    profiles: [app-core, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     restart: unless-stopped
     expose:

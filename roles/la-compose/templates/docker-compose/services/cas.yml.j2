@@ -2,6 +2,7 @@
 services:
   cas:
     container_name: la_cas
+    profiles: [core-auth, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}cas:{{ cas_version | default('6.5.6-3') }}
     volumes:

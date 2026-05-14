@@ -1,6 +1,7 @@
 services:
   postfix:
     container_name: la_postfix
+    profiles: [mail, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     image: boky/postfix
     restart: unless-stopped

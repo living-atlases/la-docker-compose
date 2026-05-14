@@ -2,6 +2,7 @@
 services:
   mysql:
     container_name: la_mysql
+    profiles: [dbs, full]
     image: mysql:8.0-debian
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     volumes:
@@ -11,7 +12,7 @@ services:
     environment:
       TZ: {{ server_tz | default('UTC') }}
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_USER: {{ collectory_db_user }}
+      MYSQL_USER: {{ collectory_db_user | default('collectory') }}
       MYSQL_PASSWORD: ${MYSQL_COLLECTORY_PASSWORD}
       MYSQL_DATABASE: {{ collectory_db_name | default('collectory') }}
       CAS_MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD}

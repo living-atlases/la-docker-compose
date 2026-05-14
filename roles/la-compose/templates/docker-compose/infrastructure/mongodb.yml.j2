@@ -2,6 +2,7 @@
 services:
   mongodb:
     container_name: la_mongodb
+    profiles: [dbs, full]
     image: mongo:7
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     volumes:
@@ -17,7 +18,7 @@ services:
       - 27017
 {% if expose_db_ports_for_init | default(false) %}
     ports:
-      - 127.0.0.1:27017:27017
+      - 127.0.0.1:{{ mongodb_host_port | default("27018") }}:27017
 {% endif %}
     networks:
       default: {}

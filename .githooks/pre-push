@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Pre-push hook: run validate-config-gen.sh before any push.
+# Blocks the push if molecule unit tests or config generation checks fail.
+#
+# Install: .githooks/setup.sh
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$SCRIPT_DIR"
+
+echo "Running pre-push validation..."
+
+if [[ -x "scripts/validate-config-gen.sh" ]]; then
+  scripts/validate-config-gen.sh
+else
+  echo "WARNING: scripts/validate-config-gen.sh not found or not executable - skipping" >&2
+fi

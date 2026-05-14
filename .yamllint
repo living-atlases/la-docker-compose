@@ -38,3 +38,9 @@ ignore: |
   .git/
   molecule/
   *.j2
+  inventories/testing/lademo-inventories/dot-*
+  inventories/testing/lademo-post-deploy/
+  inventories/testing/lademo-pre-deploy/
+  inventories/testing/lademo-inventories/dot-*
+  inventories/testing/lademo-post-deploy/
+

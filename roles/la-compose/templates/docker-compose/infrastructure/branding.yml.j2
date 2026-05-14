@@ -5,6 +5,7 @@ services:
   #       This avoids docker-compose build metadata tracking issues on container recreation
   branding-init:
     container_name: la_branding-init
+    profiles: [infra, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     # Image built by docker buildx bake - must exist before docker compose up
     image: branding-builder:{{ branding_version | default('latest') }}

@@ -3,6 +3,7 @@
 services:
   mailhog:
     container_name: la_mailhog
+    profiles: [mail, full]
     image: mailhog/mailhog:latest
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     restart: unless-stopped

@@ -3,6 +3,7 @@ services:
   logger-service:
     image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}logger-service:{{ logger_service_version | default('latest') }}
     container_name: {{ logger_service_docker_host | default('la_logger-service') }}
+    profiles: [app-core, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     restart: unless-stopped
     expose:

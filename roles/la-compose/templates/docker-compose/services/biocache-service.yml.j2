@@ -3,6 +3,7 @@ services:
   biocache-service:
     image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}biocache-service:{{ biocache_service_version | default('latest') }}
     container_name: la_biocache-service
+    profiles: [app-core, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     restart: unless-stopped
     expose:

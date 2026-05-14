@@ -203,3 +203,23 @@ branding_git_check_interval: "300"
 # ============================================
 
 monitoring_enabled: false
+
+# ============================================
+# SSL / Certificates
+# ============================================
+
+# Use livingatlases/l-a-site-certs Docker image for demo SSL certs (l-a.site wildcard).
+# Set to false when using your own certificates mounted from ssl_certificate_server_dir.
+use_la_site_certs: true
+ssl_certificate_server_dir: "/etc/letsencrypt/live"
+ssl_cert_file: "fullchain.pem"
+ssl_key_file: "privkey.pem"
+
+# ============================================
+# Nginx / Webserver
+# ============================================
+
+# Docker deployments always use nginx as the reverse proxy.
+webserver_nginx: true
+# Suppress warning about undefined nginx_vhost_fragments_to_clear (not needed for docker).
+nginx_vhost_fragments_to_clear_no_warning: true

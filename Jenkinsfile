@@ -165,6 +165,22 @@ EOF
             }
         }
 
+        stage('Unit tests') {
+            when { expression { !params.ONLY_CLEAN } }
+            steps {
+                sh '''
+                    set -eu
+                    VENV_MOL="${WORKSPACE}/.venv-molecule"
+                    if [ ! -d "$VENV_MOL" ]; then
+                        python3 -m venv "$VENV_MOL"
+                    fi
+                    "$VENV_MOL/bin/pip" install --quiet --upgrade pip
+                    "$VENV_MOL/bin/pip" install --quiet molecule ansible-core
+                    VENV_MOLECULE="$VENV_MOL" "$VENV_MOL/bin/molecule" test -s unit
+                '''
+            }
+        }
+
         stage('Prepare environment') {
             when { expression { !params.ONLY_CLEAN } }
             steps {

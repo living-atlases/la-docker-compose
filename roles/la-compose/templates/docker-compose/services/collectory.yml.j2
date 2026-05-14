@@ -2,6 +2,7 @@ services:
   # Collectory service
   collectory:
     container_name: la_collectory
+    profiles: [app-core, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}collectory:{{ collectory_version | default('latest') }}
     volumes:

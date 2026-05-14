@@ -4,6 +4,7 @@ services:
   i18n-init:
     # container_name: la_i18n-init
     container_name: la_i18n-init
+    profiles: [infra, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
 {% if build_images | default(false) %}
     # Using pre-built image

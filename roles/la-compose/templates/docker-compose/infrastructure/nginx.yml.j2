@@ -3,13 +3,25 @@ services:
   # domain l-a.site
   # if not using this, mount your own certs from <inventories_dir>/certs/ into <ssl_certificate_server_dir>
 {% if use_la_site_certs %}
+{# Volume la-site-certs is mounted at /etc/letsencrypt/live for nginx/cert-validator; paths must match ssl_certificate_server_dir. #}
+{% if ssl_certificate_server_dir is match('^/etc/letsencrypt/live(/.*)?$') %}
+{% set la_site_certs_rel = ssl_certificate_server_dir | regex_replace('^/etc/letsencrypt/live/?', '') %}
+{% else %}
+{% set la_site_certs_rel = '' %}
+{% endif %}
+{% if la_site_certs_rel | length > 0 %}
+{% set la_site_certs_out = '/out/' ~ la_site_certs_rel %}
+{% else %}
+{% set la_site_certs_out = '/out' %}
+{% endif %}
   certs-init:
     image: livingatlases/l-a-site-certs:latest
-    pull_policy: if_not_present
+    pull_policy: always
     container_name: la_certs-init
+    profiles: [infra, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     entrypoint: /bin/sh
-    command: -c 'set -e && echo "[*] Checking source certificates in image..." && ls -lah /certs/ && test -f /certs/fullchain.pem && test -s /certs/fullchain.pem && test -f /certs/privkey.pem && test -s /certs/privkey.pem && echo "[OK] Source certificates validated" && echo "[*] Extracting certificates to volume..." && cat /certs/fullchain.pem > /out/fullchain.pem && cat /certs/privkey.pem > /out/privkey.pem && cat /certs/chain.pem > /out/chain.pem 2>/dev/null || true && chmod 644 /out/*.pem && echo "[*] Extracted certificates:" && ls -lah /out/ && test -s /out/fullchain.pem && test -s /out/privkey.pem && echo "[SUCCESS] Certificates extracted successfully"'
+    command: -c 'set -e && echo "[*] Checking source certificates in image..." && ls -lah /certs/ && test -f /certs/fullchain.pem && test -s /certs/fullchain.pem && test -f /certs/privkey.pem && test -s /certs/privkey.pem && echo "[OK] Source certificates validated" && echo "[*] Extracting certificates to volume (writing to {{ la_site_certs_out }})..." && mkdir -p "{{ la_site_certs_out }}" && cat /certs/fullchain.pem > "{{ la_site_certs_out }}/fullchain.pem" && cat /certs/privkey.pem > "{{ la_site_certs_out }}/privkey.pem" && (cat /certs/chain.pem > "{{ la_site_certs_out }}/chain.pem" 2>/dev/null || true) && chmod 644 {{ la_site_certs_out }}/*.pem && echo "[*] Extracted certificates:" && ls -lahR /out/ && test -s "{{ la_site_certs_out }}/fullchain.pem" && test -s "{{ la_site_certs_out }}/privkey.pem" && echo "[SUCCESS] Certificates extracted successfully"'
     volumes:
       - la-site-certs:/out
     networks:
@@ -23,6 +35,7 @@ services:
   cert-validator:
     image: alpine/openssl:latest
     container_name: la_cert-validator
+    profiles: [infra, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     entrypoint: /bin/sh
     command: /scripts/cert-validator.sh
@@ -50,6 +63,7 @@ services:
   # Nginx reverse proxy
   nginx:
     container_name: la_nginx
+    profiles: [infra, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     image: nginx:{{ docker_nginx_version | default('1.25') }}
     ports:
@@ -95,7 +109,7 @@ services:
 {% endfor %}
 {% endif %}
     healthcheck:
-      test: ["CMD", "sh", "-c", "curl -f http://localhost:80 >/dev/null 2>&1 && curl -fk https://localhost:443 >/dev/null 2>&1"]
+      test: ["CMD", "sh", "-c", "curl -f http://localhost:80 >/dev/null 2>&1 && curl -k https://localhost:443 >/dev/null 2>&1"]
       interval: 30s
       timeout: 10s
       retries: 3

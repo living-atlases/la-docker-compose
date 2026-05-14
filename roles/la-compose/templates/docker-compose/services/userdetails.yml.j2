@@ -2,6 +2,7 @@
 services:
   userdetails:
     container_name: la_userdetails
+    profiles: [core-auth, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}userdetails:{{ user_details_version | default('3.2.1') }}
     volumes:

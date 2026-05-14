@@ -2,6 +2,7 @@
 services:
   gatus:
     container_name: la_gatus_service
+    profiles: [monitoring, full]
     image: twinproduction/gatus:latest
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     volumes:
@@ -19,11 +20,6 @@ services:
           - {{ gatus_hostname | default('gatus') }}
           - la_gatus_service
     healthcheck:
-      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
+      disable: true
     restart: unless-stopped
-
 

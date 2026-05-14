@@ -3,6 +3,7 @@ services:
   bie-hub:
     image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}ala-bie-hub:{{ bie_hub_version | default('latest') }}
     container_name: la_bie-hub
+    profiles: [app-core, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     restart: unless-stopped
     expose:

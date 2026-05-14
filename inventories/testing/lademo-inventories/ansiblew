@@ -1,0 +1,195 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""This is an ansible wrapper to help you to exec the different playbooks with your
+inventories.
+
+By default don't exec nothing only show the commands. With --nodryrun you can exec
+the real commands.
+
+Usage:
+   ansiblew --alainstall=<dir_of_ala_install_repo> [options] [ ( collectory | ala_hub | biocache_service | ala_bie | bie_index | images | lists | regions | logger | solrcloud | cas | spatial | alerts | doi | sds | pipelines | data_quality | namematching_service | sensitive_data_service | branding | docker_compose | gatus | portainer | cassandra )... | all ]
+   ansiblew -h | --help
+   ansiblew -v | --version
+
+Options:
+  -n --nodryrun              Exec the ansible-playbook commands
+  -p --properties            Only update properties
+  -l --limit=<hosts>         Limit to some inventories hosts
+  -s --skip=<tags>           Skip tags
+  -t --tags=<tags>           Limit to tags
+  -i --inventory=<vars>      Extra inventory
+  -e --extra=<vars>          Extra variables to pass to ansible-playbook
+  -h --help                  Show help options.
+  -u --user=<user>           Ansible become user [default: ubuntu]
+  -w --newserver             Prepare the server for the first time (install ansible deps like python)
+  -C --check                 Run ansible-playbook in check mode (dry run)
+  -c --continue              Continue even if some ansible cmd fails
+  -d --debug                 Show debug info.
+  -v --version               Show ansiblew version.
+     --ladocker=<dir>        Path to la-docker-compose repo; use its playbooks for container hosts
+     --docker-local          Use *-dev-docker-inventory.ini (all hosts on 127.0.0.1) instead of *-inventory.ini
+----
+ansiblew 0.1.0
+Copyright (C) 2019 living-atlases.gbif.org
+Apache 2.0 License
+"""
+from docopt import docopt
+import sys
+import subprocess
+import os.path
+
+def execCmd(cmd, fail_on_error, nodryrun):
+    import os, sys, pty
+
+    # Run under a real PTY; 'exec' replaces the shell so SIGINT hits ansible directly
+    try:
+        status = pty.spawn(['/bin/sh', '-c', 'exec ' + cmd])
+    except KeyboardInterrupt:
+        sys.exit(130)
+
+    # Map wait status to exit code (Py3.9+), fallback otherwise
+    try:
+        rc = os.waitstatus_to_exitcode(status)
+    except AttributeError:
+        rc = status >> 8
+
+    if rc != 0 and fail_on_error:
+        sys.exit(rc)
+
+if __name__ == '__main__':
+    args = docopt(__doc__)
+
+    nodryrun = args['--nodryrun']
+    debug = args['--debug']
+    properties = args['--properties']
+    skip = args['--skip']
+    user = args['--user']
+    tags = args['--tags']
+    limit = args['--limit']
+    check = args['--check']
+    doall = args['all']
+    newserver = args['--newserver']
+    alainstall = args['--alainstall']
+    cmdPrefix = "echo "
+    extras = ""
+    extraInvs = ""
+    pkg = "lademo"
+    isHub = False
+    hub_pkg = ""
+    inv_path = "lademo"
+    extra_vars = args['--extra']
+    extra_inv = args['--inventory']
+    fail_on_error = not args['--continue']
+    ladocker = args['--ladocker']
+    docker_local = args['--docker-local']
+
+    # Add here some additional param for ansible like your ssh key, like:
+    # additionalParams = "--private-key ~/.ssh/MyKey.pem"
+    additionalParams = ""
+
+    if debug:
+        print(args)
+
+    if properties:
+        extras = "%s --tags common,properties,setfacts" % (extras)
+    if skip:
+        extras = "%s --skip-tags %s" % (extras, skip)
+    if tags:
+        extras = "%s --tags %s" % (extras, tags)
+    if debug:
+        extras = "%s -vvvv" % (extras)
+    if limit:
+        hubLimit=""
+        extras = "%s --limit %s%s" % (extras, limit, hubLimit)
+    else:
+        if isHub:
+            hubLimit=""
+            extras = "%s --limit %s" % (extras, hubLimit)
+    if extra_vars:
+        extras = "%s --extra-vars '%s'" % (extras, extra_vars)
+    if check:
+        extras = "%s --check" % (extras)
+    if nodryrun:
+        cmdPrefix = ""
+
+    if debug:
+        print("Extras: %s" % (extras))
+
+    if os.path.isfile("%s-toolkit.ini" % pkg):
+        extraInvs = "-i %s-toolkit.ini" % pkg
+
+    # Add the --inventory extraInv if present
+    if extra_inv:
+        extraInvs = "%s -i %s" % (extraInvs, extra_inv)
+
+    if docker_local:
+        baseInventories = "-i %s-dev-docker-inventory.ini -i %s-local-extras.ini" % (pkg, pkg)
+    else:
+        baseInventories = "-i %s-inventory.ini -i %s-local-extras.ini" % (pkg, pkg)
+    extraVars = ''
+
+    plays = []
+
+    if newserver:
+        plays.append("%s/ansible/newserver.yml" % alainstall)
+
+    if ladocker:
+        if doall:
+            plays.append("%s/playbooks/config-gen.yml" % ladocker)
+            plays.append("%s/playbooks/site.yml" % ladocker)
+    else:
+        if args['collectory'] or doall:
+            plays.append("%s/ansible/collectory-by-type.yml" % alainstall)
+        if args['ala_hub'] or doall:
+            plays.append("%s/ansible/biocache-hub-by-type.yml" % alainstall)
+        if args['biocache_service'] or doall:
+            plays.append("%s/ansible/biocache-service-by-type.yml" % alainstall)
+        if args['ala_bie'] or doall:
+            plays.append("%s/ansible/bie-hub-by-type.yml" % alainstall)
+        if args['bie_index'] or doall:
+            plays.append("%s/ansible/bie-index-by-type.yml" % alainstall)
+        if args['images'] or doall:
+            plays.append("%s/ansible/image-service-by-type.yml" % alainstall)
+        if args['lists'] or doall:
+            plays.append("%s/ansible/species-list-by-type.yml" % alainstall)
+        if args['regions'] or doall:
+            plays.append("%s/ansible/regions-by-type.yml" % alainstall)
+        if args['logger'] or doall:
+            plays.append("%s/ansible/logger-service-by-type.yml" % alainstall)
+        if args['solrcloud'] or doall:
+            plays.append("%s/ansible/solrcloud-by-type.yml" % alainstall)
+        if args['cas'] or doall:
+            plays.append("%s/ansible/auth-by-type.yml" % alainstall)
+        if args['spatial'] or doall:
+            plays.append("%s/ansible/spatial-by-type.yml" % alainstall)
+        if args['alerts'] or doall:
+            plays.append("%s/ansible/alerts-standalone.yml" % alainstall)
+        if args['doi'] or doall:
+            plays.append("%s/ansible/doi-service-standalone.yml" % alainstall)
+        if args['sds'] or doall:
+            plays.append("%s/ansible/sds.yml" % alainstall)
+        if args['pipelines'] or doall:
+            plays.append("%s/ansible/pipelines.yml" % alainstall)
+        if args['data_quality'] or doall:
+            plays.append("%s/ansible/data_quality_filter_service.yml" % alainstall)
+        if args['namematching_service'] or doall:
+            plays.append("%s/ansible/namematching-service-by-type.yml" % alainstall)
+        if args['sensitive_data_service'] or doall:
+            plays.append("%s/ansible/sensitive-data-service-by-type.yml" % alainstall)
+        if args['branding'] or doall:
+            plays.append("%s/ansible/branding.yml" % alainstall)
+        if args['docker_compose'] or doall:
+            plays.append("%s/ansible/docker-compose.yml" % alainstall)
+        if args['gatus'] or doall:
+            plays.append("%s/ansible/gatus.yml" % alainstall)
+        if args['portainer'] or doall:
+            plays.append("%s/ansible/portainer.yml" % alainstall)
+        if args['cassandra'] or doall:
+            plays.append("%s/ansible/cassandra-docker.yml" % alainstall)
+        
+
+    inventories = " "
+    inventories = inventories.join(plays)
+
+    playCmd = "%s ansible-playbook %s -u %s %s %s -i %s-local-passwords.ini %s %s --extra-vars 'target=all%s'" % (cmdPrefix, additionalParams, user, baseInventories, extraInvs, inv_path, inventories, extras, extraVars)
+    execCmd(playCmd, fail_on_error, nodryrun)

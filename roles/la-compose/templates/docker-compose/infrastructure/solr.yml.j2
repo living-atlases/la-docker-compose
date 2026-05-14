@@ -3,6 +3,7 @@ services:
   solr:
     image: solr:{{ solrcloud_version | default('9.4') }}
     container_name: la_solr
+    profiles: [dbs, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     restart: unless-stopped
     expose:
@@ -29,6 +30,7 @@ services:
   solr-init:
     image: solr:{{ solrcloud_version | default('9.4') }}
     container_name: la_solr_init
+    profiles: [dbs, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     restart: "no"
     entrypoint:

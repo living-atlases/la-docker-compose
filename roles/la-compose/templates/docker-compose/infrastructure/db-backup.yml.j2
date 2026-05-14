@@ -48,18 +48,3 @@ services:
       retries: 3
       start_period: 30s
     restart: unless-stopped
-{% if (enable_mysql | default(false) | bool) or (enable_postgres | default(false) | bool) or (enable_mongo | default(false) | bool) %}
-    depends_on:
-{% if enable_mysql | default(false) | bool %}
-      mysql:
-        condition: service_healthy
-{% endif %}
-{% if enable_postgres | default(false) | bool %}
-      postgres:
-        condition: service_healthy
-{% endif %}
-{% if enable_mongo | default(false) | bool %}
-      mongodb:
-        condition: service_healthy
-{% endif %}
-{% endif %}

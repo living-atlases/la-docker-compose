@@ -118,6 +118,7 @@
   set_fact:
     nginx_docker_internal_resolver: "{{ (deployment_type in ['swarm', 'container']) | bool }}"
   tags:
+    - always
     - docker-compose
 
 - name: Set docker service container names (used in proxy_pass for nginx)
@@ -417,6 +418,7 @@
   tags:
     - cas
     - config
+    - nginx_vhost
     - bulk-load
 
 - name: Re-normalize database hostnames after CAS5 bulk load
@@ -545,6 +547,7 @@
   tags:
     - cas
     - config
+    - nginx_vhost
 
 - name: Run userdetails configuration generation
   include_role:
@@ -611,6 +614,7 @@
   tags:
     - collectory
     - config
+    - nginx_vhost
     - bulk-load
 
 - name: Re-normalize database hostnames after COLLECTORY bulk load
@@ -632,6 +636,7 @@
   tags:
     - collectory
     - config
+    - nginx_vhost
 
 # Bulk load all SPECIES-LIST variables from service alias context
 - name: "Bulk load SPECIES-LIST variables from service alias context"
@@ -837,6 +842,8 @@
             (vars.get('java_security_opts', '-Dlog4j2.formatMsgNoLookups=true'))
     }) }}"
   loop: "{{ services_enabled | difference(['nginx', 'gatus', 'mysql', 'mongodb']) }}"
+  tags:
+    - docker-compose
 
 # Build service_extra_params dict for templates
 - name: Initialize service_extra_params variable
@@ -851,6 +858,8 @@
       item: docker_services_desc.get(item, {}).get('extra_params', [])
     }) }}"
   loop: "{{ services_enabled | difference(['nginx', 'gatus', 'mysql', 'mongodb']) }}"
+  tags:
+    - docker-compose
 
 - name: Set service_java_opts_dict from temp_java_opts
   set_fact:
