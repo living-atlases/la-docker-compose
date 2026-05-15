@@ -33,8 +33,8 @@
     docker inspect --format='{{ "{{" }}.State.Health.Status{{ "}}" }}' la_mongodb
   register: mongodb_health
   until: 'mongodb_health.stdout == "healthy"'
-  retries: 30
-  delay: 5
+  retries: 60
+  delay: 6
   become: true
   tags:
     - db-init
