@@ -85,7 +85,8 @@ if [[ -x "$INVENTORY_ANSIBLEW" ]]; then
     --ladocker="$LADOCKER_DIR" \
     --nodryrun \
     --docker-local \
-    --tags=docker-compose \
+    --properties \
+    --tags=docker-compose,properties-file \
     --skip=docker \
     --extra="docker_compose_data_dir=$OUTPUT_DIR data_dir=$OUTPUT_DIR" \
     all; then
