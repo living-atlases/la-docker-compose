@@ -177,3 +177,4 @@ else
   echo -e "${RED}${BOLD}✗ $FAILURES CHECK(S) FAILED${RESET}"
   exit 1
 fi
+
