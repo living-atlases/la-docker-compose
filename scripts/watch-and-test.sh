@@ -106,36 +106,30 @@ run_tests() {
     echo -e "${BLUE}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo -e "${YELLOW}[${timestamp}] Triggered — validate + ansiblew deploy${NC}"
     echo -e "${BLUE}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "  ${CYAN}Full log:${NC} $LOG_FILE"
-    echo -e "  ${CYAN}Last run:${NC} $LAST_LOG"
     echo ""
 
     start_change_collector
 
-    # Clear last-run log; redirect commands directly to file (avoids pipe-hang
-    # caused by ansible leaving Python worker processes with the pipe FD open).
     > "$LAST_LOG"
 
-    # Stream the log file to the terminal in the background.
-    tail -f "$LAST_LOG" &
-    local tail_pid=$!
-
-    local exit_code=0
-
-    {
-        echo "=== $(date '+%Y-%m-%d %H:%M:%S') ==="
-        echo ""
-        echo "── Step 1: validate-config-gen.sh ──────────────────────────"
-    } >> "$LAST_LOG"
+    echo -e "${CYAN}── Step 1: validate-config-gen.sh ───────────────────────────${NC}"
+    echo -e "  ${CYAN}Log:${NC} $LAST_LOG"
 
     "$ROOT_DIR/scripts/validate-config-gen.sh" >> "$LAST_LOG" 2>&1
-    exit_code=$?
+    local exit_code=$?
 
-    if [ "$exit_code" -eq 0 ]; then
-        {
-            echo ""
-            echo "── Step 2: ansiblew → /data/docker-compose ──────────────────"
-        } >> "$LAST_LOG"
+    if [ "$exit_code" -ne 0 ]; then
+        echo ""
+        echo -e "${RED}Last lines of log:${NC}"
+        tail -20 "$LAST_LOG"
+        echo ""
+        echo -e "${RED}${BOLD}✗ VALIDATION FAILED (exit $exit_code) — skipping ansiblew${NC}"
+        send_notification "✗ LA Docker — FAILED" "Validation failed (exit $exit_code)" "critical" "dialog-error"
+    else
+        echo -e "${GREEN}✔ validation passed${NC}"
+        echo ""
+        echo -e "${CYAN}── Step 2: ansiblew → /data/docker-compose ──────────────────${NC}"
+        echo -e "  ${CYAN}Log:${NC} $LAST_LOG"
 
         (
             cd "$ROOT_DIR/inventories/testing/lademo-inventories" || exit 1
@@ -145,31 +139,28 @@ run_tests() {
                 --ladocker="$ROOT_DIR" \
                 --nodryrun \
                 --docker-local \
-                --tags=docker-compose \
                 --skip=docker \
+                --extra="auto_deploy=true" \
                 all
         ) >> "$LAST_LOG" 2>&1
         exit_code=$?
+
+        cat "$LAST_LOG" >> "$LOG_FILE"
+
+        echo ""
+        if [ "$exit_code" -eq 0 ]; then
+            echo -e "${GREEN}${BOLD}✔ ALL CHECKS PASSED${NC}"
+            send_notification "✔ LA Docker — OK" "All checks passed ($timestamp)" "low" "dialog-information"
+        else
+            echo -e "${RED}Last lines of log:${NC}"
+            tail -20 "$LAST_LOG"
+            echo ""
+            echo -e "${RED}${BOLD}✗ ANSIBLEW FAILED (exit $exit_code)${NC}"
+            send_notification "✗ LA Docker — FAILED" "ansiblew failed (exit $exit_code)" "critical" "dialog-error"
+        fi
     fi
-
-    # Give tail a moment to flush the last lines before stopping it.
-    sleep 0.5
-    kill "$tail_pid" 2>/dev/null
-    wait "$tail_pid" 2>/dev/null
-
-    # Append this run to the rolling log.
-    cat "$LAST_LOG" >> "$LOG_FILE"
 
     stop_change_collector
-
-    echo ""
-    if [ "$exit_code" -eq 0 ]; then
-        echo -e "${GREEN}${BOLD}✔ ALL CHECKS PASSED${NC}"
-        send_notification "✔ LA Docker — OK" "All checks passed ($timestamp)" "low" "dialog-information"
-    else
-        echo -e "${RED}${BOLD}✗ CHECKS FAILED (exit $exit_code)${NC}"
-        send_notification "✗ LA Docker — FAILED" "Checks failed (exit $exit_code)" "critical" "dialog-error"
-    fi
 
     if [ -f "$CHANGES_FLAG" ]; then
         local changed_files
@@ -273,8 +264,7 @@ echo -e "${YELLOW}Watching:${NC}"
 for p in "${WATCH_PATHS[@]}"; do echo "  $p"; done
 echo ""
 echo -e "${YELLOW}Debounce:${NC} ${DEBOUNCE_SECONDS}s"
-echo -e "${YELLOW}Logs:${NC}     $LOG_FILE  (rolling)"
-echo -e "          $LAST_LOG  (last run)"
+echo -e "${YELLOW}Logs:${NC}     $LAST_LOG  (last run)   $LOG_FILE  (rolling)"
 echo -e "${YELLOW}Controls:${NC} Enter / r = run now   q = quit"
 echo ""
 echo -e "${GREEN}Waiting for changes...${NC}"
