@@ -25,7 +25,7 @@
 
     - name: Parse service status
       set_fact:
-        running_services: "{{ (compose_ps.stdout_lines | select('search', 'running') | list) | length }}"
+        running_services: "{{ (compose_ps.stdout_lines | select('search', ' Up ') | list) | length }}"
         expected_services: "{{ compose_services.keys() | length }}"
 
     - name: Display service status
