@@ -30,10 +30,10 @@ services:
 {% endif %}
           - la_mongodb
     healthcheck:
-      test: ["CMD-SHELL", "mongosh --quiet --eval \"db.adminCommand('ping').ok\" --username $$MONGO_INITDB_ROOT_USERNAME --password $$MONGO_INITDB_ROOT_PASSWORD || exit 1"]
+      test: ["CMD-SHELL", "mongosh --quiet --eval \"db.adminCommand('ping').ok\" || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 10
-      start_period: 90s
+      retries: 5
+      start_period: 60s
     restart: unless-stopped
 
