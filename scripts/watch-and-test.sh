@@ -140,7 +140,7 @@ run_tests() {
                 --nodryrun \
                 --docker-local \
                 --skip=docker \
-                --extra="auto_deploy=true" \
+                --extra="auto_deploy=true${ANSIBLE_LOCAL_EXTRA_VARS:+ $ANSIBLE_LOCAL_EXTRA_VARS}" \
                 all
         ) >> "$LAST_LOG" 2>&1
         exit_code=$?
