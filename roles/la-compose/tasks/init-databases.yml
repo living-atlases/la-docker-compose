@@ -121,7 +121,7 @@
     cas_add_mongo_users: true
   when:
     - "'cas-servers' in physical_server_groups"
-    - needs_db_init | bool
+    - needs_db_init | default(false) | bool
   become: true
   tags:
     - db-init
