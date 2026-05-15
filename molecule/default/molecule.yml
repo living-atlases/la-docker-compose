@@ -1,0 +1,23 @@
+---
+# Empty default scenario — exists only to suppress molecule's "glob failed" warning.
+# All actual tests live in the 'unit' scenario: molecule test -s unit
+
+dependency:
+  name: galaxy
+
+driver:
+  name: default
+  options:
+    managed: false
+
+platforms:
+  - name: localhost
+
+provisioner:
+  name: ansible
+
+scenario:
+  name: default
+  test_sequence: []
+  create_sequence: []
+  destroy_sequence: []
