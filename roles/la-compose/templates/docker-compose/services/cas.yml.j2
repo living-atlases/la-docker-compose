@@ -34,6 +34,12 @@ services:
       mongodb:
         condition: service_healthy
 {% endif %}
+{% if 'branding' in group_names %}
+      branding-init:
+        condition: service_completed_successfully
+{% endif %}
+      nginx:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:{{ cas_port | default('9000') }}/cas/actuator/health || exit 1"]
       interval: 30s

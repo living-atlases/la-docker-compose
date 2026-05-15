@@ -112,34 +112,53 @@ run_tests() {
 
     start_change_collector
 
-    local exit_file
-    exit_file=$(mktemp)
+    # Clear last-run log; redirect commands directly to file (avoids pipe-hang
+    # caused by ansible leaving Python worker processes with the pipe FD open).
+    > "$LAST_LOG"
 
-    (
-        # shellcheck disable=SC2064
-        trap "echo \$? > '$exit_file'" EXIT
+    # Stream the log file to the terminal in the background.
+    tail -f "$LAST_LOG" &
+    local tail_pid=$!
+
+    local exit_code=0
+
+    {
         echo "=== $(date '+%Y-%m-%d %H:%M:%S') ==="
         echo ""
         echo "── Step 1: validate-config-gen.sh ──────────────────────────"
-        "$ROOT_DIR/scripts/validate-config-gen.sh" || exit $?
+    } >> "$LAST_LOG"
 
-        echo ""
-        echo "── Step 2: ansiblew → /data/docker-compose ──────────────────"
-        cd "$ROOT_DIR/inventories/testing/lademo-inventories" || exit 1
-        ANSIBLE_CONFIG="$ROOT_DIR/playbooks/ansible.cfg" \
-        ./ansiblew \
-            --alainstall=/dev/null \
-            --ladocker="$ROOT_DIR" \
-            --nodryrun \
-            --docker-local \
-            --tags=docker-compose \
-            --skip=docker \
-            all
-    ) 2>&1 | tee "$LAST_LOG" | tee -a "$LOG_FILE"
+    "$ROOT_DIR/scripts/validate-config-gen.sh" >> "$LAST_LOG" 2>&1
+    exit_code=$?
 
-    local exit_code
-    exit_code=$(cat "$exit_file" 2>/dev/null || echo 1)
-    rm -f "$exit_file"
+    if [ "$exit_code" -eq 0 ]; then
+        {
+            echo ""
+            echo "── Step 2: ansiblew → /data/docker-compose ──────────────────"
+        } >> "$LAST_LOG"
+
+        (
+            cd "$ROOT_DIR/inventories/testing/lademo-inventories" || exit 1
+            ANSIBLE_CONFIG="$ROOT_DIR/playbooks/ansible.cfg" \
+            ./ansiblew \
+                --alainstall=/dev/null \
+                --ladocker="$ROOT_DIR" \
+                --nodryrun \
+                --docker-local \
+                --tags=docker-compose \
+                --skip=docker \
+                all
+        ) >> "$LAST_LOG" 2>&1
+        exit_code=$?
+    fi
+
+    # Give tail a moment to flush the last lines before stopping it.
+    sleep 0.5
+    kill "$tail_pid" 2>/dev/null
+    wait "$tail_pid" 2>/dev/null
+
+    # Append this run to the rolling log.
+    cat "$LAST_LOG" >> "$LOG_FILE"
 
     stop_change_collector
 

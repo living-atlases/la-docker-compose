@@ -135,7 +135,8 @@ if __name__ == '__main__':
 
     if ladocker:
         if doall:
-            plays.append("%s/playbooks/config-gen.yml" % ladocker)
+            # site.yml already includes full config generation (la-compose role);
+            # running config-gen.yml too would duplicate all generate-compose tasks.
             plays.append("%s/playbooks/site.yml" % ladocker)
     else:
         if args['collectory'] or doall:

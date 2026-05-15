@@ -18,7 +18,7 @@ services:
     image: livingatlases/l-a-site-certs:latest
     pull_policy: always
     container_name: la_certs-init
-    profiles: [infra, full]
+    profiles: [infra, core-auth, app-core, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     entrypoint: /bin/sh
     command: -c 'set -e && echo "[*] Checking source certificates in image..." && ls -lah /certs/ && test -f /certs/fullchain.pem && test -s /certs/fullchain.pem && test -f /certs/privkey.pem && test -s /certs/privkey.pem && echo "[OK] Source certificates validated" && echo "[*] Extracting certificates to volume (writing to {{ la_site_certs_out }})..." && mkdir -p "{{ la_site_certs_out }}" && cat /certs/fullchain.pem > "{{ la_site_certs_out }}/fullchain.pem" && cat /certs/privkey.pem > "{{ la_site_certs_out }}/privkey.pem" && (cat /certs/chain.pem > "{{ la_site_certs_out }}/chain.pem" 2>/dev/null || true) && chmod 644 {{ la_site_certs_out }}/*.pem && echo "[*] Extracted certificates:" && ls -lahR /out/ && test -s "{{ la_site_certs_out }}/fullchain.pem" && test -s "{{ la_site_certs_out }}/privkey.pem" && echo "[SUCCESS] Certificates extracted successfully"'
@@ -35,7 +35,7 @@ services:
   cert-validator:
     image: alpine/openssl:latest
     container_name: la_cert-validator
-    profiles: [infra, full]
+    profiles: [infra, core-auth, app-core, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     entrypoint: /bin/sh
     command: /scripts/cert-validator.sh
@@ -63,7 +63,7 @@ services:
   # Nginx reverse proxy
   nginx:
     container_name: la_nginx
-    profiles: [infra, full]
+    profiles: [infra, core-auth, app-core, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     image: nginx:{{ docker_nginx_version | default('1.25') }}
     ports:
