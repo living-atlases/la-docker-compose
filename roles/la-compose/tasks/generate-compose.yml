@@ -1302,6 +1302,18 @@
   tags:
     - docker-compose
 
+- name: Clean up stale gatus SQLite WAL files before start
+  command: >
+    docker run --rm -v la_gatus-data:/data alpine
+    sh -c "rm -f /data/data.db-shm /data/data.db-wal"
+  become: true
+  changed_when: false
+  ignore_errors: true
+  when: "'gatus' in services_enabled"
+  tags:
+    - docker-compose
+    - gatus
+
 - name: Create initialization directories for Solr and Cassandra
   file:
     path: "{{ item }}"
