@@ -191,7 +191,7 @@ EOF
                     mkdir -p "${BASE_DIR}" "${GENERATOR_DIR}" "${INVENTORY_PARENT_DIR}" "${INVENTORY_DIR}"
                     
                     echo "Initializing ala-install submodule..."
-                    git submodule update --init --recursive --remote
+                    git submodule update --init --remote ala-install
                     echo "ala-install submodule SHA: \$(git -C ala-install rev-parse HEAD)"
                     
                     echo "Setting up Python virtual environment for Ansible..."
