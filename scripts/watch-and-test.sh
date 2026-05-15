@@ -80,7 +80,7 @@ start_change_collector() {
         --recursive \
         --format '%w%f' \
         --exclude '(\.git|\.venv|node_modules|\.pyc|__pycache__|\.swp|\.swo|~|\.retry)' \
-        --event modify,close_write,create,delete,moved_to,moved_from \
+        --event modify,close_write,create,delete,moved_to,moved_from,attrib \
         "${WATCH_PATHS[@]}" 2>/dev/null \
     | while IFS= read -r changed_path; do
         touch "$CHANGES_FLAG"
@@ -213,7 +213,7 @@ watch_loop() {
             --recursive \
             --format '%w%f' \
             --exclude '(\.git|\.venv|node_modules|\.pyc|__pycache__|\.swp|\.swo|~|\.retry)' \
-            --event modify,close_write,create,delete,moved_to,moved_from \
+            --event modify,close_write,create,delete,moved_to,moved_from,attrib \
             --timeout 1 \
             "${WATCH_PATHS[@]}" 2>/dev/null)
 
@@ -244,7 +244,7 @@ watch_loop() {
                     --recursive \
                     --format '%w%f' \
                     --exclude '(\.git|\.venv|node_modules|\.pyc|__pycache__|\.swp|\.swo|~|\.retry)' \
-                    --event modify,close_write,create,delete,moved_to,moved_from \
+                    --event modify,close_write,create,delete,moved_to,moved_from,attrib \
                     --timeout "$DEBOUNCE_SECONDS" \
                     "${WATCH_PATHS[@]}" 2>/dev/null)
                 [ $? -ne 0 ] && break
