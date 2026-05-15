@@ -56,8 +56,8 @@
     docker exec la_mongodb mongosh --quiet --eval "db.adminCommand('ping').ok" --username {{ mongodb_root_username }} --password {{ mongodb_root_password }}
   register: mongo_ping
   until: mongo_ping.rc == 0
-  retries: 10
-  delay: 3
+  retries: 40
+  delay: 5
   become: true
   changed_when: false
   tags:
