@@ -176,7 +176,7 @@ EOF
                     fi
                     "$VENV_MOL/bin/pip" install --quiet --upgrade pip
                     "$VENV_MOL/bin/pip" install --quiet molecule ansible-core
-                    VENV_MOLECULE="$VENV_MOL" "$VENV_MOL/bin/molecule" test -s unit
+                    VENV_MOLECULE="$VENV_MOL" PATH="$VENV_MOL/bin:$PATH" "$VENV_MOL/bin/molecule" test -s unit
                 '''
             }
         }
