@@ -88,12 +88,12 @@ FROM builder-base AS dependencies
 # Use cache mount for npm/yarn cache
 RUN --mount=type=cache,target=/root/.npm \
     --mount=type=cache,target=/root/.cache/yarn \
-    if [ -f "yarn.lock" ]; then \
-    echo "📦 Installing dependencies with yarn..."; \
-    yarn install --frozen-lockfile; \
-    elif [ -f "package-lock.json" ]; then \
+    if [ -f "package-lock.json" ]; then \
     echo "📦 Installing dependencies with npm ci..."; \
     npm ci; \
+    elif [ -f "yarn.lock" ]; then \
+    echo "📦 Installing dependencies with yarn..."; \
+    yarn install --frozen-lockfile; \
     else \
     echo "📦 Installing dependencies with npm install..."; \
     npm install; \
@@ -106,7 +106,9 @@ RUN --mount=type=cache,target=/root/.npm \
 FROM dependencies AS builder-production
 
 RUN echo "🔨 Building for production..." && \
-    if [ -f "yarn.lock" ]; then \
+    if [ -f "package-lock.json" ]; then \
+    npm run build; \
+    elif [ -f "yarn.lock" ]; then \
     yarn build; \
     else \
     npm run build; \
