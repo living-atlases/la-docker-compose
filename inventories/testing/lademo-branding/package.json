@@ -1,0 +1,38 @@
+{
+  "type": "module",
+  "name": "base-branding",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "lint": "eslint app/ --ext .js",
+    "lintx": "eslint app/ --ext .js --fix",
+    "dev": "cross-env BASE_BRANDING_URL=http://localhost:3333 vite",
+    "build": "cross-env BASE_BRANDING_URL=https://l-a.site vite build && cross-env BASE_BRANDING_URL=https://l-a.site BUILD_INIT=1 vite build",
+    "preview": "BASE_BRANDING_URL=http://localhost:3333 vite preview"
+  },
+  "devDependencies": {
+    "@rollup/plugin-replace": "^5.0.5",
+    "cross-env": "^10.0.0",
+    "eslint": "^9.26.0",
+    "rollup-plugin-jscc": "^2.0.0",
+    "sass": "^1.89.0",
+    "vite": "^5.2.0",
+    "vite-plugin-eslint": "^1.8.1",
+    "vite-plugin-inspect": "^0.8.4",
+    "vite-plugin-radar": "^0.10.0",
+    "vite-plugin-static-copy": "^1.0.5"
+  },
+  "dependencies": {
+    "bent": "^7.3.12",
+    "countup.js": "^2.8.0",
+    "domurl": "^2.3.4",
+    "i18next": "^23.11.5",
+    "i18next-browser-languagedetector": "^8.0.0",
+    "i18next-http-backend": "^2.5.2",
+    "i18next-localstorage-cache": "^1.1.1",
+    "jquery-i18next": "^1.2.1",
+    "js-cookie": "^3.0.5",
+    "url-polyfill": "^1.1.13",
+    "vanilla-cookieconsent": "^3.1.0"
+  }
+}
