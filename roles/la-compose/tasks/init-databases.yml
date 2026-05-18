@@ -105,24 +105,32 @@
   tags:
     - db-init
 
-- name: "DB Init: Initialize databases and users from host"
-  import_role:
-    name: cas5-dbs
-  vars:
-    cas_db_hostname: "127.0.0.1"
-    user_store_db_hostname: "127.0.0.1"
-    apikey_db_hostname: "127.0.0.1"
-    cas_tickets_host: "127.0.0.1"
-    cas_services_host: "127.0.0.1"
-    cas_audit_host: "127.0.0.1"
-    cas_spring_session_host: "127.0.0.1"
-    cas_mysql_src_host: "%"
-    apikey_mysql_src_host: "%"
-    cas_add_mongo_users: true
+- name: "DB Init: Create MySQL CAS databases via docker exec"
+  command: >
+    docker exec la_mysql mysql -u root -p{{ mysql_root_password }}
+    -e "CREATE DATABASE IF NOT EXISTS {{ cas_db_name | default('emmet') }} CHARACTER SET {{ cas_db_encoding | default('utf8mb4') }};
+        CREATE DATABASE IF NOT EXISTS {{ apikey_db_name | default('apikey') }} CHARACTER SET {{ cas_db_encoding | default('utf8mb4') }};"
+  become: true
   when:
     - "'cas-servers' in physical_server_groups"
     - needs_db_init | default(false) | bool
+  tags:
+    - db-init
+
+- name: "DB Init: Create MySQL CAS users and grants via docker exec"
+  command: >
+    docker exec la_mysql mysql -u root -p{{ mysql_root_password }} -e "
+    CREATE USER IF NOT EXISTS '{{ cas_flyway_username | default('cas_flyway') }}'@'%' IDENTIFIED BY '{{ cas_flyway_password }}';
+    GRANT ALL PRIVILEGES ON {{ cas_db_name | default('emmet') }}.* TO '{{ cas_flyway_username | default('cas_flyway') }}'@'%';
+    CREATE USER IF NOT EXISTS '{{ cas_db_username | default('cas') }}'@'%' IDENTIFIED BY '{{ cas_db_password }}';
+    GRANT INSERT,SELECT,UPDATE,DELETE,EXECUTE,TRIGGER ON {{ cas_db_name | default('emmet') }}.* TO '{{ cas_db_username | default('cas') }}'@'%';
+    CREATE USER IF NOT EXISTS '{{ apikey_db_username | default('apikey') }}'@'%' IDENTIFIED BY '{{ apikey_db_password }}';
+    GRANT ALL PRIVILEGES ON {{ apikey_db_name | default('apikey') }}.* TO '{{ apikey_db_username | default('apikey') }}'@'%';
+    FLUSH PRIVILEGES;"
   become: true
+  when:
+    - "'cas-servers' in physical_server_groups"
+    - needs_db_init | default(false) | bool
   tags:
     - db-init
 

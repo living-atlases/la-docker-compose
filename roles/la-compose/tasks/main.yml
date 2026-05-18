@@ -164,7 +164,9 @@
         - db-init
 
     - name: Start Docker Compose services
-      command: docker compose up -d --remove-orphans --force-recreate
+      command: >
+        docker compose up -d --remove-orphans
+        {{ '--force-recreate' if docker_force_recreate | default(false) | bool else '' }}
       args:
         chdir: "{{ docker_compose_data_dir }}"
       become: true
