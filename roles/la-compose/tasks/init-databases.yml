@@ -120,11 +120,11 @@
 - name: "DB Init: Create MySQL CAS users and grants via docker exec"
   command: >
     docker exec la_mysql mysql -u root -p{{ mysql_root_password }} -e "
-    CREATE USER IF NOT EXISTS '{{ cas_flyway_username | default('cas_flyway') }}'@'%' IDENTIFIED BY '{{ cas_flyway_password }}';
+    CREATE USER IF NOT EXISTS '{{ cas_flyway_username | default('cas_flyway') }}'@'%' IDENTIFIED WITH mysql_native_password BY '{{ cas_flyway_password }}';
     GRANT ALL PRIVILEGES ON {{ cas_db_name | default('emmet') }}.* TO '{{ cas_flyway_username | default('cas_flyway') }}'@'%';
-    CREATE USER IF NOT EXISTS '{{ cas_db_username | default('cas') }}'@'%' IDENTIFIED BY '{{ cas_db_password }}';
+    CREATE USER IF NOT EXISTS '{{ cas_db_username | default('cas') }}'@'%' IDENTIFIED WITH mysql_native_password BY '{{ cas_db_password }}';
     GRANT INSERT,SELECT,UPDATE,DELETE,EXECUTE,TRIGGER ON {{ cas_db_name | default('emmet') }}.* TO '{{ cas_db_username | default('cas') }}'@'%';
-    CREATE USER IF NOT EXISTS '{{ apikey_db_username | default('apikey') }}'@'%' IDENTIFIED BY '{{ apikey_db_password }}';
+    CREATE USER IF NOT EXISTS '{{ apikey_db_username | default('apikey') }}'@'%' IDENTIFIED WITH mysql_native_password BY '{{ apikey_db_password }}';
     GRANT ALL PRIVILEGES ON {{ apikey_db_name | default('apikey') }}.* TO '{{ apikey_db_username | default('apikey') }}'@'%';
     FLUSH PRIVILEGES;"
   become: true
