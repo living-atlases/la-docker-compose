@@ -1512,7 +1512,7 @@
 
 - name: Include build-images tasks
   include_tasks: build-images.yml
-  when: build_images | default(false)
+  when: (build_images | default(true)) or ('branding' in services_enabled)
   tags:
     - docker-compose
     - build

@@ -88,7 +88,7 @@ if [[ -x "$INVENTORY_ANSIBLEW" ]]; then
     --properties \
     --tags=docker-compose,properties-file \
     --skip=docker,db-init \
-    --extra="docker_compose_data_dir=$OUTPUT_DIR data_dir=$OUTPUT_DIR${ANSIBLE_LOCAL_EXTRA_VARS:+ $ANSIBLE_LOCAL_EXTRA_VARS}" \
+    --extra="docker_compose_data_dir=$OUTPUT_DIR data_dir=$OUTPUT_DIR build_images=false${ANSIBLE_LOCAL_EXTRA_VARS:+ $ANSIBLE_LOCAL_EXTRA_VARS}" \
     all; then
     popd >/dev/null
     pass "Config generation completed"

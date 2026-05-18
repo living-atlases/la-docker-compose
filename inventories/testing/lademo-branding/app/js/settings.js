@@ -1,4 +1,4 @@
-module.exports = {
+export default {
   isDevel: true,
   inMante: false, // set to true and deploy if you want to set a maintenance message in all the services
   enabledLangs: ['en', 'es', 'zh', 'sw'],
@@ -23,5 +23,6 @@ module.exports = {
     { title: 'Datasets', url: 'https://collections.l-a.site/datasets' },
     { title: 'Explore your area', url: 'https://records.l-a.site/explore/your-area/' },
     { title: 'twitter', url: '', icon: 'twitter' }
-  ]
+  ],
+  analytics: { googleId: null }
 }
