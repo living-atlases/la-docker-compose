@@ -13,6 +13,10 @@ deployment_env: production  # Options: dev, staging, production
 # Auto-deploy: Start services after generating config (like traditional ala-install)
 auto_deploy: true
 
+# Docker Compose profiles to activate (comma-separated)
+# infra: nginx, certs, branding | monitoring: gatus | core-auth: CAS stack | app-core: LA apps | full: all
+compose_profiles: "full"
+
 # User for docker operations (uses current user or 'ubuntu' for VM)
 # docker_default_user is now defined globally in the inventory [all:vars]
 
@@ -90,7 +94,7 @@ docker_output_dir: "{{ docker_compose_output_dir | default('docker-compose-outpu
 # Build Configuration
 # ============================================
 
-build_images: false
+build_images: true
 docker_registry: ""
 docker_tag: "{{ collectory_branch | default(collectory_version | default('develop')) }}"
 docker_image_tag: "{{ docker_tag }}"
