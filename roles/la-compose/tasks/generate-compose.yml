@@ -1084,6 +1084,7 @@
     hostname: "{{ branding_url }}"
     context_path: "/"
     use_gatus: true
+    vhost_required: true
     nginx_vhost_fast_mode: true
     nginx_paths:
       - path: "/"
@@ -1277,14 +1278,15 @@
     name: nginx_vhost
   vars:
     appname: "gatus"
-    hostname: "{{ hostvars[service_aliases.get('gatus', '')].gatus_url | default('') }}"
+    hostname: "{{ gatus_url }}"
     context_path: "/"
     nginx_upstream_host: "la_gatus_service"
+    vhost_required: true
     nginx_vhost_fast_mode: true
   when:
     - "'gatus' in services_enabled"
     - "groups['gatus'] is defined and groups['gatus'] | length > 0"
-    - "hostvars[service_aliases.get('gatus', '')].gatus_url is defined"
+    - "gatus_url is defined"
   tags:
     - gatus
     - nginx_vhost

@@ -94,7 +94,7 @@
         'sensitive-data-service', 'gatus',
       ] -%}
         {%- if service in groups -%}
-          {%- set matching = groups[service] | select('match', '^' + ansible_host + '\\.') | list -%}
+          {%- set matching = groups[service] | select('match', '^' + ansible_host + '(\\..+)?$') | list -%}
           {%- if matching | length > 0 -%}
             {%- set _ = result.update({service: matching[0]}) -%}
           {%- endif -%}
