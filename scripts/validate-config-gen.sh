@@ -87,7 +87,7 @@ if [[ -x "$INVENTORY_ANSIBLEW" ]]; then
     --docker-local \
     --properties \
     --tags=docker-compose,properties-file \
-    --skip=docker,db-init \
+    --skip=docker,db-init,deploy \
     --extra="docker_compose_data_dir=$OUTPUT_DIR data_dir=$OUTPUT_DIR build_images=false${ANSIBLE_LOCAL_EXTRA_VARS:+ $ANSIBLE_LOCAL_EXTRA_VARS}" \
     all; then
     popd >/dev/null
