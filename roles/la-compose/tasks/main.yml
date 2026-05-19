@@ -104,7 +104,6 @@
     - name: "Deployment preparation: Ensure database volumes exist (external)"
       include_role:
         name: la-volumes
-      when: auto_deploy | default(true) | bool
       tags:
         - always
         - docker-volumes
