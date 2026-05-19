@@ -167,13 +167,15 @@
         - deploy
         - db-init
 
-    # Docker Desktop holds host-port bindings via its port forwarder even after a
-    # container is stopped. When compose recreates la_nginx (config changed), the
-    # forwarder hasn't released :80/:443 yet → "address already in use". Fix: remove
-    # nginx explicitly before `up` so compose creates a fresh container with health
-    # state reset to "starting" (docker stop preserves the old unhealthy state).
-    - name: "Pre-deploy: Remove la_nginx if running (release :80/:443 and reset health state)"
-      command: docker rm -f la_nginx
+    # Containers that are unhealthy preserve that state even when stopped, so
+    # `docker compose up` sees them as unhealthy immediately and fails. Remove all
+    # la_* containers in unhealthy state before up so compose recreates them fresh.
+    # Also removes la_nginx explicitly to release :80/:443 (Docker Desktop port-forwarder
+    # holds bindings after stop).
+    - name: "Pre-deploy: Remove unhealthy la_* containers and nginx (reset health state)"
+      shell: |
+        docker rm -f la_nginx 2>/dev/null || true
+        docker ps -a --filter "health=unhealthy" --filter "name=la_" --format "{{.Names}}" | xargs -r docker rm -f
       become: true
       register: nginx_stop
       failed_when: false
