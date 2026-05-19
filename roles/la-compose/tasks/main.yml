@@ -175,7 +175,7 @@
     - name: "Pre-deploy: Remove unhealthy la_* containers and nginx (reset health state)"
       shell: |
         docker rm -f la_nginx 2>/dev/null || true
-        docker ps -a --filter "health=unhealthy" --filter "name=la_" --format "{{.Names}}" | xargs -r docker rm -f
+        docker ps -a --filter "health=unhealthy" --filter "name=la_" --format '{% raw %}{{.Names}}{% endraw %}' | xargs -r docker rm -f
       become: true
       register: nginx_stop
       failed_when: false
