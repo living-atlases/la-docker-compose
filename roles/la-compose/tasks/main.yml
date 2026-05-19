@@ -182,22 +182,6 @@
         - docker-compose
         - deploy
 
-    - name: "Pre-deploy: Wait for :80 and :443 to be released by Docker Desktop"
-      wait_for:
-        host: "0.0.0.0"
-        port: "{{ item }}"
-        state: stopped
-        timeout: 15
-      loop:
-        - 80
-        - 443
-      when:
-        - auto_deploy | default(true) | bool
-        - nginx_stop.rc == 0
-      tags:
-        - docker-compose
-        - deploy
-
     - name: Start Docker Compose services
       command: >
         docker compose up -d --remove-orphans
