@@ -133,7 +133,12 @@
           changed_when: false
           ignore_errors: true
 
-        - name: Stop and remove existing docker compose deployment
+        # Destructive full teardown only on explicit force-recreate. The normal
+        # path relies on `docker compose up -d` idempotency: healthy services
+        # (nginx, gatus, ...) are left running and only changed services are
+        # recreated, so host ports 80/443 are never freed-and-rebound (which on
+        # Docker Desktop causes "address already in use" on the nginx rebind).
+        - name: Stop and remove existing docker compose deployment (force-recreate only)
           command: docker compose down --remove-orphans
           args:
             chdir: "{{ docker_compose_data_dir }}"
@@ -144,13 +149,13 @@
             - "'No such file or directory' not in compose_down_result.stderr"
             - "'No such container' not in compose_down_result.stderr"
           changed_when: false
+          when: docker_force_recreate | default(false) | bool
 
       when:
         - auto_deploy | default(true) | bool
       tags:
         - docker-compose
         - deploy
-      ignore_errors: true
 
     - name: Initialize databases (if CAS server on this host)
       include_tasks: init-databases.yml

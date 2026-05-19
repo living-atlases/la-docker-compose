@@ -37,6 +37,7 @@
     docker exec la_mongodb mongosh --quiet
     --username {{ cas_tickets_username | default('cas') }}
     --password {{ cas_tickets_password }}
+    --authenticationDatabase {{ cas_tickets_db | default('cas-ticket-registry') }}
     --eval "db.getMongo().getDBNames().join('\n')"
     {{ cas_tickets_db | default('cas-ticket-registry') }}
   register: ticket_registry_info
@@ -67,6 +68,7 @@
     docker exec la_mongodb mongosh --quiet
     --username {{ cas_services_username | default('cas') }}
     --password {{ cas_services_password }}
+    --authenticationDatabase {{ cas_services_db | default('cas-service-registry') }}
     --eval "db.getCollectionNames().join('\n')"
     {{ cas_services_db | default('cas-service-registry') }}
   register: service_registry_info
@@ -97,6 +99,7 @@
     docker exec la_mongodb mongosh --quiet
     --username {{ cas_services_username | default('cas') }}
     --password {{ cas_services_password }}
+    --authenticationDatabase {{ cas_services_db | default('cas-service-registry') }}
     --eval "db.OAuthRegisteredService.countDocuments()"
     {{ cas_services_db | default('cas-service-registry') }}
   register: oidc_services

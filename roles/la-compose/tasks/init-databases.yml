@@ -63,6 +63,54 @@
   tags:
     - db-init
 
+# The la_mongodb-data volume is `external` and pre-populated, so the mongo
+# image never re-runs /docker-entrypoint-initdb.d. These CAS users would
+# otherwise never exist -> la_cas stays unhealthy. Create/refresh them every
+# deploy via docker exec (idempotent), mirroring roles/cas5-dbs user list.
+- name: "DB Init: Create/refresh MongoDB CAS users (idempotent)"
+  command:
+    argv:
+      - docker
+      - exec
+      - la_mongodb
+      - mongosh
+      - --quiet
+      - --username
+      - "{{ mongodb_root_username }}"
+      - --password
+      - "{{ mongodb_root_password }}"
+      - --authenticationDatabase
+      - admin
+      - --eval
+      - >-
+        var created=0,updated=0;
+        [{u:"{{ cas_tickets_username }}",
+          p:"{{ cas_tickets_password }}",
+          db:"{{ cas_tickets_db | default('cas-ticket-registry') }}"},
+         {u:"{{ cas_services_username }}",
+          p:"{{ cas_services_password }}",
+          db:"{{ cas_services_db | default('cas-service-registry') }}"},
+         {u:"{{ cas_audit_username | default('cas') }}",
+          p:"{{ cas_audit_password | default('password') }}",
+          db:"{{ cas_audit_db | default('cas-audit-repository') }}"},
+         {u:"{{ cas_spring_session_username | default('cas') }}",
+          p:"{{ cas_spring_session_password | default('password') }}",
+          db:"{{ cas_spring_session_db | default('spring-sessions') }}"}
+        ].forEach(function(x){
+          var d=db.getSiblingDB(x.db);
+          if(d.getUser(x.u)){d.updateUser(x.u,{pwd:x.p,roles:[{role:"readWrite",db:x.db}]});updated++;}
+          else{d.createUser({user:x.u,pwd:x.p,roles:[{role:"readWrite",db:x.db}]});created++;}
+        });
+        if(created>0)print("MONGO_USERS_CHANGED");
+        print("mongo-cas-users created="+created+" updated="+updated);
+  become: true
+  register: mongo_cas_users
+  changed_when: "'MONGO_USERS_CHANGED' in mongo_cas_users.stdout"
+  failed_when: mongo_cas_users.rc != 0
+  when: "'cas-servers' in physical_server_groups"
+  tags:
+    - db-init
+
 - name: "DB Init: Check if MySQL databases exist"
   command: >
     docker exec la_mysql mysql -N
