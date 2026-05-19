@@ -167,6 +167,37 @@
         - deploy
         - db-init
 
+    # Docker Desktop holds host-port bindings via its port forwarder even after a
+    # container is stopped. When compose recreates la_nginx (config changed), the
+    # forwarder hasn't released :80/:443 yet → "address already in use". Fix: stop
+    # nginx explicitly before `up`, then wait until the ports are free.
+    - name: "Pre-deploy: Stop la_nginx if running (release :80/:443 before recreate)"
+      command: docker stop la_nginx
+      become: true
+      register: nginx_stop
+      failed_when: false
+      changed_when: nginx_stop.rc == 0
+      when: auto_deploy | default(true) | bool
+      tags:
+        - docker-compose
+        - deploy
+
+    - name: "Pre-deploy: Wait for :80 and :443 to be released by Docker Desktop"
+      wait_for:
+        host: "0.0.0.0"
+        port: "{{ item }}"
+        state: stopped
+        timeout: 15
+      loop:
+        - 80
+        - 443
+      when:
+        - auto_deploy | default(true) | bool
+        - nginx_stop.rc == 0
+      tags:
+        - docker-compose
+        - deploy
+
     - name: Start Docker Compose services
       command: >
         docker compose up -d --remove-orphans
