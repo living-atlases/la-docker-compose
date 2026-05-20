@@ -76,7 +76,7 @@ services:
 
         echo "Initialization complete!"
     volumes:
-      - {{ data_dir }}/solr/init:/var/solr/init:ro
+      - {{ docker_compose_data_dir }}/solr/init:/var/solr/init:ro
     networks:
       {{ docker_network | default('internal') }}:
     depends_on:

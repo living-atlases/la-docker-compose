@@ -5,6 +5,9 @@ services:
     container_name: la_bie-index
     profiles: [app-core, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    volumes:
+      - {{ data_dir }}/bie-index:/data/bie-index
+{% include '_i18n_volumes.yml.j2' %}
     restart: unless-stopped
     expose:
       - 8080
