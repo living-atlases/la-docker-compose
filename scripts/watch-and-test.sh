@@ -102,6 +102,38 @@ run_tests() {
     local timestamp
     timestamp=$(date '+%Y-%m-%d %H:%M:%S')
 
+    # Fast-iteration mode: when SERVICE=<name> is set in the env, skip the
+    # full validate+ansiblew (~924 tasks, ~1 min) and only recreate that one
+    # service via iterate-service.sh. Use this when debugging a single
+    # service (e.g. SERVICE=cas) — full pipeline still kicks in if SERVICE
+    # is unset.
+    if [ -n "${SERVICE:-}" ]; then
+        echo ""
+        echo -e "${BLUE}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${YELLOW}[${timestamp}] Triggered — fast iterate (SERVICE=$SERVICE)${NC}"
+        echo -e "${BLUE}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo ""
+        start_change_collector
+        > "$LAST_LOG"
+        "$ROOT_DIR/scripts/iterate-service.sh" "$SERVICE" 2>&1 | tee -a "$LAST_LOG"
+        local exit_code=${PIPESTATUS[0]}
+        cat "$LAST_LOG" >> "$LOG_FILE"
+        if [ "$exit_code" -eq 0 ]; then
+            send_notification "✔ LA Docker — $SERVICE OK" "iterate $SERVICE green ($timestamp)" "low" "dialog-information"
+        else
+            send_notification "✗ LA Docker — $SERVICE FAILED" "iterate $SERVICE red (exit $exit_code)" "critical" "dialog-error"
+        fi
+        stop_change_collector
+        if [ -f "$CHANGES_FLAG" ]; then
+            rm -f "$CHANGES_FLAG" "${CHANGES_FLAG}.paths"
+            PENDING_RUN=1
+        fi
+        echo ""
+        echo -e "${GREEN}Waiting for changes...${NC}  ${CYAN}(SERVICE=$SERVICE mode  |  r=rerun  q=quit)${NC}"
+        echo ""
+        return
+    fi
+
     echo ""
     echo -e "${BLUE}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo -e "${YELLOW}[${timestamp}] Triggered — validate + ansiblew deploy${NC}"
@@ -152,11 +184,30 @@ run_tests() {
             echo -e "${GREEN}${BOLD}✔ ALL CHECKS PASSED${NC}"
             send_notification "✔ LA Docker — OK" "All checks passed ($timestamp)" "low" "dialog-information"
         else
-            echo -e "${RED}Last lines of log:${NC}"
+            # Surface root-cause from the deploy failure dump (written by the
+            # block/rescue in roles/la-compose/tasks/main.yml). Stops blind
+            # guessing — the actual error appears on screen, not "exit 1".
+            local root_log="/tmp/la-docker-deploy-failure.root.log"
+            local full_log="/tmp/la-docker-deploy-failure.log"
+            local notif_msg="ansiblew failed (exit $exit_code)"
+            if [ -s "$root_log" ]; then
+                echo -e "${RED}${BOLD}━━ Root-cause candidates ━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                cat "$root_log"
+                echo -e "${RED}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                echo -e "${CYAN}Full diagnostic:${NC} $full_log"
+                # First non-empty match for the notification body
+                local first_line
+                first_line=$(grep -m1 -E '^\[la_' "$root_log" 2>/dev/null || true)
+                [ -n "$first_line" ] && notif_msg="$first_line"
+            else
+                echo -e "${YELLOW}(no /tmp/la-docker-deploy-failure.root.log — failure was before deploy)${NC}"
+            fi
+            echo ""
+            echo -e "${RED}Last lines of ansiblew log:${NC}"
             tail -20 "$LAST_LOG"
             echo ""
             echo -e "${RED}${BOLD}✗ ANSIBLEW FAILED (exit $exit_code)${NC}"
-            send_notification "✗ LA Docker — FAILED" "ansiblew failed (exit $exit_code)" "critical" "dialog-error"
+            send_notification "✗ LA Docker — FAILED" "$notif_msg" "critical" "dialog-error"
         fi
     fi
 

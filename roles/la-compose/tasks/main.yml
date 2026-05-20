@@ -185,18 +185,94 @@
         - docker-compose
         - deploy
 
-    - name: Start Docker Compose services
-      command: >
-        docker compose up -d --remove-orphans
-        {{ '--force-recreate' if docker_force_recreate | default(false) | bool else '' }}
-      args:
-        chdir: "{{ docker_compose_data_dir }}"
-      become: true
+    # block/rescue: on `docker compose up` failure, capture root-cause diagnostics
+    # to /tmp/la-docker-deploy-failure.log + /tmp/la-docker-deploy-failure.root.log
+    # so the watch / human gets the actual error line, not just rc=1. The plain
+    # `command:` fails silently — without this, every loop ends with no captured
+    # log and patches a downstream symptom instead of the real cause.
+    - name: "Start Docker Compose services (with failure diagnostics)"
       when:
         - auto_deploy | default(true) | bool
       tags:
         - docker-compose
         - deploy
+      block:
+        - name: Start Docker Compose services
+          command: >
+            docker compose up -d --remove-orphans
+            {{ '--force-recreate' if docker_force_recreate | default(false) | bool else '' }}
+          args:
+            chdir: "{{ docker_compose_data_dir }}"
+          become: true
+
+      rescue:
+        - name: "Deploy failure: capture container diagnostics to /tmp/la-docker-deploy-failure.log"
+          shell: |
+            set +e
+            FULL=/tmp/la-docker-deploy-failure.log
+            ROOT=/tmp/la-docker-deploy-failure.root.log
+            : > "$FULL"
+            : > "$ROOT"
+            {
+              echo "==== Docker Compose deploy FAILED at $(date -Iseconds) ===="
+              echo
+              echo "==== docker compose ps -a ===="
+              docker compose ps -a 2>&1
+              echo
+              echo "==== docker ps -a (la_*) ===="
+              docker ps -a --filter "name=la_" --format "table {{ '{{' }}.Names{{ '}}' }}\t{{ '{{' }}.Status{{ '}}' }}\t{{ '{{' }}.State{{ '}}' }}" 2>&1
+            } >> "$FULL"
+
+            # Determine non-healthy / non-running containers
+            NON_HEALTHY=$(docker ps -a --filter "name=la_" \
+              --format "{{ '{{' }}.Names{{ '}}' }}\t{{ '{{' }}.Status{{ '}}' }}" \
+              | awk -F'\t' '$2 !~ /Up .*\(healthy\)/ && $2 !~ /Exited \(0\)/ {print $1}')
+
+            for c in $NON_HEALTHY; do
+              {
+                echo
+                echo "---- $c ----"
+                echo "State: $(docker inspect --format '{{ '{{' }}.State.Status{{ '}}' }} exit={{ '{{' }}.State.ExitCode{{ '}}' }} health={{ '{{' }}if .State.Health{{ '}}' }}{{ '{{' }}.State.Health.Status{{ '}}' }}{{ '{{' }}else{{ '}}' }}none{{ '{{' }}end{{ '}}' }}' "$c" 2>/dev/null)"
+                echo "-- last 100 log lines --"
+                docker logs --tail 100 "$c" 2>&1
+              } >> "$FULL"
+            done
+
+            # Extract root-cause candidates into the short ROOT log
+            {
+              echo "Root-cause candidates per non-healthy container:"
+              echo "  (full log: /tmp/la-docker-deploy-failure.log)"
+              echo
+              for c in $NON_HEALTHY; do
+                FIRST=$(docker logs "$c" 2>&1 \
+                  | grep -m1 -E 'Caused by:|FATAL|Public Key Retrieval|UnableToConnect|Connection refused|ERROR \[|panic:|level=fatal')
+                [ -n "$FIRST" ] && echo "[$c] $FIRST"
+              done
+            } > "$ROOT"
+
+            cat "$ROOT"
+          args:
+            chdir: "{{ docker_compose_data_dir }}"
+            executable: /bin/bash
+          become: true
+          changed_when: false
+          failed_when: false
+          register: deploy_failure_diag
+
+        - name: "Deploy failure: print captured root-cause to ansible output"
+          debug:
+            msg: |
+              ===== DEPLOY FAILED =====
+              Full diagnostic: /tmp/la-docker-deploy-failure.log
+              Root-cause candidates:
+              {{ deploy_failure_diag.stdout | default('(no diagnostic captured)') }}
+
+        - name: "Deploy failure: re-raise with pointer to log"
+          fail:
+            msg: |
+              docker compose up failed. See /tmp/la-docker-deploy-failure.log for full diagnostic.
+              First root-cause line(s):
+              {{ deploy_failure_diag.stdout | default('(no root-cause line matched — read full log)') }}
 
     - name: "CAS: Initialize admin account and OIDC services"
       include_tasks: init-cas-admin.yml
