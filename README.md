@@ -101,6 +101,21 @@ cd /data/docker-compose && docker compose up -d
 
 ---
 
+## Developer workflow (watch / iterate / ansiblew)
+
+See **[`scripts/README.md`](scripts/README.md)** for the day-to-day loop:
+
+- **Full deploy via watch** (default, ~1 min/ciclo): `scripts/watch-and-test.sh`
+- **Fast iterate one service** (segundos/ciclo): `scripts/iterate-service.sh <name>`
+- **Manual `ansiblew`** (tags como `db-password-sync`, `deploy`, …): ver doc.
+
+On deploy failure, a `block/rescue` in `roles/la-compose/tasks/main.yml`
+writes root-cause diagnostics to `/tmp/la-docker-deploy-failure.root.log`
+(and `.log` for the full dump). **Read that file before commiting any
+`fix(...)`.**
+
+---
+
 ## Testing & Dry-run
 
 ### Local Inventories for Testing
