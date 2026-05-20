@@ -45,6 +45,13 @@ i18n:
 # Docker Compose Container Names
 # ============================================
 
+# Fallback for upstream templates (species-list, logger-service) that gate on
+# {% if mysql == 'mysql-server-8.0' %}. The `mysql` fact is normally set by
+# ala-install/.../common/tasks/setfacts.yml — but only for Ubuntu 14/18/20/22/24.
+# On Debian (no matching block) the var stays undefined and template rendering
+# fails. Define a fallback so container deployments work on any host OS.
+mysql: "mysql-server-8.0"
+
 # MySQL and MongoDB container names
 cas_db_hostname: mysql
 collectory_db_host_address: mysql
