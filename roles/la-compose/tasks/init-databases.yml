@@ -202,6 +202,28 @@
     - db-init
     - db-password-sync
 
+# Closes the race where docker compose up recreates la_cas before FLUSH
+# PRIVILEGES finishes propagating, surfacing as a transient Hikari
+# "Access denied for user 'flyway'@..." during CAS first connect.
+- name: "DB Init: Verify cas_flyway can authenticate (closes FLUSH PRIVILEGES race)"
+  command: >
+    docker exec la_mysql mysql
+    -u {{ cas_flyway_username | default('cas_flyway') }}
+    -p{{ cas_flyway_password }}
+    -e "SELECT 1;"
+  register: cas_flyway_probe
+  retries: 10
+  delay: 2
+  until: cas_flyway_probe.rc == 0
+  become: true
+  when:
+    - "'cas-servers' in physical_server_groups"
+  changed_when: false
+  no_log: true
+  tags:
+    - db-init
+    - db-password-sync
+
 - name: "DB Init: Verify database initialization completed successfully"
   include_tasks: validate-db-init.yml
   when: "'cas-servers' in physical_server_groups"

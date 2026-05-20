@@ -12,6 +12,9 @@ services:
     environment:
       TZ: {{ server_tz | default('UTC') }}
       JAVA_OPTS: ${SPECIES_LISTS_JAVA_OPTS}
+      # Override LOG_DIR so logback writes to the bind-mounted data volume
+      # (image default /var/log/tomcat9 is not writable / not present in container)
+      LOG_DIR: /data/specieslist-webapp/logs
     expose:
       - 8080
     networks:
