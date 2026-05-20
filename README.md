@@ -16,11 +16,15 @@ Unlike traditional deployments where `ala-install` directly mutates the state of
 
 ## Directory Structure
 
-- `playbooks/`: Entrypoints for Ansible runs (`site.yml`, `config-gen.yml`).
+- `playbooks/`: Entrypoints for Ansible runs (`site.yml`, `config-gen.yml`, `db-init.yml`, plus validation helpers).
 - `inventories/local/`: Typical local inventory to deploy a full subset of services.
 - `inventories/dev/`: Specialized local development inventory using the `localhost.service` pattern.
+- `inventories/testing/`: `yo living-atlas`-generated inventory used by CI and pre-push validation.
 - `roles/la-compose/`: The core role that parses `ala-install` facts and generates `docker-compose.yml`.
 - `roles/la-volumes/`: Role managing persistent Docker volumes.
+- `scripts/`: Dev-loop tooling (`watch-and-test.sh`, `iterate-service.sh`, `validate-config-gen.sh`, …). See [`scripts/README.md`](scripts/README.md).
+- `molecule/`: Molecule unit tests for la-compose helpers (`unit` scenario, run from Jenkins).
+- `.githooks/`: Git hooks (`pre-push` runs `validate-config-gen.sh`). Install with `scripts/setup-molecule.sh` or `git config core.hooksPath .githooks`.
 
 ---
 
@@ -476,22 +480,14 @@ docker-compose config > /dev/null && echo "Valid" || echo "Invalid"
 
 ---
 
-## Recent Fixes & Architecture Documentation
+## CI / Pre-push validation
 
-### Build #83: CAS Configuration Directory Fix
+Jenkins runs `molecule test -s unit` plus the full `playbooks/site.yml` against the testing inventory on every push. Locally, the `.githooks/pre-push` hook runs [`scripts/validate-config-gen.sh`](scripts/validate-config-gen.sh) before each push:
 
-See **[BUILD_83_FIX.md](BUILD_83_FIX.md)** for comprehensive analysis of:
+1. Molecule unit tests (`normalize-hostnames.yml`).
+2. `config-gen.yml` against `inventories/testing/lademo-inventories/` via `ansiblew`.
+3. No `localhost`/`127.0.0.1` in DB connection strings.
+4. No `localhost`/`127.0.0.1` in nginx `upstream`/`proxy_pass` blocks.
+5. `docker compose config` syntax check on the generated `docker-compose.yml`.
 
-- **Problem:** Jenkins Build #83 failed—CAS container crashed with `Config data location '/data/cas/config/' does not exist`
-- **Root Cause:** Service role inclusion logic in `generate-compose.yml` checked for group membership (`'cas-servers' in group_names`), but in the docker-compose architecture, services are represented as host aliases, not groups
-- **Solution:** Updated all 11 service role conditions to use a dynamically-calculated `service_aliases` fact
-- **Status:** ✅ Fixed in commit `1c309e3` — ready for Jenkins Build #84 validation
-
-**Key sections in BUILD_83_FIX.md:**
-- The Problem in Detail — how group membership checks fail in docker-compose
-- The Solution — how `service_aliases` works
-- Testing & Validation — how we verified variable collisions (Issue #10) are prevented
-- Expected Behavior — what Build #84 should show
-- Design patterns — why this matters for multi-service deployments
-
-**Recommended reading:** If you modify service role inclusion logic or add new services, start here to understand the architectural constraints.
+If a fresh checkout doesn't have `.venv-molecule/` or the testing inventory, run [`scripts/setup-molecule.sh`](scripts/setup-molecule.sh) and copy/generate the inventory with `yo living-atlas --replay-dont-ask --force`.
