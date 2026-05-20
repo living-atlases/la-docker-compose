@@ -6,7 +6,8 @@ services:
     profiles: [app-core, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     volumes:
-      - {{ data_dir }}/ala-bie:/data/ala-bie
+      - {{ data_dir }}/ala-bie-hub:/data/ala-bie-hub
+      - {{ data_dir }}/ala-bie-hub/logs:/var/log/tomcat9
 {% include '_i18n_volumes.yml.j2' %}
     restart: unless-stopped
     expose:

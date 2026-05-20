@@ -8,13 +8,14 @@ services:
     image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}specieslist-webapp:{{ species_list_version | default('latest') }}
     volumes:
       - {{ data_dir }}/specieslist-webapp:/data/specieslist-webapp
+      # Bind-mount /var/log/tomcat9 because the bundled logback.xml hard-sets
+      # LOG_DIR via <variable> (overriding env vars). Mounting the host logs
+      # dir lets logback write where it expects.
+      - {{ data_dir }}/specieslist-webapp/logs:/var/log/tomcat9
 {% include '_i18n_volumes.yml.j2' %}
     environment:
       TZ: {{ server_tz | default('UTC') }}
       JAVA_OPTS: ${SPECIES_LISTS_JAVA_OPTS}
-      # Override LOG_DIR so logback writes to the bind-mounted data volume
-      # (image default /var/log/tomcat9 is not writable / not present in container)
-      LOG_DIR: /data/specieslist-webapp/logs
     expose:
       - 8080
     networks:

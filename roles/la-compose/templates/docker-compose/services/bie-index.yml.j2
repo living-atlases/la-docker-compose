@@ -7,6 +7,7 @@ services:
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     volumes:
       - {{ data_dir }}/bie-index:/data/bie-index
+      - {{ data_dir }}/bie-index/logs:/var/log/tomcat9
 {% include '_i18n_volumes.yml.j2' %}
     restart: unless-stopped
     expose:
