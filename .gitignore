@@ -45,3 +45,9 @@ inventories/testing/lademo-inventories/lademo-local-passwords.ini
 TODO.org
 AGENTS.md
 .claude/worktrees/
+
+# GSD/Claude planning artifacts (codebase maps, phase plans, session notes)
+.planning/
+
+# OpenCode session memory
+.opencode/memory/
