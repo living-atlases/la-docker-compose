@@ -182,6 +182,26 @@
   tags:
     - db-init
 
+# Always re-sync passwords to the current inventory values. CREATE USER IF NOT
+# EXISTS above is a no-op for users that already exist in the persisted MySQL
+# volume — so after a password rotation, the user keeps the OLD password and
+# CAS gets `Access denied for user 'flyway'@'...'`. ALTER USER IF EXISTS makes
+# it safe to run even on a fresh MySQL where users don't exist yet.
+- name: "DB Init: Sync MySQL CAS user passwords (idempotent — handles rotations)"
+  command: >
+    docker exec la_mysql mysql -u root -p{{ mysql_root_password }} -e "
+    ALTER USER IF EXISTS '{{ cas_flyway_username | default('cas_flyway') }}'@'%' IDENTIFIED WITH mysql_native_password BY '{{ cas_flyway_password }}';
+    ALTER USER IF EXISTS '{{ cas_db_username | default('cas') }}'@'%' IDENTIFIED WITH mysql_native_password BY '{{ cas_db_password }}';
+    ALTER USER IF EXISTS '{{ apikey_db_username | default('apikey') }}'@'%' IDENTIFIED WITH mysql_native_password BY '{{ apikey_db_password }}';
+    FLUSH PRIVILEGES;"
+  become: true
+  when:
+    - "'cas-servers' in physical_server_groups"
+  changed_when: false
+  tags:
+    - db-init
+    - db-password-sync
+
 - name: "DB Init: Verify database initialization completed successfully"
   include_tasks: validate-db-init.yml
   when: "'cas-servers' in physical_server_groups"
