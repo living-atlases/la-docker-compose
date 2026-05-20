@@ -14,6 +14,10 @@ services:
     environment:
       TZ: {{ server_tz | default('UTC') }}
       JAVA_OPTS: ${BIOCACHE_HUB_JAVA_OPTS}
+      # Bundled application.yml references ${security.jwt.enabled} via SpEL,
+      # but the upstream ala-hub-config.properties template never declares it.
+      # Spring relaxed binding maps this env to the missing property.
+      SECURITY_JWT_ENABLED: "{{ security_jwt_enabled | default('false') }}"
     networks:
       default: {}
       {{ docker_network | default('internal') }}:

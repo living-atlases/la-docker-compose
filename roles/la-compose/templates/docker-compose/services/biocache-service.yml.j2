@@ -6,6 +6,12 @@ services:
     profiles: [app-core, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     volumes:
+      # Host /data/biocache is mounted at TWO container paths because the
+      # image's hardcoded -Dlogging.config expects /data/biocache-service/,
+      # while the bundled application.properties imports config from
+      # /data/biocache/config/biocache-config.properties (Spring ConfigData).
+      # Without /data/biocache, cassandra.hosts silently defaults to localhost.
+      - {{ data_dir }}/biocache:/data/biocache
       - {{ data_dir }}/biocache:/data/biocache-service
 {% include '_i18n_volumes.yml.j2' %}
     restart: unless-stopped
