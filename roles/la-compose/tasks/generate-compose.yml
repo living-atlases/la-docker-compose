@@ -835,6 +835,27 @@
     - "{{ docker_compose_data_dir }}/var-log-atlas/image-service"
   tags:
     - docker-compose
+
+# Per-service log dirs that get bind-mounted onto /var/log/tomcat9 in the
+# container (collectory/species-list/bie-index/bie-hub logback hardcodes that
+# path via a <variable> tag, overriding env vars). Without these dirs docker
+# creates them as root and the JVM can't write — services restart with
+# "Failed to create parent directories for /var/log/tomcat9/<svc>.log".
+- name: Ensure /var/log/tomcat9 bind-source dirs exist for tomcat-based services
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  loop:
+    - "{{ data_dir }}/collectory/logs"
+    - "{{ data_dir }}/specieslist-webapp/logs"
+    - "{{ data_dir }}/bie-index/logs"
+    - "{{ data_dir }}/ala-bie-hub/logs"
+  tags:
+    - docker-compose
+
 # Evaluate version variables that may contain unrendered Jinja2 from INI inventory
 - name: Evaluate zookeeper version dynamically
   set_fact:
