@@ -860,7 +860,12 @@
             ' ' +
             (vars.get('java_security_opts', '-Dlog4j2.formatMsgNoLookups=true'))
     }) }}"
-  loop: "{{ services_enabled | difference(['nginx', 'gatus', 'mysql', 'mongodb']) }}"
+  # Loop over ALL Java services (those with log_config_filename) so .env always contains
+  # *_JAVA_OPTS for every known service. Inventory overrides (e.g. biocache_service_max_memory)
+  # are picked up regardless of whether the service is currently in services_enabled.
+  loop: "{{ docker_services_desc | dict2items
+            | selectattr('value.log_config_filename', 'defined')
+            | map(attribute='key') | list }}"
   tags:
     - docker-compose
 
@@ -876,7 +881,9 @@
     service_extra_params: "{{ service_extra_params | default({}) | combine({
       item: docker_services_desc.get(item, {}).get('extra_params', [])
     }) }}"
-  loop: "{{ services_enabled | difference(['nginx', 'gatus', 'mysql', 'mongodb']) }}"
+  loop: "{{ docker_services_desc | dict2items
+            | selectattr('value.log_config_filename', 'defined')
+            | map(attribute='key') | list }}"
   tags:
     - docker-compose
 
@@ -962,18 +969,10 @@
     - i18n
     - docker-compose
 
-- name: Generate nginx.yml
-  template:
-    src: docker-compose/infrastructure/nginx.yml.j2
-    dest: "{{ docker_compose_data_dir }}/infrastructure/nginx.yml"
-    mode: '0644'
-    owner: "{{ docker_compose_userid }}"
-    group: "{{ docker_compose_usergid }}"
-  when: "'nginx' in services_enabled"
-  tags:
-    - always
-    - nginx
-    - docker-compose
+# nginx.yml is generated later (search "Generate nginx.yml (after collecting aliases)")
+# so that nginx_docker_internal_aliases includes hostnames from all nginx_vhost
+# include_role calls — including branding, mailhog, and gatus — letting the
+# nginx container resolve every public FQDN to itself via Docker's DNS.
 
 # Branding preparation and generation
 
@@ -1302,6 +1301,47 @@
     group: "{{ docker_compose_usergid }}"
   when: "'gatus' in services_enabled"
   tags:
+    - docker-compose
+
+# Collect every FQDN that gatus monitors and add it as a docker-network alias on the
+# nginx container, so checks done from inside the docker network resolve to nginx.
+- name: Find gatus endpoint files to extract monitored hostnames
+  find:
+    paths: "{{ docker_compose_data_dir }}/gatus/config"
+    patterns: "*-http.yaml"
+  register: gatus_endpoint_files
+  when: groups['gatus'] is defined and groups['gatus'] | length > 0
+  tags:
+    - docker-compose
+    - nginx
+
+- name: Extract hostnames from gatus endpoint files
+  set_fact:
+    nginx_docker_internal_aliases: >-
+      {{ nginx_docker_internal_aliases | default([])
+         | union([((lookup('file', item.path) | from_yaml).endpoints | first).group])
+         | unique }}
+  loop: "{{ gatus_endpoint_files.files | default([]) }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
+  when:
+    - gatus_endpoint_files.files is defined
+    - gatus_endpoint_files.files | length > 0
+  tags:
+    - docker-compose
+    - nginx
+
+- name: Generate nginx.yml (after collecting aliases)
+  template:
+    src: docker-compose/infrastructure/nginx.yml.j2
+    dest: "{{ docker_compose_data_dir }}/infrastructure/nginx.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'nginx' in services_enabled"
+  tags:
+    - always
+    - nginx
     - docker-compose
 
 - name: Clean up stale gatus SQLite WAL files before start

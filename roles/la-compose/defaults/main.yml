@@ -208,6 +208,9 @@ branding_git_check_interval: "300"
 
 monitoring_enabled: false
 
+# Gatus health-check interval (default 5m in upstream role; tightened for docker-compose dev)
+gatus_interval: "1m"
+
 # ============================================
 # SSL / Certificates
 # ============================================
