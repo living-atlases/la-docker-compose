@@ -1,0 +1,110 @@
+// CAS OIDC registered services — idempotent re-registration.
+// Mirrors ala-install/ansible/roles/oidc-keys-add/templates/sql/add-key.js
+// but bundles every service in one script executed via:
+//   docker exec -i la_mongodb mongosh ... < oidc-services.js
+{% set oidc_services = [
+  {'name': 'collectory',         'client_id': collectory_client_id        | default(''), 'client_secret': collectory_client_secret        | default(''), 'url': (collectory_base_url        | default('')) ~ (collectory_context_path        | default(''))},
+  {'name': 'ala_hub',            'client_id': ala_hub_client_id           | default(''), 'client_secret': ala_hub_client_secret           | default(''), 'url': (biocache_hub_base_url     | default('')) ~ (biocache_hub_context_path     | default(''))},
+  {'name': 'biocache_service',   'client_id': biocache_service_client_id  | default(''), 'client_secret': biocache_service_client_secret  | default(''), 'url': (biocache_service_base_url | default('')) ~ (biocache_service_context_path | default(''))},
+  {'name': 'ala_bie',            'client_id': ala_bie_client_id           | default(''), 'client_secret': ala_bie_client_secret           | default(''), 'url': (bie_hub_base_url          | default('')) ~ (bie_hub_context_path          | default(''))},
+  {'name': 'bie_index',          'client_id': bie_index_client_id         | default(''), 'client_secret': bie_index_client_secret         | default(''), 'url': (bie_index_base_url        | default('')) ~ (bie_index_context_path        | default(''))},
+  {'name': 'images',             'client_id': images_client_id            | default(''), 'client_secret': images_client_secret            | default(''), 'url': (image_service_base_url    | default('')) ~ (image_service_context_path    | default(''))},
+  {'name': 'logger',             'client_id': logger_client_id            | default(''), 'client_secret': logger_client_secret            | default(''), 'url': (logger_base_url           | default('')) ~ (logger_context_path           | default(''))},
+  {'name': 'lists',              'client_id': lists_client_id             | default(''), 'client_secret': lists_client_secret             | default(''), 'url': (lists_base_url            | default('')) ~ (lists_context_path            | default(''))},
+  {'name': 'regions',            'client_id': regions_client_id           | default(''), 'client_secret': regions_client_secret           | default(''), 'url': (regions_base_url          | default('')) ~ (regions_context_path          | default(''))},
+  {'name': 'alerts',             'client_id': alerts_client_id            | default(''), 'client_secret': alerts_client_secret            | default(''), 'url': (alerts_base_url           | default('')) ~ (alerts_context_path           | default(''))},
+  {'name': 'doi',                'client_id': doi_client_id               | default(''), 'client_secret': doi_client_secret               | default(''), 'url': (doi_service_url           | default('')) ~ (doi_service_context_path      | default(''))},
+  {'name': 'dashboard',          'client_id': dashboard_client_id         | default(''), 'client_secret': dashboard_client_secret         | default(''), 'url': (dashboard_base_url        | default('')) ~ (dashboard_context_path        | default(''))},
+  {'name': 'sds',                'client_id': sds_client_id               | default(''), 'client_secret': sds_client_secret               | default(''), 'url': (sds_url                   | default('')) ~ (sds_context_path              | default(''))},
+  {'name': 'spatial',            'client_id': spatial_client_id           | default(''), 'client_secret': spatial_client_secret           | default(''), 'url': (spatial_base_url          | default('')) ~ (spatial_hub_context_path      | default(''))},
+  {'name': 'data_quality',       'client_id': data_quality_client_id      | default(''), 'client_secret': data_quality_client_secret      | default(''), 'url': (data_quality_url          | default('')) ~ (data_quality_context_path     | default(''))},
+  {'name': 'biocollect',         'client_id': biocollect_client_id        | default(''), 'client_secret': biocollect_client_secret        | default(''), 'url': (biocollect_base_url       | default('')) ~ (biocollect_context_path       | default(''))},
+  {'name': 'ecodata',            'client_id': ecodata_client_id           | default(''), 'client_secret': ecodata_client_secret           | default(''), 'url': (ecodata_base_url          | default('')) ~ (ecodata_context_path          | default(''))},
+  {'name': 'userdetails',        'client_id': userdetails_client_id       | default(''), 'client_secret': userdetails_client_secret       | default(''), 'url': (userdetails_base_url      | default('')) ~ '/' ~ (userdetails_context_path | default(''))},
+] %}
+{% for s in oidc_services %}
+{% if (s.client_id | length) > 0 and (s.url | length) > 3 %}
+{# Match oidc-tasks.yml URL convention: trailing slash + ".*" regex #}
+{% set svc_url = (s.url if s.url.endswith('/') else s.url ~ '/') ~ '.*' %}
+(function () {
+  var name = {{ s.name | to_json }};
+  var clientId = {{ s.client_id | to_json }};
+  var clientSecret = {{ s.client_secret | to_json }};
+  var serviceId = {{ svc_url | to_json }};
+  var desc = name + " OIDC Service";
+  // Remove any previous registration for this name (idempotent on rotation).
+  db.services.deleteMany({ name: name });
+  var maxIdDoc = db.services.find().sort({ _id: -1 }).limit(1).toArray()[0];
+  var newId = maxIdDoc ? maxIdDoc._id + 1 : 1;
+  db.services.insertOne({
+    "_id": NumberLong(newId),
+    "jwks": "file:///data/cas/keystore.jwks",
+    "jwksCacheDuration": 0,
+    "tokenEndpointAuthenticationMethod": "client_secret_basic",
+    "signIdToken": true,
+    "encryptIdToken": false,
+    "idTokenEncryptionAlg": "A256GCMKW",
+    "idTokenEncryptionEncoding": "A256GCM",
+    "applicationType": "web",
+    "subjectType": "public",
+    "dynamicallyRegistered": false,
+    "scopes": ["users/read", "Openid", "Email", "Profile", "ala", "roles"],
+    "clientSecret": clientSecret,
+    "clientId": clientId,
+    "bypassApprovalPrompt": true,
+    "generateRefreshToken": true,
+    "renewRefreshToken": false,
+    "jwtAccessToken": true,
+    "supportedGrantTypes": [],
+    "supportedResponseTypes": [],
+    "serviceId": serviceId,
+    "name": name,
+    "description": desc,
+    "expirationPolicy": { "deleteWhenExpired": false, "notifyWhenDeleted": false, "notifyWhenExpired": false, "_class": "org.apereo.cas.services.DefaultRegisteredServiceExpirationPolicy" },
+    "acceptableUsagePolicy": { "enabled": true, "_class": "org.apereo.cas.services.DefaultRegisteredServiceAcceptableUsagePolicy" },
+    "proxyPolicy": { "_class": "org.apereo.cas.services.RefuseRegisteredServiceProxyPolicy" },
+    "proxyTicketExpirationPolicy": { "numberOfUses": 0, "_class": "org.apereo.cas.services.DefaultRegisteredServiceProxyTicketExpirationPolicy" },
+    "serviceTicketExpirationPolicy": { "numberOfUses": 0, "_class": "org.apereo.cas.services.DefaultRegisteredServiceServiceTicketExpirationPolicy" },
+    "webflowInterruptPolicy": { "enabled": true, "forceExecution": "UNDEFINED", "_class": "org.apereo.cas.services.DefaultRegisteredServiceWebflowInterruptPolicy" },
+    "evaluationOrder": 0,
+    "usernameAttributeProvider": { "canonicalizationMode": "NONE", "encryptUsername": false, "_class": "org.apereo.cas.services.DefaultRegisteredServiceUsernameProvider" },
+    "logoutType": "BACK_CHANNEL",
+    "environments": [],
+    "attributeReleasePolicy": {
+      "allowedAttributes": [],
+      "principalAttributesRepository": { "mergingStrategy": "MULTIVALUED", "attributeRepositoryIds": [], "ignoreResolvedAttributes": false, "_class": "org.apereo.cas.authentication.principal.DefaultPrincipalAttributesRepository" },
+      "consentPolicy": { "status": "UNDEFINED", "order": 0, "_class": "org.apereo.cas.services.consent.DefaultRegisteredServiceConsentPolicy" },
+      "authorizedToReleaseCredentialPassword": false,
+      "authorizedToReleaseProxyGrantingTicket": false,
+      "excludeDefaultAttributes": false,
+      "authorizedToReleaseAuthenticationAttributes": true,
+      "order": 0,
+      "_class": "org.apereo.cas.services.ReturnAllowedAttributeReleasePolicy"
+    },
+    "multifactorPolicy": { "multifactorAuthenticationProviders": [], "failureMode": "UNDEFINED", "bypassEnabled": false, "forceExecution": false, "bypassTrustedDeviceEnabled": false, "_class": "org.apereo.cas.services.DefaultRegisteredServiceMultifactorPolicy" },
+    "matchingStrategy": { "_class": "org.apereo.cas.services.FullRegexRegisteredServiceMatchingStrategy" },
+    "accessStrategy": {
+      "order": 0,
+      "enabled": true,
+      "ssoEnabled": true,
+      "delegatedAuthenticationPolicy": { "allowedProviders": [], "permitUndefined": true, "exclusive": false, "_class": "org.apereo.cas.services.DefaultRegisteredServiceDelegatedAuthenticationPolicy" },
+      "requireAllAttributes": true,
+      "requiredAttributes": {},
+      "rejectedAttributes": {},
+      "caseInsensitive": false,
+      "_class": "org.apereo.cas.services.DefaultRegisteredServiceAccessStrategy"
+    },
+    "authenticationPolicy": {
+      "requiredAuthenticationHandlers": [],
+      "excludedAuthenticationHandlers": [],
+      "criteria": { "tryAll": false, "_class": "org.apereo.cas.services.AnyAuthenticationHandlerRegisteredServiceAuthenticationPolicyCriteria" },
+      "_class": "org.apereo.cas.services.DefaultRegisteredServiceAuthenticationPolicy"
+    },
+    "properties": {},
+    "contacts": [],
+    "_class": "org.apereo.cas.services.OidcRegisteredService"
+  });
+  print("oidc-service registered: " + name + " (id=" + newId + ")");
+})();
+{% endif %}
+{% endfor %}
