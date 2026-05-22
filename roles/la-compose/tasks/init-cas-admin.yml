@@ -1,7 +1,7 @@
 ---
-# CAS Admin Account Initialization
-# Called from main.yml AFTER all Docker Compose services are running
-# Requires CAS container to be healthy and accessible on port 9000
+# CAS Admin Account & OIDC Services Initialization
+# Called from main.yml AFTER all Docker Compose services are running.
+# Pure docker-exec flow: no host ports, no host mysql/mongo client required.
 
 - name: "CAS Admin: Load CAS variables"
   include_vars:
@@ -19,30 +19,118 @@
   delay: 10
   become: true
   when: "'cas-servers' in hostvars[inventory_hostname].service_aliases"
+  changed_when: false
   tags:
     - cas-admin
 
-- name: "CAS Admin: Initialize CAS admin account"
-  include_tasks: "{{ playbook_dir }}/../ala-install/ansible/roles/cas5/tasks/admin-account.yml"
-  vars:
-    cas_db_hostname: "127.0.0.1"
-    cas_mysql_src_host: "%"
-  when: "'cas-servers' in hostvars[inventory_hostname].service_aliases"
-  tags:
-    - cas-admin
+- name: "CAS Admin: Block — Admin user + OIDC via docker exec"
+  when:
+    - "'cas-servers' in hostvars[inventory_hostname].service_aliases"
+  block:
 
-- name: "CAS Admin: Register OIDC services"
-  include_tasks: "{{ playbook_dir }}/../ala-install/ansible/roles/cas-management/tasks/oidc-tasks.yml"
-  vars:
-    cas_services_host: "127.0.0.1"
-    deployment_type: "container"
-  when: "'cas-servers' in hostvars[inventory_hostname].service_aliases"
-  tags:
-    - cas-admin
+    - name: "CAS Admin: Ensure cas-setup output directory exists"
+      file:
+        path: "{{ docker_compose_data_dir }}/cas-setup"
+        state: directory
+        mode: "0755"
+        owner: "{{ docker_compose_userid }}"
+        group: "{{ docker_compose_usergid }}"
+      become: true
+      tags:
+        - cas-admin
 
-- name: "CAS Admin: Initialization completed successfully"
-  debug:
-    msg: "✅ CAS admin account and OIDC services configured successfully."
-  when: "'cas-servers' in hostvars[inventory_hostname].service_aliases"
-  tags:
-    - cas-admin
+    # --- First admin user (MySQL via docker exec) ----------------------------
+    # Render the SQL templates from ala-install with current inventory vars,
+    # then pipe each to `docker exec -i la_mysql mysql ...`. The SQL is
+    # idempotent (INSERT...WHERE NOT EXISTS) so re-runs are no-ops.
+
+    - name: "CAS Admin: Render role-editor.sql"
+      template:
+        src: "{{ playbook_dir }}/../ala-install/ansible/roles/cas5/templates/sql/role-editor.sql"
+        dest: "{{ docker_compose_data_dir }}/cas-setup/role-editor.sql"
+        mode: "0644"
+      when:
+        - cas_first_admin_email is defined
+        - cas_first_admin_bcrypt_password is defined
+        - cas_first_admin_temp_auth_key is defined
+      tags:
+        - cas-admin
+
+    - name: "CAS Admin: Render admin-add.sql"
+      template:
+        src: "{{ playbook_dir }}/../ala-install/ansible/roles/cas5/templates/sql/admin-add.sql"
+        dest: "{{ docker_compose_data_dir }}/cas-setup/admin-add.sql"
+        mode: "0644"
+      when:
+        - cas_first_admin_email is defined
+        - cas_first_admin_bcrypt_password is defined
+        - cas_first_admin_temp_auth_key is defined
+      tags:
+        - cas-admin
+
+    - name: "CAS Admin: Apply role-editor.sql via docker exec mysql"
+      shell: >
+        docker exec -i la_mysql mysql
+        -u root -p{{ mysql_root_password }}
+        {{ cas_db_name | default('emmet') }}
+        < {{ docker_compose_data_dir }}/cas-setup/role-editor.sql
+      become: true
+      when:
+        - cas_first_admin_email is defined
+        - cas_first_admin_bcrypt_password is defined
+        - cas_first_admin_temp_auth_key is defined
+      changed_when: false
+      no_log: true
+      tags:
+        - cas-admin
+
+    - name: "CAS Admin: Apply admin-add.sql via docker exec mysql"
+      shell: >
+        docker exec -i la_mysql mysql
+        -u root -p{{ mysql_root_password }}
+        {{ cas_db_name | default('emmet') }}
+        < {{ docker_compose_data_dir }}/cas-setup/admin-add.sql
+      become: true
+      when:
+        - cas_first_admin_email is defined
+        - cas_first_admin_bcrypt_password is defined
+        - cas_first_admin_temp_auth_key is defined
+      changed_when: false
+      no_log: true
+      tags:
+        - cas-admin
+
+    # --- OIDC services (Mongo via docker exec) -------------------------------
+    # Single combined script for all services with non-empty client_id+url.
+    # The IIFE per service is idempotent: deleteMany({name}) then insertOne.
+
+    - name: "CAS Admin: Render OIDC services Mongo script"
+      template:
+        src: cas-setup/oidc-services.js.j2
+        dest: "{{ docker_compose_data_dir }}/cas-setup/oidc-services.js"
+        mode: "0644"
+      tags:
+        - cas-admin
+        - oidc
+
+    - name: "CAS Admin: Apply OIDC services via docker exec mongosh"
+      shell: >
+        docker exec -i la_mongodb mongosh --quiet
+        --username "{{ mongodb_root_username }}"
+        --password "{{ mongodb_root_password }}"
+        --authenticationDatabase admin
+        "{{ cas_services_db | default('cas-service-registry') }}"
+        < {{ docker_compose_data_dir }}/cas-setup/oidc-services.js
+      become: true
+      register: oidc_apply
+      changed_when: "'oidc-service registered:' in oidc_apply.stdout"
+      no_log: true
+      tags:
+        - cas-admin
+        - oidc
+
+    - name: "CAS Admin: Initialization completed successfully"
+      debug:
+        msg: "CAS admin account and OIDC services configured via docker exec."
+      tags:
+        - cas-admin
