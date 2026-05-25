@@ -53,7 +53,9 @@ fi
 
 # ── State ─────────────────────────────────────────────────────────────────────
 PENDING_RUN=0
-COLLECTOR_PID=""
+COLLECTOR_INOTIFY_PID=""
+COLLECTOR_WRITER_PID=""
+COLLECTOR_FIFO="${CHANGES_FLAG}.fifo"
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 send_notification() {
@@ -75,26 +77,40 @@ spinner() {
 }
 
 start_change_collector() {
-    rm -f "$CHANGES_FLAG" "${CHANGES_FLAG}.paths"
+    # Track inotifywait's real PID (not a pipeline subshell) so stop can kill it
+    # cleanly. Otherwise the inotifywait child survives each run, accumulates as
+    # zombies, eats max_user_instances/watches, and the main loop's inotifywait
+    # silently fails (2>/dev/null) — watch appears stuck.
+    rm -f "$CHANGES_FLAG" "${CHANGES_FLAG}.paths" "$COLLECTOR_FIFO"
+    mkfifo "$COLLECTOR_FIFO"
     inotifywait \
+        --quiet \
         --recursive \
         --format '%w%f' \
         --exclude '(\.git|\.venv|node_modules|\.pyc|__pycache__|\.swp|\.swo|~|\.retry)' \
         --event modify,close_write,create,delete,moved_to,moved_from,attrib \
-        "${WATCH_PATHS[@]}" 2>/dev/null \
-    | while IFS= read -r changed_path; do
+        --outfile "$COLLECTOR_FIFO" \
+        "${WATCH_PATHS[@]}" 2>/dev/null &
+    COLLECTOR_INOTIFY_PID=$!
+    ( while IFS= read -r changed_path; do
         touch "$CHANGES_FLAG"
         echo "$changed_path" >> "${CHANGES_FLAG}.paths"
-    done &
-    COLLECTOR_PID=$!
+      done < "$COLLECTOR_FIFO" ) &
+    COLLECTOR_WRITER_PID=$!
 }
 
 stop_change_collector() {
-    if [ -n "$COLLECTOR_PID" ] && kill -0 "$COLLECTOR_PID" 2>/dev/null; then
-        kill "$COLLECTOR_PID" 2>/dev/null
-        wait "$COLLECTOR_PID" 2>/dev/null
+    if [ -n "$COLLECTOR_INOTIFY_PID" ] && kill -0 "$COLLECTOR_INOTIFY_PID" 2>/dev/null; then
+        kill "$COLLECTOR_INOTIFY_PID" 2>/dev/null
+        wait "$COLLECTOR_INOTIFY_PID" 2>/dev/null
     fi
-    COLLECTOR_PID=""
+    if [ -n "$COLLECTOR_WRITER_PID" ] && kill -0 "$COLLECTOR_WRITER_PID" 2>/dev/null; then
+        kill "$COLLECTOR_WRITER_PID" 2>/dev/null
+        wait "$COLLECTOR_WRITER_PID" 2>/dev/null
+    fi
+    rm -f "$COLLECTOR_FIFO"
+    COLLECTOR_INOTIFY_PID=""
+    COLLECTOR_WRITER_PID=""
 }
 
 # ── Main run ──────────────────────────────────────────────────────────────────
@@ -255,10 +271,18 @@ watch_loop() {
 
     local stty_backup
     stty_backup=$(stty -g)
-    trap "stty $stty_backup; stop_change_collector; rm -f '$CHANGES_FLAG' '${CHANGES_FLAG}.paths'; exit" EXIT INT TERM
+    trap "stty $stty_backup; stop_change_collector; rm -f '$CHANGES_FLAG' '${CHANGES_FLAG}.paths' '$COLLECTOR_FIFO'; exit" EXIT INT TERM
     stty -echo -icanon time 0 min 0
 
     while true; do
+        # Drain any PENDING_RUN left from a previous iteration before blocking
+        # on inotifywait — otherwise a pending rerun would wait for the *next*
+        # file change to fire.
+        if [ $PENDING_RUN -eq 1 ]; then
+            run_pending
+            continue
+        fi
+
         local first
         first=$(inotifywait \
             --recursive \
