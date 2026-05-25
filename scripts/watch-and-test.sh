@@ -152,7 +152,7 @@ run_tests() {
 
     echo ""
     echo -e "${BLUE}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${YELLOW}[${timestamp}] Triggered — validate + ansiblew deploy${NC}"
+    echo -e "${YELLOW}[${timestamp}] Triggered — molecule + ansiblew deploy${NC}"
     echo -e "${BLUE}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
 
@@ -160,24 +160,43 @@ run_tests() {
 
     > "$LAST_LOG"
 
-    echo -e "${CYAN}── Step 1: validate-config-gen.sh ───────────────────────────${NC}"
-    echo -e "  ${CYAN}Log:${NC} $LAST_LOG"
+    # Step 1: molecule unit tests (only check that doesn't overlap with the
+    # ansiblew pipeline — config-gen/syntax/localhost validation now lives in
+    # roles/la-compose/tasks/validate-pre-deploy.yml and runs inside ansiblew).
+    # Skipped silently if molecule isn't installed; run scripts/setup-molecule.sh
+    # to enable.
+    local exit_code=0
+    local molecule_bin=""
+    if [ -x "$ROOT_DIR/.venv-molecule/bin/molecule" ]; then
+        molecule_bin="$ROOT_DIR/.venv-molecule/bin/molecule"
+    elif command -v molecule >/dev/null 2>&1; then
+        molecule_bin="molecule"
+    fi
 
-    "$ROOT_DIR/scripts/validate-config-gen.sh" >> "$LAST_LOG" 2>&1
-    local exit_code=$?
-
-    if [ "$exit_code" -ne 0 ]; then
-        echo ""
-        echo -e "${RED}Last lines of log:${NC}"
-        tail -20 "$LAST_LOG"
-        echo ""
-        echo -e "${RED}${BOLD}✗ VALIDATION FAILED (exit $exit_code) — skipping ansiblew${NC}"
-        send_notification "✗ LA Docker — FAILED" "Validation failed (exit $exit_code)" "critical" "dialog-error"
+    if [ -n "$molecule_bin" ]; then
+        echo -e "${CYAN}── Step 1: molecule unit tests ──────────────────────────────${NC}"
+        echo -e "  ${CYAN}Log:${NC} $LAST_LOG"
+        ( cd "$ROOT_DIR" && "$molecule_bin" test -s unit ) >> "$LAST_LOG" 2>&1
+        exit_code=$?
+        if [ "$exit_code" -ne 0 ]; then
+            echo ""
+            echo -e "${RED}Last lines of log:${NC}"
+            tail -20 "$LAST_LOG"
+            echo ""
+            echo -e "${RED}${BOLD}✗ MOLECULE FAILED (exit $exit_code) — skipping ansiblew${NC}"
+            send_notification "✗ LA Docker — FAILED" "Molecule unit tests failed (exit $exit_code)" "critical" "dialog-error"
+        else
+            echo -e "${GREEN}✔ molecule unit tests passed${NC}"
+        fi
     else
-        echo -e "${GREEN}✔ validation passed${NC}"
+        echo -e "${YELLOW}⚠ molecule not found — skipping unit tests (run scripts/setup-molecule.sh)${NC}"
+    fi
+
+    if [ "$exit_code" -eq 0 ]; then
         echo ""
         echo -e "${CYAN}── Step 2: ansiblew → /data/docker-compose ──────────────────${NC}"
         echo -e "  ${CYAN}Log:${NC} $LAST_LOG"
+        echo -e "  ${CYAN}(includes pre-deploy validation: no localhost in inter-service configs)${NC}"
 
         (
             cd "$ROOT_DIR/inventories/testing/lademo-inventories" || exit 1

@@ -33,6 +33,48 @@
       failed_when:
         - compose_syntax_check.rc != 0
 
+    # ── Inter-service hostname validation ─────────────────────────────────────
+    # Catches configs that point to localhost/127.0.0.1 for dependencies that
+    # live in OTHER containers (ZK, Solr, ES, Cassandra, DBs, …). These bugs
+    # used to surface only after 5+ min waiting in wait-for-health.sh — now
+    # they abort the deploy in seconds.
+    #
+    # Excluded: solr/ subdirs (legit internal refs), docker-compose*.yml
+    # (healthchecks run INSIDE the container, so localhost there is correct),
+    # builder dirs, image artefacts.
+    - name: "Validate: no localhost in DB connection strings (MongoDB / MySQL / Postgres)"
+      shell: |
+        grep -RInE "(mongodb://|jdbc:(mysql|postgresql)://|mysql://|postgresql://)[^\"'[:space:]]*(localhost|127\.0\.0\.1)" \
+          --include='*.properties' --include='*.yml' --include='*.yaml' \
+          --include='*.conf' --include='*.json' --include='*.xml' \
+          --exclude='docker-compose*.yml' \
+          --exclude-dir=solr --exclude-dir=builders --exclude-dir='*-builder' \
+          "{{ docker_compose_data_dir }}/" || true
+      register: db_localhost_check
+      changed_when: false
+      failed_when: db_localhost_check.stdout | length > 0
+
+    - name: "Validate: no localhost for cluster dependencies (ZK 2181, Solr 8983, ES 9200/9300, Cassandra 9042, Redis 6379)"
+      shell: |
+        grep -RInE "(localhost|127\.0\.0\.1):(2181|8983|9200|9300|9042|6379)\b" \
+          --include='*.properties' --include='*.yml' --include='*.yaml' \
+          --include='*.conf' --include='*.json' --include='*.xml' \
+          --exclude='docker-compose*.yml' \
+          --exclude-dir=solr --exclude-dir=builders --exclude-dir='*-builder' \
+          "{{ docker_compose_data_dir }}/" || true
+      register: cluster_localhost_check
+      changed_when: false
+      failed_when: cluster_localhost_check.stdout | length > 0
+
+    - name: "Validate: no localhost in nginx upstream / proxy_pass blocks"
+      shell: |
+        find "{{ docker_compose_data_dir }}" -path '*/nginx/*' -name '*.conf' -print0 2>/dev/null \
+          | xargs -0 -r grep -InE "(upstream[[:space:]]|proxy_pass[[:space:]]).*(localhost|127\.0\.0\.1)" \
+          || true
+      register: nginx_localhost_check
+      changed_when: false
+      failed_when: nginx_localhost_check.stdout | length > 0
+
     - name: Verify Docker daemon is responsive
       command: docker version --format "{%raw%}{{.Server.Version}}{%endraw%}"
       register: docker_version
@@ -224,7 +266,7 @@
       fail:
         msg: |
           ✗ Pre-deployment validation FAILED
-          
+
           Please check the errors above and resolve before proceeding.
           Common issues:
           - Missing or invalid docker-compose.yml
@@ -232,6 +274,9 @@
           - Insufficient disk space
           - Required environment variables not set
           - Configuration files not found
+          - Config refers to localhost/127.0.0.1 for an inter-service dependency
+            (ZooKeeper, Solr, ES, Cassandra, Redis, or a DB). The failed task's
+            stdout above lists every offending file:line.
 
   always:
     - name: Log validation status
