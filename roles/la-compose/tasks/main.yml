@@ -108,6 +108,27 @@
         - always
         - docker-volumes
 
+    # The biocache-service role (ala-install) sets `mode: 644` unquoted, which
+    # Ansible parses as decimal → octal 1204 (--w----r-T). On VMs the JVM runs
+    # as a non-root user and reads via "others" perms; in docker the JVM runs
+    # as root and only has --w- (write-only), so log4j.xml init fails.
+    # Fix here (docker-only path) to avoid touching ala-install.
+    - name: Fix biocache-service config perms (works around ala-install role bug)
+      file:
+        path: "{{ data_dir }}/biocache/config/{{ item }}"
+        mode: "0644"
+      loop:
+        - log4j.xml
+        - applicationContext.xml
+        - download-csdm-email.html
+        - download-doi-email.html
+        - download-doi-readme.html
+        - download-email.html
+        - download-readme.html
+      become: true
+      tags:
+        - docker-compose
+
     - name: Include generate-compose tasks
       include_tasks: generate-compose.yml
       tags:
