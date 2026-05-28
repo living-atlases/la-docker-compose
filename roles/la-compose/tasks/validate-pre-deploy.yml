@@ -49,11 +49,18 @@
           --include='*.conf' --include='*.json' --include='*.xml' \
           --exclude='docker-compose*.yml' \
           --exclude-dir=solr --exclude-dir=builders --exclude-dir='*-builder' \
+          --exclude-dir=infrastructure --exclude-dir=services \
           "{{ docker_compose_data_dir }}/" || true
       register: db_localhost_check
       changed_when: false
       failed_when: db_localhost_check.stdout | length > 0
 
+    # NOTE: infrastructure/ and services/ under docker_compose_data_dir hold
+    # generated compose fragments. Their `test: ["CMD","curl",…,"http://localhost:9200/…"]`
+    # healthchecks are INSIDE-the-container probes — localhost is correct there.
+    # The original exclude pattern (--exclude='docker-compose*.yml') missed
+    # fragment files named after their service (elasticsearch.yml, solr.yml),
+    # causing false-positive blocks. Same exclude-dir treatment as solr/builders.
     - name: "Validate: no localhost for cluster dependencies (ZK 2181, Solr 8983, ES 9200/9300, Cassandra 9042, Redis 6379)"
       shell: |
         grep -RInE "(localhost|127\.0\.0\.1):(2181|8983|9200|9300|9042|6379)\b" \
@@ -61,6 +68,7 @@
           --include='*.conf' --include='*.json' --include='*.xml' \
           --exclude='docker-compose*.yml' \
           --exclude-dir=solr --exclude-dir=builders --exclude-dir='*-builder' \
+          --exclude-dir=infrastructure --exclude-dir=services \
           "{{ docker_compose_data_dir }}/" || true
       register: cluster_localhost_check
       changed_when: false
