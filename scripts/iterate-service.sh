@@ -58,7 +58,7 @@ fi
 
 # Auto-detect compose dir if the default doesn't exist
 if [ ! -f "$COMPOSE_DIR/docker-compose.yml" ]; then
-    for candidate in /tmp/docker-compose /home/vjrj/la-docker-run /data/docker-compose; do
+    for candidate in /data/docker-compose; do
         if [ -f "$candidate/docker-compose.yml" ]; then
             COMPOSE_DIR="$candidate"
             break

@@ -141,7 +141,7 @@ Two pre-configured inventories are available for testing playbooks without remot
 
 #### 1. Validate inventory loads correctly (fastest)
 ```bash
-cd /home/vjrj/proyectos/gbif/dev/la-docker-compose
+cd /data/docker-compose
 ansible-playbook -i inventories/local/hosts.ini test-inventory.yml --check
 ```
 Shows:
@@ -191,7 +191,7 @@ ansible-playbook -i inventories/local/hosts.ini playbooks/config-gen.yml \
 If services are added/removed or inventory structure changes:
 
 ```bash
-cd /home/vjrj/proyectos/gbif/dev/la-docker-compose
+cd /data/docker-compose
 python3 scripts/create_local_inventory.py full > inventories/local/hosts.ini
 python3 scripts/create_local_inventory.py dev > inventories/dev/hosts.ini
 ```
