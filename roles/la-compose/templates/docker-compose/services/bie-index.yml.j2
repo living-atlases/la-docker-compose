@@ -19,7 +19,9 @@ services:
       default: {}
       {{ docker_network | default('internal') }}:
     healthcheck:
-      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:8080/bie-index/actuator/health || exit 1"]
+      # Image livingatlases/bie-index:3.x serves at root context, not /bie-index.
+      # /bie-index/* returns 404; / and /admin (302) are the only live paths.
+      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:8080/ || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
