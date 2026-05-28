@@ -60,7 +60,10 @@
     # Same pattern as cas_db_hostname/mysql — no changes to inventories or
     # ala-install. `default(solr_url)` keeps VM deploys backward-compatible
     # if they ever define zookeeper_address explicitly.
-    zookeeper_address: "{{ zookeeper_address | default(solr_url) }}"
+    zookeeper_address: >-
+      {{ 'zookeeper:2181'
+         if ((zookeeper_address | default(solr_url | default('localhost:2181'))) in ['localhost:2181', '127.0.0.1:2181', 'localhost', '127.0.0.1'])
+         else (zookeeper_address | default(solr_url | default('zookeeper:2181'))) }}
 
     # Mail host (mailhog in dev mode, postfix in production)
     mail_smtp_host: >-

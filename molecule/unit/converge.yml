@@ -39,6 +39,9 @@
         events_elasticsearch_host: "127.0.0.1"
         solr_host: "localhost"
         biocache_db_host: "127.0.0.1"
+        solr_url: "localhost:2181"
+        zk_host: "localhost:2181"
+        solr_zk_host: "127.0.0.1:2181"
         mail_smtp_host: "localhost"
         docker_mail_development_mode: false
 
@@ -110,6 +113,19 @@
           Got: solr_host={{ solr_host }}, biocache_db_host={{ biocache_db_host }},
           mail_smtp_host={{ mail_smtp_host }}
 
+    - name: "[TC1] Assert ZooKeeper URLs → 'zookeeper:2181'"
+      ansible.builtin.assert:
+        that:
+          - solr_url == 'zookeeper:2181'
+          - zk_host == 'zookeeper:2181'
+          - solr_zk_host == 'zookeeper:2181'
+          - zookeeper_address == 'zookeeper:2181'
+        msg: >
+          FAIL TC1-ZK: expected all ZK URLs to equal 'zookeeper:2181'.
+          Got: solr_url={{ solr_url }}, zk_host={{ zk_host }},
+          solr_zk_host={{ solr_zk_host }},
+          zookeeper_address={{ zookeeper_address }}
+
     # ── Test case 2: Idempotency ──────────────────────────────────────────────
 
     - name: "[TC2] Run normalize-hostnames.yml again (already-normalized input)"
@@ -127,6 +143,10 @@
           - solr_host == 'solr'
           - biocache_db_host == 'cassandra'
           - mail_smtp_host == 'postfix'
+          - solr_url == 'zookeeper:2181'
+          - zk_host == 'zookeeper:2181'
+          - solr_zk_host == 'zookeeper:2181'
+          - zookeeper_address == 'zookeeper:2181'
         msg: "FAIL TC2: Idempotency broken - already-normalized values changed on second run"
 
     # ── Test case 3: Development mail mode → mailhog ─────────────────────────
@@ -158,6 +178,10 @@
         ecodata_elasticsearch_host: "es.internal.example.com"
         solr_host: "solr.internal.example.com"
         biocache_db_host: "cassandra.internal.example.com"
+        solr_url: "zk.internal.example.com:2181"
+        zk_host: "zk.internal.example.com:2181"
+        solr_zk_host: "zk.internal.example.com:2181"
+        zookeeper_address: "zk.internal.example.com:2181"
         mail_smtp_host: "smtp.internal.example.com"
         docker_mail_development_mode: false
 
@@ -174,9 +198,14 @@
           - ecodata_elasticsearch_host == 'es.internal.example.com'
           - solr_host == 'solr.internal.example.com'
           - biocache_db_host == 'cassandra.internal.example.com'
+          - solr_url == 'zk.internal.example.com:2181'
+          - zk_host == 'zk.internal.example.com:2181'
+          - solr_zk_host == 'zk.internal.example.com:2181'
+          - zookeeper_address == 'zk.internal.example.com:2181'
           - mail_smtp_host == 'smtp.internal.example.com'
         msg: >
           FAIL TC4: External hostname was incorrectly overwritten.
           cas_db_hostname={{ cas_db_hostname }},
           doi_db_hostname={{ doi_db_hostname }},
-          ticket_registry_db_hostname={{ ticket_registry_db_hostname }}
+          ticket_registry_db_hostname={{ ticket_registry_db_hostname }},
+          solr_url={{ solr_url }}
