@@ -403,100 +403,38 @@
     - docker-compose
 
 
-# Bulk load all CAS5 variables from service alias context (before include_role)
-# This ensures ala-install cas5 role has access to all required configuration variables
-- name: "Bulk load CAS5 variables from service alias context"
+# Bulk load all CAS-related variables from service alias context (single pass)
+# CAS5, USERDETAILS, APIKEY and CAS-MANAGEMENT all share the same source
+# (service_aliases['cas-servers']), so one load + one normalize is enough.
+- name: "Bulk load CAS-related variables from service alias context"
   set_fact:
     "{{ item.key }}": "{{ item.value }}"
-  loop: "{{ hostvars[service_aliases.get('cas-servers', '')] | default({}) | dict2items | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$') | list }}"
+  loop: >-
+    {{ hostvars[service_aliases.get('cas-servers', '')] | default({})
+       | dict2items
+       | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
+       | rejectattr('key', 'match', '^ansible_.*')
+       | rejectattr('key', 'in', system_vars_blacklist)
+       | list }}
   loop_control:
     label: "{{ item.key }}"
-  when:
-    - service_aliases.get('cas-servers') is defined
-    - item.key is not match('^ansible_.*')
-    - item.key not in system_vars_blacklist
+  when: service_aliases.get('cas-servers') is defined
   tags:
     - cas
+    - userdetails
+    - apikey
+    - cas-management
     - config
     - nginx_vhost
     - bulk-load
 
-- name: Re-normalize database hostnames after CAS5 bulk load
+- name: Re-normalize database hostnames after CAS bulk load
   include_tasks: normalize-hostnames.yml
   when: service_aliases.get('cas-servers') is defined
   tags:
     - cas
-    - config
-    - normalize
-
-# Bulk load all USERDETAILS variables from service alias context
-- name: "Bulk load USERDETAILS variables from service alias context"
-  set_fact:
-    "{{ item.key }}": "{{ item.value }}"
-  loop: "{{ hostvars[service_aliases.get('cas-servers', '')] | default({}) | dict2items | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$') | list }}"
-  loop_control:
-    label: "{{ item.key }}"
-  when:
-    - service_aliases.get('cas-servers') is defined
-    - item.key is not match('^ansible_.*')
-    - item.key not in system_vars_blacklist
-  tags:
     - userdetails
-    - config
-    - bulk-load
-
-- name: Re-normalize database hostnames after USERDETAILS bulk load
-  include_tasks: normalize-hostnames.yml
-  when: service_aliases.get('cas-servers') is defined
-  tags:
-    - userdetails
-    - config
-    - normalize
-
-# Bulk load all APIKEY variables from service alias context
-- name: "Bulk load APIKEY variables from service alias context"
-  set_fact:
-    "{{ item.key }}": "{{ item.value }}"
-  loop: "{{ hostvars[service_aliases.get('cas-servers', '')] | default({}) | dict2items | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$') | list }}"
-  loop_control:
-    label: "{{ item.key }}"
-  when:
-    - service_aliases.get('cas-servers') is defined
-    - item.key is not match('^ansible_.*')
-    - item.key not in system_vars_blacklist
-  tags:
     - apikey
-    - config
-    - bulk-load
-
-- name: Re-normalize database hostnames after APIKEY bulk load
-  include_tasks: normalize-hostnames.yml
-  when: service_aliases.get('cas-servers') is defined
-  tags:
-    - apikey
-    - config
-    - normalize
-
-# Bulk load all CAS-MANAGEMENT variables from service alias context
-- name: "Bulk load CAS-MANAGEMENT variables from service alias context"
-  set_fact:
-    "{{ item.key }}": "{{ item.value }}"
-  loop: "{{ hostvars[service_aliases.get('cas-servers', '')] | default({}) | dict2items | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$') | list }}"
-  loop_control:
-    label: "{{ item.key }}"
-  when:
-    - service_aliases.get('cas-servers') is defined
-    - item.key is not match('^ansible_.*')
-    - item.key not in system_vars_blacklist
-  tags:
-    - cas-management
-    - config
-    - bulk-load
-
-- name: Re-normalize database hostnames after CAS-MANAGEMENT bulk load
-  include_tasks: normalize-hostnames.yml
-  when: service_aliases.get('cas-servers') is defined
-  tags:
     - cas-management
     - config
     - normalize
@@ -608,13 +546,16 @@
 - name: "Bulk load COLLECTORY variables from service alias context"
   set_fact:
     "{{ item.key }}": "{{ item.value }}"
-  loop: "{{ hostvars[service_aliases.get('collectory', '')] | default({}) | dict2items | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$') | list }}"
+  loop: >-
+    {{ hostvars[service_aliases.get('collectory', '')] | default({})
+       | dict2items
+       | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
+       | rejectattr('key', 'match', '^ansible_.*')
+       | rejectattr('key', 'in', system_vars_blacklist)
+       | list }}
   loop_control:
     label: "{{ item.key }}"
-  when:
-    - service_aliases.get('collectory') is defined
-    - item.key is not match('^ansible_.*')
-    - item.key not in system_vars_blacklist
+  when: service_aliases.get('collectory') is defined
   tags:
     - collectory
     - config
@@ -647,13 +588,16 @@
 - name: "Bulk load SPECIES-LIST variables from service alias context"
   set_fact:
     "{{ item.key }}": "{{ item.value }}"
-  loop: "{{ hostvars[service_aliases.get('species-list', '')] | default({}) | dict2items | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$') | list }}"
+  loop: >-
+    {{ hostvars[service_aliases.get('species-list', '')] | default({})
+       | dict2items
+       | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
+       | rejectattr('key', 'match', '^ansible_.*')
+       | rejectattr('key', 'in', system_vars_blacklist)
+       | list }}
   loop_control:
     label: "{{ item.key }}"
-  when:
-    - service_aliases.get('species-list') is defined
-    - item.key is not match('^ansible_.*')
-    - item.key not in system_vars_blacklist
+  when: service_aliases.get('species-list') is defined
   tags:
     - species-list
     - config
@@ -684,13 +628,16 @@
 - name: "Bulk load BIE-HUB variables from service alias context"
   set_fact:
     "{{ item.key }}": "{{ item.value }}"
-  loop: "{{ hostvars[service_aliases.get('bie-hub', '')] | default({}) | dict2items | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$') | list }}"
+  loop: >-
+    {{ hostvars[service_aliases.get('bie-hub', '')] | default({})
+       | dict2items
+       | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
+       | rejectattr('key', 'match', '^ansible_.*')
+       | rejectattr('key', 'in', system_vars_blacklist)
+       | list }}
   loop_control:
     label: "{{ item.key }}"
-  when:
-    - service_aliases.get('bie-hub') is defined
-    - item.key is not match('^ansible_.*')
-    - item.key not in system_vars_blacklist
+  when: service_aliases.get('bie-hub') is defined
   tags:
     - bie-hub
     - config
@@ -714,13 +661,16 @@
 - name: "Bulk load BIE-INDEX variables from service alias context"
   set_fact:
     "{{ item.key }}": "{{ item.value }}"
-  loop: "{{ hostvars[service_aliases.get('bie-index', '')] | default({}) | dict2items | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$') | list }}"
+  loop: >-
+    {{ hostvars[service_aliases.get('bie-index', '')] | default({})
+       | dict2items
+       | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
+       | rejectattr('key', 'match', '^ansible_.*')
+       | rejectattr('key', 'in', system_vars_blacklist)
+       | list }}
   loop_control:
     label: "{{ item.key }}"
-  when:
-    - service_aliases.get('bie-index') is defined
-    - item.key is not match('^ansible_.*')
-    - item.key not in system_vars_blacklist
+  when: service_aliases.get('bie-index') is defined
   tags:
     - bie-index
     - config
@@ -744,13 +694,16 @@
 - name: "Bulk load BIOCACHE-HUB variables from service alias context"
   set_fact:
     "{{ item.key }}": "{{ item.value }}"
-  loop: "{{ hostvars[service_aliases.get('biocache-hub', '')] | default({}) | dict2items | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$') | list }}"
+  loop: >-
+    {{ hostvars[service_aliases.get('biocache-hub', '')] | default({})
+       | dict2items
+       | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
+       | rejectattr('key', 'match', '^ansible_.*')
+       | rejectattr('key', 'in', system_vars_blacklist)
+       | list }}
   loop_control:
     label: "{{ item.key }}"
-  when:
-    - service_aliases.get('biocache-hub') is defined
-    - item.key is not match('^ansible_.*')
-    - item.key not in system_vars_blacklist
+  when: service_aliases.get('biocache-hub') is defined
   tags:
     - biocache-hub
     - config
@@ -774,17 +727,28 @@
 - name: "Bulk load BIOCACHE-SERVICE variables from service alias context"
   set_fact:
     "{{ item.key }}": "{{ item.value }}"
-  loop: "{{ hostvars[service_aliases.get('biocache-service-clusterdb', '')] | default({}) | dict2items | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$') | list }}"
+  loop: >-
+    {{ hostvars[service_aliases.get('biocache-service-clusterdb', '')] | default({})
+       | dict2items
+       | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
+       | rejectattr('key', 'match', '^ansible_.*')
+       | rejectattr('key', 'in', system_vars_blacklist)
+       | list }}
   loop_control:
     label: "{{ item.key }}"
-  when:
-    - service_aliases.get('biocache-service-clusterdb') is defined
-    - item.key is not match('^ansible_.*')
-    - item.key not in system_vars_blacklist
+  when: service_aliases.get('biocache-service-clusterdb') is defined
   tags:
     - biocache-service
     - config
     - bulk-load
+
+- name: Re-normalize database hostnames after BIOCACHE-SERVICE bulk load
+  include_tasks: normalize-hostnames.yml
+  when: service_aliases.get('biocache-service-clusterdb') is defined
+  tags:
+    - biocache-service
+    - config
+    - normalize
 
 - name: Run biocache-service properties generation
   include_role:
