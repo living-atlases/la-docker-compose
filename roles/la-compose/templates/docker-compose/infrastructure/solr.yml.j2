@@ -12,6 +12,13 @@ services:
       TZ: {{ server_tz | default('UTC') }}
       SOLR_JAVA_MEM: "-Xms512m -Xmx2g"
       SOLR_MODE: solrcloud
+      # Point Solr at the external ZK container (mirrors production where Solr
+      # uses a separate ZK ensemble). Without this, Solr starts its embedded ZK
+      # on :9983 and clients hitting :2181 get connection refused.
+      ZK_HOST: "zookeeper:2181"
+    depends_on:
+      zookeeper:
+        condition: service_healthy
     volumes:
       - la_solr-data:/var/solr
     networks:
@@ -42,8 +49,8 @@ services:
         while ! curl -s http://solr:8983/solr/admin/info/system > /dev/null; do sleep 2; done
         echo "Solr is up!"
 
-        # Define ZK host
-        ZK_HOST="solr:9983"
+        # Define ZK host (external standalone ZK container, not embedded)
+        ZK_HOST="zookeeper:2181"
 
         # Helper function for zkcli
         function run_zkcli() {
@@ -80,6 +87,8 @@ services:
     networks:
       {{ docker_network | default('internal') }}:
     depends_on:
+      zookeeper:
+        condition: service_healthy
       solr:
         condition: service_healthy
 
