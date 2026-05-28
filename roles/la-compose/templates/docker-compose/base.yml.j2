@@ -33,6 +33,7 @@ include:
   - ./infrastructure/mongodb.yml
 {% endif %}
 {% if 'solrcloud' in all_groups or 'solr' in all_groups %}
+  - ./infrastructure/zookeeper.yml
   - ./infrastructure/solr.yml
 {% endif %}
 {% if 'cassandra5' in all_groups or 'cassandra3' in all_groups or 'cassandra' in all_groups %}

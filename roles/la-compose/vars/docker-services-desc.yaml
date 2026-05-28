@@ -453,6 +453,7 @@ docker_services_desc:
     desc: 'zookeeper, for solrcloud coordination'
     optional: true
     allowMultipleDeploys: true
+    version_variable: 'zookeeper_version'
   biocollect:
     name: 'biocollect'
     nameInt: 'biocollect'

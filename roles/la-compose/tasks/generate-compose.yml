@@ -1155,6 +1155,34 @@
   tags:
     - docker-compose
 
+- name: Create zookeeper bind-mount directories
+  file:
+    path: "{{ docker_compose_data_dir }}/zookeeper/{{ item }}"
+    state: directory
+    mode: '0755'
+    # ZooKeeper docker image runs as UID 1000, matching docker_compose_userid in
+    # this stack. Setting ownership avoids 'KeeperErrorCode = NoAuth' on /datalog.
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  loop:
+    - data
+    - datalog
+    - logs
+  tags:
+    - zookeeper
+    - docker-compose
+
+- name: Generate zookeeper.yml
+  template:
+    src: docker-compose/infrastructure/zookeeper.yml.j2
+    dest: "{{ docker_compose_data_dir }}/infrastructure/zookeeper.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  tags:
+    - zookeeper
+    - docker-compose
+
 - name: Generate solr.yml
   template:
     src: docker-compose/infrastructure/solr.yml.j2

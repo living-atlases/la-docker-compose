@@ -1,0 +1,51 @@
+  # Standalone ZooKeeper container
+  #
+  # Replicates the production topology where Solr nodes talk to an external ZK
+  # ensemble (e.g. gbif-es-zookeeper-2022-{1,2,3}:2181) instead of using Solr's
+  # embedded ZK. Starts single-node here; multi-node only requires expanding
+  # zookeeper_servers in inventory + bumping replicas.
+  #
+  # Config comes from env vars (the official image's entrypoint generates
+  # /conf/zoo.cfg from these), values derived from the ala-install zookeeper
+  # role defaults so dev and VM deploys stay aligned.
+services:
+  zookeeper:
+    container_name: la_zookeeper
+    profiles: [dbs, full]
+    image: zookeeper:{{ zookeeper_version }}
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    restart: unless-stopped
+    expose:
+      - 2181
+      - 2888
+      - 3888
+    environment:
+      TZ: {{ server_tz | default('UTC') }}
+      ZOO_MY_ID: "{{ (zookeeper_servers | default([{'id': '1'}]))[0].id | default('1') }}"
+      ZOO_TICK_TIME: "{{ zookeeper_tick_time | default('2000') }}"
+      ZOO_INIT_LIMIT: "{{ zookeeper_init_limit | default('10') }}"
+      ZOO_SYNC_LIMIT: "{{ zookeeper_sync_limit | default('5') }}"
+{# Build ZOO_SERVERS in the standard `server.N=host:peer:election;client` form.
+   Single-node localhost = 0.0.0.0 so it binds; multi-node uses the inventory
+   server_name (which normalize-hostnames maps to the compose service name). #}
+      ZOO_SERVERS: "{% for s in zookeeper_servers | default([{'id': '1', 'server_name': '0.0.0.0'}]) -%}
+{% set host = '0.0.0.0' if (s.server_name | default('localhost') in ['localhost', '127.0.0.1']) else s.server_name -%}
+server.{{ s.id }}={{ host }}:{{ s.follower_port | default('2888') }}:{{ s.election_port | default('3888') }};2181{% if not loop.last %} {% endif %}
+{%- endfor %}"
+      ZOO_4LW_COMMANDS_WHITELIST: "ruok,mntr,conf,stat,srvr"
+    volumes:
+      - {{ docker_compose_data_dir }}/zookeeper/data:/data
+      - {{ docker_compose_data_dir }}/zookeeper/datalog:/datalog
+      - {{ docker_compose_data_dir }}/zookeeper/logs:/logs
+    networks:
+      default: {}
+      {{ docker_network | default('internal') }}:
+        aliases:
+          - zookeeper
+          - la_zookeeper
+    healthcheck:
+      test: ["CMD-SHELL", "echo ruok | nc -w 2 localhost 2181 | grep -q imok"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
