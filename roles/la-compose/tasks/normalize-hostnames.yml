@@ -46,9 +46,21 @@
     solr_host: "{{ 'solr' if (solr_host | default('localhost') in ['localhost', '127.0.0.1']) else solr_host }}"
     biocache_db_host: "{{ 'cassandra' if (biocache_db_host | default('localhost') in ['localhost', '127.0.0.1']) else biocache_db_host }}"
 
-    # Solr/ZooKeeper URLs (biocache-service consumes solr_url as ZK address in SolrCloud mode)
-    solr_url: "{{ 'solr:2181' if (solr_url | default('localhost:2181') in ['localhost:2181', '127.0.0.1:2181', 'localhost', '127.0.0.1']) else solr_url }}"
-    zk_host: "{{ 'solr:2181' if (zk_host | default('localhost:2181') in ['localhost:2181', '127.0.0.1:2181', 'localhost', '127.0.0.1']) else zk_host }}"
+    # Solr/ZooKeeper URLs — point at the standalone `zookeeper` compose service,
+    # not at `solr` (the embedded ZK isn't used; mirrors production where Solr
+    # talks to an external ZK ensemble). biocache-service consumes solr_url as
+    # its ZK address in SolrCloud mode.
+    solr_url: "{{ 'zookeeper:2181' if (solr_url | default('localhost:2181') in ['localhost:2181', '127.0.0.1:2181', 'localhost', '127.0.0.1']) else solr_url }}"
+    zk_host: "{{ 'zookeeper:2181' if (zk_host | default('localhost:2181') in ['localhost:2181', '127.0.0.1:2181', 'localhost', '127.0.0.1']) else zk_host }}"
+    solr_zk_host: "{{ 'zookeeper:2181' if (solr_zk_host | default('localhost:2181') in ['localhost:2181', '127.0.0.1:2181', 'localhost', '127.0.0.1']) else solr_zk_host }}"
+    # Synthesize zookeeper_address from solr_url to fill the
+    # ala-install/biocache-properties template (line 46:
+    # `zookeeper.address = {{ zookeeper_address | default('') }}`). Without
+    # this the property is empty and biocache falls back to broken defaults.
+    # Same pattern as cas_db_hostname/mysql — no changes to inventories or
+    # ala-install. `default(solr_url)` keeps VM deploys backward-compatible
+    # if they ever define zookeeper_address explicitly.
+    zookeeper_address: "{{ zookeeper_address | default(solr_url) }}"
 
     # Mail host (mailhog in dev mode, postfix in production)
     mail_smtp_host: >-
