@@ -9,6 +9,45 @@ import eslintPlugin from 'vite-plugin-eslint';
 import { VitePluginRadar } from 'vite-plugin-radar';
 import glob from 'fast-glob';
 
+const buildTimestamp = Date.now();
+
+// ─── Banner / Head injection architecture ────────────────────────────────────
+//
+// ala-cas-5 Thymeleaf layout includes <ala:banner> and <ala:footer> but treats
+// <ala:head> as a no-op (https://github.com/AtlasOfLivingAustralia/ala-cas-5/issues/29).
+// CAS pages therefore never load head.html — only banner.html reaches them.
+//
+// All normal ALA application pages include banner.html via SSI as well, so
+// delivering init via banner gives exactly-once loading on every page including CAS.
+//
+// Build outputs
+// ─────────────
+//  dist/banner.html  ← injectInitToBody()       prepends css/init.css + js/init.js
+//                    ← injectThemeCssLinks()     prepends theme CSS <link> tags
+//
+//  dist/head.html    ← intentionally empty of init (CAS never fetches it)
+//
+//  dist/js/init.js   ← classic IIFE bundle (BUILD_INIT=1 pass)
+//                       stable filename — URL is baked into banner.html at build time
+//                       ?v=<timestamp> query string provides per-deploy cache busting
+//  dist/css/init.css ← same, companion stylesheet from the IIFE pass
+//
+// Dual build passes (package.json "build" script)
+// ────────────────────────────────────────────────
+//  Pass 1 (mainConfig): normal Vite build — ES modules with content-hashed filenames
+//          Used by the dev server (HMR) and as the source of truth for test HTML pages.
+//  Pass 2 (BUILD_INIT=1 → initLibConfig): lib/IIFE mode — emits js/init.js (stable)
+//          This is what banner.html references. Classic <script> (no type=module),
+//          no crossorigin attribute → loads cross-origin from the skin host without
+//          CORS headers, matching how ala-brunch delivered the script.
+//
+// Why `defer` on the injected <script>
+// ─────────────────────────────────────
+//  The CAS Thymeleaf layout loads jQuery via webjars with `defer`. Our init.js must
+//  also defer so that jQuery is available when init.js executes (avoids $ is not defined).
+//
+// ─────────────────────────────────────────────────────────────────────────────
+
 const theme = settings.theme;
 const cleanBased = [
   'flatly', 'superhero', 'yeti', 'cosmo', 'darkly', 'paper', 'sandstone', 'simplex', 'slate'
@@ -109,7 +148,11 @@ const skipInjectionFragments = ['head.html', 'footer.html'];
 // (IIFE) bundle at the stable path js/init.js and injected as a plain
 // <script src> — no type=module, no crossorigin — so the CAS page can load it
 // cross-origin from the skin host WITHOUT CORS (matches the brunch behaviour).
-// In dev, Vite serves the unbundled ES module entry.
+//
+// Prod: inject ONLY into banner.html — all pages include banner server-side, so
+// init loads exactly once everywhere (CAS included). No duplication.
+// Dev: inject into full pages (banner injection not applicable in dev mode).
+// Cache-busting via ?v=buildTimestamp query string (filename is stable, no hash).
 function injectInitToBody() {
   return {
     name: 'inject-init-to-body',
@@ -120,20 +163,27 @@ function injectInitToBody() {
         const shouldSkip = skipInjectionFragments.some(f => ctx.path.endsWith(f));
         if (shouldSkip) return html;
 
+        const prod = !!ctx.bundle;
         const isBannerFragment = ctx.path.endsWith('banner.html') && !html.includes('<body');
         const hasBody = html.includes('<body');
-        if (!isBannerFragment && !hasBody) return html;
 
-        const prod = !!ctx.bundle;
-        const src = prod ? `${baseUrl}/js/init.js` : '/app/js/init.js';
-        const attrs = prod ? { src } : { type: 'module', src };
+        // Prod: only banner.html (all pages include banner server-side — no duplication)
+        // Dev: full pages only (banner injection not applicable in dev)
+        if (prod && !isBannerFragment) return html;
+        if (!prod && !hasBody) return html;
+
+        const src = prod ? `${baseUrl}/js/init.js?v=${buildTimestamp}` : '/app/js/init.js';
+        const cssSrc = prod ? `${baseUrl}/css/init.css?v=${buildTimestamp}` : null;
+        const attrs = prod ? { src, defer: true } : { type: 'module', src };
+        const cssTag = cssSrc ? `<link rel="stylesheet" href="${cssSrc}">` : '';
         const scriptTag = prod
-          ? `<script src="${src}"></script>`
+          ? `<script src="${src}" defer></script>`
           : `<script type="module" src="${src}"></script>`;
 
         if (isBannerFragment) {
-          return scriptTag + '\n' + html;
+          return cssTag + '\n' + scriptTag + '\n' + html;
         }
+        // dev: inject into body-prepend of full pages
         return { html, tags: [{ tag: 'script', attrs, injectTo: 'body-prepend' }] };
       }
     }
@@ -147,8 +197,17 @@ function injectThemeCssLinks(theme) {
   return {
     name: 'inject-theme-css-links',
     transformIndexHtml(html, ctx) {
-      const doTransform = html.includes('<head>') || ctx.path.endsWith('head.html');
-      const links = doTransform
+      const hasHead = html.includes('<head>') || ctx.path.endsWith('head.html');
+      // banner.html has no <head> but CAS only includes banner — inject theme CSS
+      // as raw prepended links so the CAS page gets the theme styles.
+      const isBannerFragment = ctx.path.endsWith('banner.html') && !html.includes('<body');
+      if (isBannerFragment && ctx.bundle) {
+        const rawLinks = files
+          .map(file => `<link rel="stylesheet" href="${baseUrl}/${file}" data-theme="${theme}">`)
+          .join('\n');
+        return rawLinks + '\n' + html;
+      }
+      const links = hasHead
         ? files.map(file => ({
             tag: 'link',
             attrs: {
@@ -219,7 +278,7 @@ const initLibConfig = defineConfig({
       fileName: () => 'js/init.js'
     },
     rollupOptions: {
-      output: { assetFileNames: 'css/init.[hash][extname]' }
+      output: { assetFileNames: () => 'css/init.css' }
     }
   }
 });
