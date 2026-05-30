@@ -1072,6 +1072,7 @@
     use_gatus: true
     vhost_required: true
     nginx_vhost_fast_mode: true
+    nginx_cors_origin_regexp: "{{ branding_nginx_cors_origin_regexp | default(omit) }}"
     # Serve the same docroot at both / and the versioned path (e.g. /brand-2023/)
     # so apps requesting header_and_footer_baseurl = host/brand-2023 get the real
     # assets instead of a 404 HTML page (which Chrome blocks via ORB).
@@ -1093,6 +1094,7 @@
     use_gatus: true
     vhost_required: true
     nginx_vhost_fast_mode: true
+    nginx_cors_origin_regexp: "{{ branding_nginx_cors_origin_regexp | default(omit) }}"
     nginx_paths: "{{ [{'path': '/', 'sort_label': '1', 'is_proxy': false, 'alias': '/srv/' + branding_url + '/www/'}] + ([{'path': branding_path | regex_replace('/$', '') + '/', 'sort_label': '2', 'is_proxy': false, 'alias': '/srv/' + branding_url + '/www/'}] if (branding_path is defined and branding_path != '/') else []) }}"
   when:
     - "'branding' in group_names or 'branding' in physical_server_groups"
