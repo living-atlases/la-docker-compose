@@ -1017,6 +1017,33 @@
   tags:
     - branding
 
+# Local (non-git-URL) branding sources are checked out by the user and may carry
+# git submodules (e.g. commonui-bs3-2019, which ships jquery/bootstrap/font-awesome
+# under build/{js,css,fonts}). The Vite build COPYs those into the assets volume,
+# and the Docker build context excludes .git, so submodules must be materialised on
+# the host before the synchronize below. The git-URL path already does this via
+# recursive: yes. Mirrors deploy.sh's required "git submodule update --init" step.
+- name: Stat branding .gitmodules (local source)
+  stat:
+    path: "{{ branding_source_path }}/.gitmodules"
+  register: branding_gitmodules
+  when: "'branding' in services_to_build and not (branding_is_git_url | default(false) | bool)"
+  tags:
+    - branding
+
+- name: Initialize branding git submodules (local source)
+  command:
+    cmd: git submodule update --init --recursive
+    chdir: "{{ branding_source_path }}"
+  register: branding_submodule_init
+  changed_when: "branding_submodule_init.stdout | trim | length > 0"
+  when: >-
+    'branding' in services_to_build
+    and not (branding_is_git_url | default(false) | bool)
+    and branding_gitmodules.stat.exists | default(false)
+  tags:
+    - branding
+
 - name: Copy branding source to build directory
   synchronize:
     src: "{{ branding_source_path }}/"
@@ -1031,6 +1058,35 @@
   when: "'branding' in services_to_build"
   tags:
     - branding
+
+# Derive branding_version from a content hash of the synced source so the image
+# tag changes only when the branding actually changes. This gives docker compose
+# a deterministic signal to recreate the run-once branding-init container (which
+# repopulates the la_branding-assets volume); identical source => identical tag
+# => bake and recreate are no-ops (idempotent).
+- name: Compute branding source content hash
+  shell: >-
+    set -o pipefail;
+    find "{{ docker_compose_data_dir }}/dockerfiles/branding/" -type f
+    -not -path '*/node_modules/*' -not -path '*/.git/*'
+    -not -path '*/public/*' -not -path '*/dist/*'
+    -print0 | sort -z | xargs -0 sha1sum | sha1sum | cut -c1-12
+  args:
+    executable: /bin/bash
+  register: branding_src_hash
+  changed_when: false
+  when: "'branding' in services_to_build"
+  tags:
+    - branding
+    - docker-compose
+
+- name: Set branding_version from source hash
+  set_fact:
+    branding_version: "{{ branding_src_hash.stdout | trim }}"
+  when: "'branding' in services_to_build"
+  tags:
+    - branding
+    - docker-compose
 
 - name: Copy branding Dockerfile to build directory
   copy:

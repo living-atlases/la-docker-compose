@@ -4,7 +4,7 @@
 
 - name: "Database volumes: Set Docker socket path"
   set_fact:
-    docker_socket: "{{ lookup('env', 'DOCKER_HOST') | default('unix:///var/run/docker.sock') }}"
+    docker_socket: "{{ lookup('env', 'DOCKER_HOST') | default('unix:///var/run/docker.sock', true) }}"
   tags:
     - db-init
     - docker-volumes
