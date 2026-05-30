@@ -21,6 +21,21 @@ services:
         condition: service_healthy
     volumes:
       - la_solr-data:/var/solr
+      # Configsets must be reachable from the long-running solr container so the
+      # idempotent init-solr.yml Ansible task can run zkcli upconfig via docker
+      # exec (the old one-shot solr-init never re-ran after ZK was healthy).
+      - {{ docker_compose_data_dir }}/solr/init:/var/solr/init:ro
+      # JTS Topology Suite jars for the biocache geohash spatial field type.
+      # Mounted into server/lib/ext (the Jetty SERVER classloader, mirroring the VM
+      # path ala-install uses). The spatial4j SpatialContextFactory that loads
+      # JtsSpatialContextFactory runs in Solr's WebAppClassLoader, which delegates to
+      # the server classloader as parent — so jars here are visible. ($SOLR_HOME/lib
+      # / sharedLib is a CHILD classloader the webapp can't see, so mounting there
+      # failed with NoClassDefFoundError org/locationtech/jts/geom/CoordinateSequenceFactory.)
+      # Individual file mounts (not the whole dir) so the image's existing log4j jars
+      # in server/lib/ext are not hidden.
+      - {{ docker_compose_data_dir }}/solr/lib/jts-core-1.18.1.jar:/opt/solr/server/lib/ext/jts-core-1.18.1.jar:ro
+      - {{ docker_compose_data_dir }}/solr/lib/jts-io-common-1.18.1.jar:/opt/solr/server/lib/ext/jts-io-common-1.18.1.jar:ro
     networks:
       default: {}
       {{ docker_network | default('internal') }}:
@@ -33,62 +48,4 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
-
-  solr-init:
-    image: solr:{{ solrcloud_version | default('9.4') }}
-    container_name: la_solr_init
-    profiles: [dbs, full]
-    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
-    restart: "no"
-    entrypoint:
-      - /bin/bash
-      - -c
-      - |
-        set -e
-        echo "Waiting for Solr..."
-        while ! curl -s http://solr:8983/solr/admin/info/system > /dev/null; do sleep 2; done
-        echo "Solr is up!"
-
-        # Define ZK host (external standalone ZK container, not embedded)
-        ZK_HOST="zookeeper:2181"
-
-        # Helper function for zkcli
-        function run_zkcli() {
-          if [ -f "/opt/solr/server/scripts/cloud-scripts/zkcli.sh" ]; then
-             /opt/solr/server/scripts/cloud-scripts/zkcli.sh "$@"
-          elif [ -f "/opt/bitnami/solr/server/scripts/cloud-scripts/zkcli.sh" ]; then
-             /opt/bitnami/solr/server/scripts/cloud-scripts/zkcli.sh "$@"
-          else
-             echo "zkcli.sh not found!"
-             exit 1
-          fi
-        }
-
-        echo "Uploading configsets..."
-        # Upload biocache config
-        run_zkcli -cmd upconfig -zkhost $$ZK_HOST -confname biocache -solrhome /var/solr/data -confdir /var/solr/init/biocache/conf
-
-        # Upload bie config
-        run_zkcli -cmd upconfig -zkhost $$ZK_HOST -confname bie -solrhome /var/solr/data -confdir /var/solr/init/bie/conf
-
-        echo "Creating collections..."
-        # Create biocache collection
-        curl -X POST "http://solr:8983/solr/admin/collections?action=CREATE&name=biocache&collection.configName=biocache&numShards=1&replicationFactor=1" || true
-
-        # Create bie collection
-        curl -X POST "http://solr:8983/solr/admin/collections?action=CREATE&name=bie&collection.configName=bie&numShards=1&replicationFactor=1" || true
-
-        # Create bie-offline collection
-        curl -X POST "http://solr:8983/solr/admin/collections?action=CREATE&name=bie-offline&collection.configName=bie&numShards=1&replicationFactor=1" || true
-
-        echo "Initialization complete!"
-    volumes:
-      - {{ docker_compose_data_dir }}/solr/init:/var/solr/init:ro
-    networks:
-      {{ docker_network | default('internal') }}:
-    depends_on:
-      zookeeper:
-        condition: service_healthy
-      solr:
-        condition: service_healthy
 

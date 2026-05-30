@@ -140,7 +140,7 @@
       tags:
         - docker-compose
 
-    - name: "CAPA 2: Pre-deployment validation"
+    - name: "LAYER 2: Pre-deployment validation"
       include_tasks: validate-pre-deploy.yml
       when: auto_deploy | default(true) | bool
       tags:
@@ -299,6 +299,15 @@
               First root-cause line(s):
               {{ deploy_failure_diag.stdout | default('(no root-cause line matched — read full log)') }}
 
+    - name: "Solr: Initialize collections (idempotent: LIST then CREATE if missing)"
+      include_tasks: init-solr.yml
+      when:
+        - auto_deploy | default(true) | bool
+      tags:
+        - docker-compose
+        - deploy
+        - solr-init
+
     - name: "CAS: Initialize admin account and OIDC services"
       include_tasks: init-cas-admin.yml
       when:
@@ -309,7 +318,7 @@
         - deploy
         - cas-admin
 
-    - name: "CAPA 3 & 4: Post-deployment validation and health check"
+    - name: "LAYER 3 & 4: Post-deployment validation and health check"
       include_tasks: validate-post-deploy.yml
       when: auto_deploy | default(true) | bool
       tags:
