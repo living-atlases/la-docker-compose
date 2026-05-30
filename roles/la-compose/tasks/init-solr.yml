@@ -1,0 +1,90 @@
+---
+# Solr Collection Initialization Tasks
+# Called from main.yml after `docker compose up`, before post-deploy health check.
+#
+# Replaces the old one-shot `solr-init` compose service, which only ran once at
+# create time: when it was created while ZooKeeper was still unhealthy its
+# `depends_on` failed, and with `restart: "no"` it never re-ran after ZK was
+# fixed -> the biocache/bie collections were never created in the external ZK and
+# biocache-service died with "Collection not found: biocache".
+#
+# This task is idempotent and re-runs every deploy: it uploads the configsets
+# (upconfig overwrites) and creates each collection only if LIST shows it missing.
+# Pattern mirrors init-databases.yml and reuses ala-install solrcloud_config logic.
+
+- name: "Solr Init: Detect running solr container"
+  command: docker ps --filter name=la_solr --format '{{ "{{" }}.Names{{ "}}" }}'
+  register: solr_container_check
+  become: true
+  changed_when: false
+  tags:
+    - solr-init
+
+- name: "Solr Init: Skip if Solr is not part of this profile"
+  debug:
+    msg: "la_solr container not running — skipping Solr collection init."
+  when: "'la_solr' not in solr_container_check.stdout_lines"
+  tags:
+    - solr-init
+
+# Everything below only runs when la_solr is present.
+- name: "Solr Init: Ensure collections (Solr present)"
+  when: "'la_solr' in solr_container_check.stdout_lines"
+  tags:
+    - solr-init
+  block:
+    - name: "Solr Init: Wait for la_solr to be healthy"
+      shell: |
+        docker inspect --format='{{ "{{" }}.State.Health.Status{{ "}}" }}' la_solr
+      register: solr_health
+      until: 'solr_health.stdout == "healthy"'
+      retries: 60
+      delay: 5
+      become: true
+      changed_when: false
+
+    - name: "Solr Init: Upload configsets to ZooKeeper (upconfig — idempotent overwrite)"
+      command: >
+        docker exec la_solr
+        /opt/solr/server/scripts/cloud-scripts/zkcli.sh
+        -cmd upconfig -zkhost zookeeper:2181
+        -confname {{ item }}
+        -solrhome /var/solr/data
+        -confdir /var/solr/init/{{ item }}/conf
+      become: true
+      changed_when: false
+      loop:
+        - biocache
+        - bie
+
+    - name: "Solr Init: List existing collections"
+      command: >
+        docker exec la_solr curl -s
+        "http://localhost:8983/solr/admin/collections?action=LIST&wt=json"
+      register: solr_collections
+      become: true
+      changed_when: false
+
+    - name: "Solr Init: Create SolrCloud collections if missing"
+      command: >
+        docker exec la_solr curl -s -X POST
+        "http://localhost:8983/solr/admin/collections?action=CREATE&name={{ item.name }}&collection.configName={{ item.config }}&numShards=1&replicationFactor=1"
+      register: solr_create
+      become: true
+      loop:
+        - { name: biocache,    config: biocache }
+        - { name: bie,         config: bie }
+        - { name: bie-offline, config: bie }
+      when: item.name not in (solr_collections.stdout | from_json).get('collections', [])
+      changed_when: '"success" in solr_create.stdout'
+      failed_when:
+        - solr_create.rc != 0 or '"failure"' in solr_create.stdout
+
+    - name: "Solr Init: Verify biocache collection now exists"
+      command: >
+        docker exec la_solr curl -s
+        "http://localhost:8983/solr/admin/collections?action=LIST&wt=json"
+      register: solr_collections_post
+      become: true
+      changed_when: false
+      failed_when: "'biocache' not in (solr_collections_post.stdout | from_json).get('collections', [])"

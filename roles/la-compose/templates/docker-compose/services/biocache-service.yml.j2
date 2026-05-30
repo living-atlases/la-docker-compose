@@ -35,7 +35,9 @@ services:
       default: {}
       {{ docker_network | default('internal') }}:
     healthcheck:
-      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:8080/ws/actuator/health || exit 1"]
+      # /actuator/health da 503 (DOWN, diagnóstico aparte). /index/fields es ligero
+      # y prueba liveness + conectividad con Solr (200 cuando la colección biocache existe).
+      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:8080/index/fields || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5

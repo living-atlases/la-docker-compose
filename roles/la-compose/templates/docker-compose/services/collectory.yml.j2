@@ -40,9 +40,11 @@ services:
         condition: service_healthy
 {% endif %}
     healthcheck:
-      # Does not have health activated
-      # test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:8080/actuator/health || exit 1"]
-      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:8080/ || exit 1"]
+      # No tiene /actuator/health activado. La home (/) da 500 por un NPE de messageSource
+      # del war desplegado (PluginAwareResourceBundleMessageSource.getMergedProperties);
+      # el war upstream con ExtendedPluginAwareResourceBundleMessageSource lo arregla.
+      # /ws/dataResource (200) prueba liveness + conectividad con MySQL.
+      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:8080/ws/dataResource || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5

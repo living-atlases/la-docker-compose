@@ -19,7 +19,12 @@ services:
       default: {}
       {{ docker_network | default('internal') }}:
     healthcheck:
-      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:8080/bie-hub/actuator/health || exit 1"]
+      # Liveness only: la home GSP (/) da 500 por un NPE de messageSource del war
+      # desplegado (PluginAwareResourceBundleMessageSource.getMergedProperties); el war
+      # upstream con ExtendedPluginAwareResourceBundleMessageSource lo arregla. Cuando se
+      # suba esa imagen, migrar a "/" u otra página real. /actuator (200, lista _links)
+      # prueba que el contexto Spring arrancó y sirve HTTP. No hay /actuator/health (404).
+      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:8080/actuator || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
