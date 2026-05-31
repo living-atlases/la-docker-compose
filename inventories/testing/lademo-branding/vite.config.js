@@ -167,8 +167,8 @@ function injectInitToBody() {
         const isBannerFragment = ctx.path.endsWith('banner.html') && !html.includes('<body');
         const hasBody = html.includes('<body');
 
-        // Prod: only banner.html (all pages include banner server-side — no duplication)
-        // Dev: full pages only (banner injection not applicable in dev)
+        // Prod: only banner.html (ALA apps + CAS include banner via SSI — no duplication)
+        // Dev:  full pages only (banner is inlined from source, SSI not applicable)
         if (prod && !isBannerFragment) return html;
         if (!prod && !hasBody) return html;
 
@@ -183,7 +183,7 @@ function injectInitToBody() {
         if (isBannerFragment) {
           return cssTag + '\n' + scriptTag + '\n' + html;
         }
-        // dev: inject into body-prepend of full pages
+        // Dev: inject into body-prepend of full pages
         return { html, tags: [{ tag: 'script', attrs, injectTo: 'body-prepend' }] };
       }
     }
