@@ -1,493 +1,218 @@
 # Living Atlas Docker Compose
 
-This repository generates `docker-compose.yml` configurations and handles local deployments of the Living Atlas ecosystem. It bridges the gap between Ansible playbooks (designed for VMs) and containerized local development without duplicating configuration logic.
+This repository generates `docker-compose.yml` configurations and runs the
+Living Atlas ecosystem with plain **Docker Compose** (no Swarm, no Kubernetes).
+It bridges the gap between the `ala-install` Ansible playbooks (designed for VMs)
+and containerized deployments without duplicating configuration logic.
+
+The Compose stack can be split across **several machines**: each service runs in
+its own container but the whole set behaves as if it were a single VM, with
+hosts and name resolution handled through nginx (see
+[Hosts & resolution](#hosts--resolution)).
+
+## Usage
+
+The easiest way to use this repository is through
+[la-toolkit](https://github.com/living-atlases/la-toolkit), which drives the
+playbooks and produces compatible inventories via the Living Atlas Yeoman
+generator ([`generator-living-atlas`](https://github.com/living-atlases/generator-living-atlas)).
+la-toolkit and the generator pull this repo in automatically, so most users never
+clone it directly — the [Prerequisites](#prerequisites) and
+[Testing & local development](#testing--local-development) sections below are
+aimed at contributors working on this repo itself.
 
 ## Overview
 
-Unlike traditional deployments where `ala-install` directly mutates the state of a VM, this project uses the same `ala-install` roles in "dry-run" mode to generate all necessary configuration files, certificates, and database schemas. It then wraps them in a `docker-compose.yml` file, mounts these configurations as volumes, and runs the official `la-docker-images` containers.
+Unlike a traditional deployment, where `ala-install` directly mutates the state of
+a VM, this project runs the `ala-install` roles in **config-only mode** — reusing
+the tasks that are *not* VM-specific — to generate the configuration files, nginx
+vhosts, database schemas, etc. that each service needs. (Docker itself is still
+installed on the host; almost everything else is rendered into files rather than
+applied to the machine.) It then wraps the result in a `docker-compose.yml`,
+mounts those configurations as volumes, and runs the service containers built by
+the separate
+[`la-docker-images`](https://github.com/living-atlases/la-docker-images) project.
+
+Alongside `docker-compose.yml`, the generator writes a `.env` file holding the
+variables the Compose file references (image tags, host ports, paths, generated
+secrets). Like every other artifact under `/data/docker-compose/`, `.env` is
+regenerated on each run and should not be hand-edited — see the
+[Testing & local development](#testing--local-development) automation-only rule.
 
 ### Key benefits
 
-- Reuses >90% of existing `ala-install` logic.
+- **Reuses `ala-install`** — the canonical ALA deployment tooling, with years of
+  accumulated logic, fixes, and field-tested configuration across many Living
+  Atlas portals. We inherit all of that instead of re-implementing (and
+  re-debugging) it for containers.
 - Maintains a single source of truth for inventory variables.
-- Enables the "dev-overlay" pattern for local frontend/backend development.
+- Generated artifacts are reproducible: everything comes from Ansible.
 
 ---
 
-## Directory Structure
+## Repository layout
 
-- `playbooks/`: Entrypoints for Ansible runs (`site.yml`, `config-gen.yml`, `db-init.yml`, plus validation helpers).
-- `inventories/local/`: Typical local inventory to deploy a full subset of services.
-- `inventories/dev/`: Specialized local development inventory using the `localhost.service` pattern.
-- `inventories/testing/`: `yo living-atlas`-generated inventory used by CI and pre-push validation.
-- `roles/la-compose/`: The core role that parses `ala-install` facts and generates `docker-compose.yml`.
-- `roles/la-volumes/`: Role managing persistent Docker volumes.
-- `scripts/`: Dev-loop tooling (`watch-and-test.sh`, `iterate-service.sh`, `validate-config-gen.sh`, …). See [`scripts/README.md`](scripts/README.md).
-- `molecule/`: Molecule unit tests for la-compose helpers (`unit` scenario, run from Jenkins).
-- `.githooks/`: Git hooks (`pre-push` runs `validate-config-gen.sh`). Install with `scripts/setup-molecule.sh` or `git config core.hooksPath .githooks`.
+- `ala-install/` — ALA Ansible roles, pulled in as a **git submodule**.
+  Currently a small [fork](https://github.com/vjrj/ala-install) (branch
+  `docker-compose-min-pr`) that keeps changes minimal, aiming at an upstream PR
+  to `ala-install` that does not affect VM deployments.
+- `roles/la-compose/` — core role that parses `ala-install` facts and generates
+  `docker-compose.yml`.
+- `roles/la-volumes/` — role managing persistent Docker volumes.
+- `playbooks/` — Ansible entrypoints (`site.yml`, `config-gen.yml`,
+  `db-init.yml`, plus validation helpers).
+- `inventories/testing/lademo-inventories/` — inventory generated by
+  `yo living-atlas`, used by CI and local validation.
+- `scripts/` — developer-loop tooling. See [`scripts/README.md`](scripts/README.md).
+- `molecule/unit/` — Molecule unit tests for `la-compose` helpers.
+- `Jenkinsfile` — CI pipeline; the source of truth for how the stack is tested
+  and deployed in real VMs.
 
----
-
-## Getting Started
-
-### Prerequisites
-
-You must have `ala-install` cloned alongside this repository.
-
-```bash
-/data/
-├── ala-install/
-├── la-docker-images/
-└── la-docker-compose/
-```
-
-### 1. Generating local compose (dry-run)
-
-If you only want to generate the configuration files and the `docker-compose.yml` file without automatically starting the containers (useful for inspecting the generated compose stack):
-
-```bash
-ansible-playbook playbooks/config-gen.yml -i inventories/local/hosts.ini
-```
-
-### 2. Deploying a local stack
-
-This generates the configuration and automatically runs `docker compose up -d`:
-
-```bash
-ansible-playbook playbooks/site.yml -i inventories/local/hosts.ini
-```
-
-### 3. Database Initialization (CAS, Userdetails, Apikey)
-
-The first time you deploy, or if you wipe the volumes, you must initialize the databases and users:
-
-```bash
-ansible-playbook playbooks/db-init.yml -i inventories/local/hosts.ini
-```
-
-This playbook:
-
-- Starts MySQL and MongoDB.
-- Creates necessary databases and users.
-- Runs CAS for Flyway migrations.
-- Creates the default CAS admin account.
-- Registers OIDC services.
+The generated runtime stack lives in `/data/docker-compose/` (configurable via the
+`docker_compose_data_dir` Ansible variable).
 
 ---
 
-## Working in "dev-overlay" mode
+## Prerequisites
 
-The "dev-overlay" pattern is designed for developers who want to run 1-2 services locally (e.g., Collectory, Branding) while consuming the rest of the ecosystem from a production or staging cluster.
+> For contributors working on this repo directly. Regular users go through
+> [la-toolkit](https://github.com/living-atlases/la-toolkit) (see [Usage](#usage)).
 
-### How it works
-
-1. Your local `nginx` intercepts traffic for the services you are running locally.
-2. It uses `proxy_pass` to route all other traffic to the remote `proxy_remote_portal`.
-3. Java applications resolve remote DBs through `docker_extra_hosts`.
-
-### Usage
-
-Edit `inventories/dev/hosts.ini` to uncomment/comment the services you wish to run locally:
-
-```ini
-[docker_compose]
-localhost.collectory    ansible_host=localhost ansible_connection=local
-#localhost.cas-servers   ansible_host=localhost ansible_connection=local
-```
-
-Then limit your playbook run:
+Clone the repository **with submodules** so that `ala-install/` is populated:
 
 ```bash
-ansible-playbook playbooks/config-gen.yml -i inventories/dev/hosts.ini --limit collectory
-# Start only what you need
-cd /data/docker-compose && docker compose up -d
+git clone --recurse-submodules <repo-url>
+# or, on an existing checkout:
+git submodule update --init --recursive
+```
+
+You also need the Living Atlas Yeoman generator
+([`generator-living-atlas`](https://github.com/living-atlases/generator-living-atlas))
+installed to (re)generate the testing inventory.
+
+---
+
+## How it works
+
+The flow is always: **generate config → deploy the stack** (containers, volumes,
+networks, …).
+
+1. `config-gen.yml` runs the `ala-install` roles in config-only mode and the
+   `la-compose` role to produce `/data/docker-compose/docker-compose.yml`,
+   `.env`, and the per-service config files.
+2. `site.yml` does the same and then runs `docker compose up -d`.
+3. The first time (or after wiping volumes) `db-init.yml` initializes the
+   datastores and users (MySQL/MongoDB, Cassandra, SOLR, CAS Flyway migrations,
+   default CAS admin, OIDC service registration, …).
+
+Inspect the generated stack at any time:
+
+```bash
+cd /data/docker-compose
+docker compose config
+docker compose ps
+docker compose logs -f <service>
 ```
 
 ---
 
-## Developer workflow (watch / iterate / ansiblew)
+## Hosts & resolution
 
-See **[`scripts/README.md`](scripts/README.md)** for the day-to-day loop:
+Living Atlas services address each other by hostname (e.g. `collectory.l-a.site`,
+`biocache.l-a.site`, or similar). In this stack those hostnames resolve to the
+nginx reverse proxy, which routes each request to the right container — so a
+service does not need to know whether its peer lives in the same container, the
+same machine, or a different one. This is what lets the same inventory run as a
+single all-in-one host or spread across **several machines** while the services
+keep talking to each other by their public hostnames.
 
-- **Full deploy via watch** (default, ~1 min/ciclo): `scripts/watch-and-test.sh`
-- **Fast iterate one service** (segundos/ciclo): `scripts/iterate-service.sh <name>`
-- **Manual `ansiblew`** (tags como `db-password-sync`, `deploy`, …): ver doc.
-
-On deploy failure, a `block/rescue` in `roles/la-compose/tasks/main.yml`
-writes root-cause diagnostics to `/tmp/la-docker-deploy-failure.root.log`
-(and `.log` for the full dump). **Read that file before commiting any
-`fix(...)`.**
-
----
-
-## Testing & Dry-run
-
-### Local Inventories for Testing
-
-Two pre-configured inventories are available for testing playbooks without remote hosts:
-
-#### `inventories/local/hosts.ini` - Full deployment
-- All 27 Living Atlas services
-- Uses `localhost.<service>` pattern (no SSH)
-- Mirrors lademo structure for compatibility
-- Use for comprehensive testing
-
-#### `inventories/dev/hosts.ini` - Minimal dev setup
-- 4 services: CAS, Collectory, Branding, docker_compose
-- Fast feedback loop for development
-- Use for rapid iteration or testing single services
-
-### Quick-Start Testing Commands
-
-#### 1. Validate inventory loads correctly (fastest)
-```bash
-cd /data/docker-compose
-ansible-playbook -i inventories/local/hosts.ini test-inventory.yml --check
-```
-Shows:
-- All 27 hosts loaded correctly
-- `deployment_type=container` verified
-- Group assignments and variables inherited
-
-#### 2. Syntax check playbooks (safe, no execution)
-```bash
-# Full playbook
-ansible-playbook -i inventories/local/hosts.ini playbooks/site.yml --syntax-check
-
-# Config generation only
-ansible-playbook -i inventories/dev/hosts.ini playbooks/config-gen.yml --syntax-check
-```
-
-#### 3. Dry-run with changes preview (--check --diff)
-```bash
-# See what would be generated (limited to docker_compose host)
-ansible-playbook -i inventories/local/hosts.ini playbooks/config-gen.yml \
-  --limit docker_compose --check --diff -v | head -200
-
-# Full dry-run with minimal dev setup
-ansible-playbook -i inventories/dev/hosts.ini playbooks/config-gen.yml --check --diff
-```
-
-### Advanced Testing Scenarios
-
-#### View all hosts in inventory
-```bash
-ansible -i inventories/local/hosts.ini all --list-hosts
-```
-
-#### Check variables for a specific host
-```bash
-ansible -i inventories/local/hosts.ini localhost.cas -m debug -a "var=deployment_type"
-```
-
-#### Test specific group
-```bash
-ansible-playbook -i inventories/local/hosts.ini playbooks/config-gen.yml \
-  --limit docker_compose_hosts --check
-```
-
-### Regenerating Inventories
-
-If services are added/removed or inventory structure changes:
-
-```bash
-cd /data/docker-compose
-python3 scripts/create_local_inventory.py full > inventories/local/hosts.ini
-python3 scripts/create_local_inventory.py dev > inventories/dev/hosts.ini
-```
-
-The script `create_local_inventory.py` contains service mappings that can be easily updated:
-- `SERVICES_FULL` dict (26 services)
-- `SERVICES_DEV` dict (4 services)
-- `GROUP_MAPPING` (group-to-service associations)
-
-For future integration with `generator-living-atlas`, a `.yo-rc.json` config can be added to automate this.
-
-### Inventory Structure Details
-
-Both inventories use the `localhost.<service>` pattern:
-
-```ini
-[collectory]
-localhost.collectory ansible_host=localhost ansible_connection=local
-
-[docker_compose]
-localhost.docker_compose ansible_host=localhost ansible_connection=local
-
-[docker_compose_hosts:vars]
-deployment_type = container
-collectory_db_host_address = la_mysql
-# ... database hostname overrides for docker-compose containers
-```
-
-**Why `localhost.<service>`?**
-- Ansible uses `inventory_hostname` (not `ansible_host`) as the primary key for hostvars
-- Multiple hosts with same `ansible_host=localhost` require unique names to avoid variable collisions
-- Pattern matches lademo structure for maintainability and future generator integration
-
-### Shared Variables
-
-Both inventories inherit from `inventories/local/group_vars/all.yml`:
-- Service versions (CAS, Collectory, etc.)
-- Database credentials (test values only)
-- URLs, ports, and endpoints
-- `deployment_type: container` (set in `[docker_compose_hosts:vars]`)
-- Docker network configuration
+This is not very different from how `ala-install` already works when LA services
+are spread across (or co-located on) VMs; here the same model is mapped onto
+containers behind nginx.
 
 ---
 
-## Testing Strategy
+## SSL & certificates
 
-A comprehensive testing pipeline is available to validate configuration and services at every stage.
+Running a real ALA deployment **without SSL is not recommended**.
 
-### Testing Phases
+SSL is configured the same way as in `ala-install`, through Ansible variables
+(`ssl_certificate_server_dir`, `ssl_cert_file`, `ssl_key_file`, …), so a real
+deployment provides its own certificates for its own domain.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│ 1. Inventory & Variables                                    │
-│    verify-inventory.yml ──► Validate variables are loaded   │
-└─────────────────────────────────────────────────────────────┘
-                    ▼
-┌─────────────────────────────────────────────────────────────┐
-│ 2. Configuration Generation                                 │
-│    config-gen.yml ──► Generate docker-compose.yml + .env    │
-└─────────────────────────────────────────────────────────────┘
-                    ▼
-┌─────────────────────────────────────────────────────────────┐
-│ 3. Generated Config Validation                              │
-│    validate-compose.yml ──► Verify YAML syntax & structure  │
-└─────────────────────────────────────────────────────────────┘
-                    ▼
-┌─────────────────────────────────────────────────────────────┐
-│ 4. Deploy & Runtime Tests                                   │
-│    site.yml ──► docker-compose up -d                        │
-│    test-services.yml ──► Health checks & connectivity       │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Phase 1: Inventory & Variables Verification
-
-**Purpose:** Catch missing or invalid variables early before generation
-
-```bash
-# Verify all hosts load correctly and have required variables
-ansible-playbook playbooks/verify-inventory.yml -i inventories/local/hosts.ini
-
-# Show variables for a specific host
-ansible -i inventories/local/hosts.ini localhost.cas -m debug -a "var=deployment_type"
-
-# Show all variables for a host
-ansible -i inventories/local/hosts.ini localhost.docker_compose -m debug -a "var=hostvars[inventory_hostname]" | head -50
-```
-
-**What it checks:**
-- ✓ All hosts load from inventory
-- ✓ Critical variables defined (org_short_name, org_name_long, deployment_type)
-- ✓ deployment_type is valid (vm, container, or swarm)
-- ✓ Database hostname mappings configured
-- ✓ docker_compose_hosts group populated
-- ✓ Total variable count
-
-### Phase 2: Configuration Generation (--check mode)
-
-**Purpose:** Generate configuration files and detect issues without applying
-
-```bash
-# Dry-run: See what would be generated
-ansible-playbook playbooks/config-gen.yml -i inventories/local/hosts.ini --check -v
-
-# Dry-run limited to docker_compose host (faster)
-ansible-playbook playbooks/config-gen.yml -i inventories/local/hosts.ini --limit docker_compose --check -v
-
-# Actual generation (creates files)
-ansible-playbook playbooks/config-gen.yml -i inventories/local/hosts.ini
-```
-
-**What it generates:**
-- ✓ `/data/docker-compose/docker-compose.yml` (v3.8 format)
-- ✓ `/data/docker-compose/.env` (database credentials)
-- ✓ `/data/docker-compose/infrastructure/*.yml` (nginx, mysql, postgres, mongodb)
-- ✓ `/data/docker-compose/services/*.yml` (all enabled services)
-- ✓ `/data/logs/` directories for each service
-
-### Phase 3: Generated Configuration Validation
-
-**Purpose:** Verify the generated docker-compose.yml is valid and complete
-
-```bash
-# Validate generated configuration
-ansible-playbook playbooks/validate-compose.yml -i inventories/local/hosts.ini
-
-# Show all services in compose file
-ansible-playbook playbooks/validate-compose.yml -i inventories/local/hosts.ini -v
-```
-
-**What it validates:**
-- ✓ docker-compose.yml exists and is valid YAML
-- ✓ .env file exists with passwords
-- ✓ Infrastructure files present (nginx, databases)
-- ✓ Service files generated (collectory, etc.)
-- ✓ Volume definitions correct
-- ✓ External volumes configured
-
-### Phase 4: Deployment & Service Health
-
-**Purpose:** Deploy containers and verify they start correctly
-
-```bash
-# Deploy (runs docker-compose up -d automatically)
-ansible-playbook playbooks/site.yml -i inventories/local/hosts.ini
-
-# Or use config-gen.yml alone and manually start
-ansible-playbook playbooks/config-gen.yml -i inventories/local/hosts.ini
-cd /data/docker-compose
-docker-compose up -d
-
-# Test all running services
-ansible-playbook playbooks/test-services.yml -i inventories/local/hosts.ini
-```
-
-**What it tests:**
-- ✓ Docker daemon accessible
-- ✓ All containers running
-- ✓ Nginx connectivity (port 80)
-- ✓ MySQL connectivity (port 3306)
-- ✓ MongoDB connectivity (port 27017)
-- ✓ CAS, Collectory service ports
-- ✓ Volume mounts and data persistence
-- ✓ Container logs for errors
-- ✓ HTTP endpoint reachability
-
-### Quick Test Scenarios
-
-**Scenario 1: Validate Everything Before Deploying**
-```bash
-# Step-by-step validation
-ansible-playbook playbooks/verify-inventory.yml -i inventories/local/hosts.ini
-ansible-playbook playbooks/config-gen.yml -i inventories/local/hosts.ini --check
-ansible-playbook playbooks/validate-compose.yml -i inventories/local/hosts.ini --check
-```
-
-**Scenario 2: Full Deployment with Tests**
-```bash
-# Generate, deploy, and test
-ansible-playbook playbooks/config-gen.yml -i inventories/local/hosts.ini
-cd /data/docker-compose && docker-compose up -d
-ansible-playbook playbooks/test-services.yml -i inventories/local/hosts.ini
-```
-
-**Scenario 3: Test Only One Service**
-```bash
-# Generate config for Collectory only
-ansible-playbook playbooks/config-gen.yml -i inventories/dev/hosts.ini --limit collectory
-cd /data/docker-compose && docker-compose up -d collectory
-# Check service
-docker-compose logs -f collectory
-```
-
-**Scenario 4: Check Health After Changes**
-```bash
-# After modifying inventory variables, validate
-ansible-playbook playbooks/verify-inventory.yml -i inventories/local/hosts.ini --diff
-# Then regenerate
-ansible-playbook playbooks/config-gen.yml -i inventories/local/hosts.ini
-# Test
-ansible-playbook playbooks/test-services.yml -i inventories/local/hosts.ini
-```
-
-### Manual Testing Commands
-
-**Check docker-compose YAML syntax:**
-```bash
-cd /data/docker-compose
-docker-compose config  # Validates and outputs composed config
-docker-compose config --resolve-image-digests  # With digests
-```
-
-**View logs:**
-```bash
-cd /data/docker-compose
-docker-compose logs -f                    # All services
-docker-compose logs -f collectory         # Specific service
-docker-compose logs --tail 50 mysql       # Last 50 lines
-```
-
-**Container inspection:**
-```bash
-cd /data/docker-compose
-docker-compose ps                         # Running containers
-docker-compose stats                      # CPU/memory usage
-docker-compose exec nginx ls -la /etc/nginx/  # Access container filesystem
-```
-
-**Connectivity tests:**
-```bash
-# Test services from host
-curl -v http://localhost/gatus/
-curl -v http://localhost/collectory
-
-# Test from inside container
-docker-compose exec nginx curl http://collectory:8080/
-
-# Test database from host
-timeout 5 bash -c 'cat < /dev/null > /dev/tcp/localhost/3306'
-```
-
-### Linting and Validation Tools
-
-**YAML Syntax Validation:**
-```bash
-# Lint all YAML files
-yamllint inventories/local/ roles/ playbooks/
-
-# Ansible playbook syntax check
-ansible-playbook playbooks/config-gen.yml --syntax-check
-ansible-playbook playbooks/validate-compose.yml --syntax-check
-ansible-playbook playbooks/site.yml --syntax-check
-```
-
-**Ansible Best Practices:**
-```bash
-# Run ansible-lint on roles and playbooks
-ansible-lint roles/la-compose/
-ansible-lint playbooks/
-```
-
-**Docker Compose Validation:**
-```bash
-cd /data/docker-compose
-docker-compose config > /dev/null && echo "Valid" || echo "Invalid"
-```
-
-### Troubleshooting Tests
-
-**If config-gen fails:**
-1. Check inventory loads: `ansible-playbook playbooks/verify-inventory.yml -i inventories/local/hosts.ini -vvv`
-2. Check specific variables: `ansible -i inventories/local/hosts.ini localhost.docker_compose -m debug -a "var=VARIABLE_NAME"`
-3. Run with more verbosity: `ansible-playbook playbooks/config-gen.yml -i inventories/local/hosts.ini -vvv`
-
-**If services don't start:**
-1. Check Docker daemon: `docker ps`
-2. Check logs: `docker-compose logs SERVICE_NAME`
-3. Verify volumes: `docker volume ls | grep la_`
-4. Check ports: `netstat -tulpn | grep LISTEN`
-
-**If connectivity tests fail:**
-1. Check container is running: `docker-compose ps`
-2. Check port is exposed: `docker-compose exec SERVICE nc -zv localhost PORT`
-3. Check logs: `docker-compose logs -f SERVICE`
-4. Restart service: `docker-compose restart SERVICE`
+For evaluation, the stack ships a **test mode** so that developers new to the
+community can try Living Atlas without owning a domain or its SSL certificates:
+`use_la_site_certs` serves wildcard certificates for subdomains of `l-a.site`.
+This is auto-detected: when the configured domain is `l-a.site` (or a subdomain
+of it), SSL is configured automatically with the bundled wildcard certificates,
+so a developer can try the stack without providing any certificate of their own.
+See the upstream guidance on
+[domains and subdomains to use](https://github.com/AtlasOfLivingAustralia/documentation/wiki/Before-Start-Your-LA-Installation#domain-or-subdomains-to-use).
 
 ---
 
-## CI / Pre-push validation
+## Regenerating the inventory
 
-Jenkins runs `molecule test -s unit` plus the full `playbooks/site.yml` against the testing inventory on every push. Locally, the `.githooks/pre-push` hook runs [`scripts/validate-config-gen.sh`](scripts/validate-config-gen.sh) before each push:
+The testing inventory is generated, not hand-edited. Regenerate it with the
+Living Atlas Yeoman generator from the `inventories/testing/` directory:
 
-1. Molecule unit tests (`normalize-hostnames.yml`).
-2. `config-gen.yml` against `inventories/testing/lademo-inventories/` via `ansiblew`.
-3. No `localhost`/`127.0.0.1` in DB connection strings.
-4. No `localhost`/`127.0.0.1` in nginx `upstream`/`proxy_pass` blocks.
-5. `docker compose config` syntax check on the generated `docker-compose.yml`.
+```bash
+cd inventories/testing
+yo living-atlas --replay-dont-ask --force
+```
 
-If a fresh checkout doesn't have `.venv-molecule/` or the testing inventory, run [`scripts/setup-molecule.sh`](scripts/setup-molecule.sh) and copy/generate the inventory with `yo living-atlas --replay-dont-ask --force`.
+This produces the inventory under
+[`inventories/testing/lademo-inventories/`](inventories/testing/lademo-inventories/)
+(`lademo-inventory.ini`).
+
+---
+
+## Testing & local development
+
+> **Automation-only rule.** Every change to the Docker stack must go through
+> Ansible (`ansiblew`), never through manual commands. The files in
+> `/data/docker-compose/` are **generated artifacts** — editing them by hand
+> desynchronizes them from the source of truth, and the next Ansible run will
+> overwrite the manual fix. If something is broken, fix the role/template/task in
+> this repo (the source of truth), regenerate, and verify the change is
+> idempotent. If you just want to experiment
+> or try something custom, copy `/data/docker-compose/` elsewhere and work on the
+> copy.
+
+### Local dev loop
+
+Three ways to deploy/iterate locally, documented in
+[`scripts/README.md`](scripts/README.md) in this repo:
+
+- **Watch + full deploy** (default, safe): `scripts/watch-and-test.sh` —
+  re-runs `validate-config-gen.sh` + `ansiblew` on every detected change.
+- **Fast iterate on one service**: `scripts/iterate-service.sh <service>`.
+- **`ansiblew` directly**: explicit deploy, optionally scoped with `--tags`
+  (`docker-compose`, `deploy`, `db-init`, `db-password-sync`, `docker-volumes`).
+
+### Diagnosing deploy failures
+
+On deploy failure, a `block/rescue` in `roles/la-compose/tasks/main.yml` writes:
+
+- `/tmp/la-docker-deploy-failure.root.log` — root-cause first line per unhealthy
+  container. **Read this before committing any `fix(...)`.**
+- `/tmp/la-docker-deploy-failure.log` — full dump (`docker compose ps`, status,
+  and `docker logs --tail 100` per container).
+
+Further tooling: `scripts/diagnose-failure.sh --service <name>` and
+`scripts/wait-for-health.sh --service <name> --verbose`.
+
+---
+
+## CI (Jenkins)
+
+The [`Jenkinsfile`](Jenkinsfile) is the source of truth for testing and
+deployment in real testing VMs. Its key stages are:
+
+1. **Unit tests** — `molecule test -s unit`.
+2. **Regenerate inventories** — `yo living-atlas --replay-dont-ask --force`
+   (with a fresh `generator-living-atlas` version) produces `lademo-inventory.ini`.
+3. **Run playbooks** — `site.yml` / `config-gen.yml` via `ansiblew` against the
+   generated inventory (`--limit docker_compose`, `auto_deploy=...`).
+4. **Validate deployment** —
+   `docker compose -f /data/docker-compose/docker-compose.yml config`.
