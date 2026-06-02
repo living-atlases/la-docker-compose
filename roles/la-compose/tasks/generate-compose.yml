@@ -62,6 +62,106 @@
     - always
     - docker-compose
 
+# ============================================================================
+# Cross-host datastore reachability (VM model, NO swarm)
+# ----------------------------------------------------------------------------
+# In plain docker-compose a `depends_on` cannot cross hosts: each host renders
+# its own compose file and depends_on only resolves services in that same file.
+# A datastore (cassandra/solr/zookeeper/mysql/postgres) legitimately runs on a
+# different host than its consumers (same as the VM deployment), addressed by
+# host:port + static DNS. We therefore:
+#   - detect, per consumed datastore, whether it is co-located on this host or
+#     remote (owning host = groups[<datastore-group>][0]);
+#   - for remote datastores, inject alias->remote-private-IP into
+#     docker_extra_hosts_dict so the consumer's config var resolves via /etc/hosts;
+#   - publish the datastore port on the host private IP when multi-host, so the
+#     remote consumer can actually reach it (the datastore template only renders
+#     on its owning host, so this flag is scoped there);
+#   - omit `depends_on` toward a remote datastore in the consumer template and let
+#     `restart: unless-stopped` + app retry converge (swarm converge-by-retry).
+# Single-host: every datastore is co-located => no remote aliases, no publishing,
+# native depends_on preserved. No behaviour change.
+# ============================================================================
+
+- name: Define datastore cross-host spec
+  set_fact:
+    datastore_cluster_spec:
+      cassandra:
+        groups: ['cassandra5', 'cassandra3', 'cassandra']
+        port: 9042
+        aliases: ['cassandra', 'la_cassandra']
+      solr:
+        groups: ['solrcloud', 'solr']
+        port: 8983
+        aliases: ['solr', 'la_solr']
+      zookeeper:
+        groups: ['solrcloud', 'solr', 'zookeeper']
+        port: 2181
+        aliases: ['zookeeper', 'la_zookeeper']
+      mysql:
+        groups: ['cas-servers', 'collectory', 'species-list', 'logger-service', 'alerts-service']
+        port: 3306
+        aliases: ['mysql', 'la_mysql']
+      postgres:
+        groups: ['spatial', 'image-service', 'doi-service', 'data_quality_filter_service']
+        port: 5432
+        aliases: ['postgres', 'la_postgres']
+  tags:
+    - always
+    - docker-compose
+
+- name: Compute datastore endpoints (co-located vs remote) per consumed datastore
+  set_fact:
+    datastore_endpoints: >-
+      {%- set result = {} -%}
+      {%- for ds, spec in datastore_cluster_spec.items() -%}
+        {%- set owner = namespace(host=none) -%}
+        {%- for g in spec.groups -%}
+          {%- if owner.host is none and g in groups and (groups[g] | length > 0) -%}
+            {%- set owner.host = groups[g] | first -%}
+          {%- endif -%}
+        {%- endfor -%}
+        {%- if owner.host is not none -%}
+          {%- set colo = namespace(val=false) -%}
+          {%- for g in spec.groups -%}
+            {%- if g in (physical_server_groups | default([])) -%}
+              {%- set colo.val = true -%}
+            {%- endif -%}
+          {%- endfor -%}
+          {%- set colocated = colo.val -%}
+          {%- set ip = hostvars[owner.host].ansible_host | default(owner.host) -%}
+          {%- set _ = result.update({ds: {'owner': owner.host, 'colocated': colocated, 'ip': ip, 'port': spec.port, 'aliases': spec.aliases}}) -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ result }}
+  tags:
+    - always
+    - docker-compose
+
+- name: Inject remote datastore aliases into docker_extra_hosts_dict
+  set_fact:
+    docker_extra_hosts_dict: >-
+      {%- set result = docker_extra_hosts_dict | default({}) | combine({}) -%}
+      {%- for ds, ep in datastore_endpoints.items() -%}
+        {%- if not ep.colocated -%}
+          {%- for a in ep.aliases -%}
+            {%- set _ = result.update({a: ep.ip}) -%}
+          {%- endfor -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ result }}
+  tags:
+    - always
+    - docker-compose
+
+- name: Derive cluster-wide datastore port publishing facts
+  set_fact:
+    host_private_ip: "{{ hostvars[inventory_hostname].ansible_host | default(ansible_default_ipv4.address | default('0.0.0.0')) }}"
+    publish_db_ports_clusterwide: "{{ (groups['docker_compose'] | default([]) | length | int) > 1 }}"
+  tags:
+    - always
+    - docker-compose
+
 # Define system variables that should NOT be copied when bulk-loading from service aliases
 # These are internal Ansible variables that belong only to their source context
 - name: Define system variables blacklist

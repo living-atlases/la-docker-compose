@@ -118,6 +118,17 @@ docker_extra_hosts: []
 nginx_docker_internal_aliases: []
 docker_socket: unix:///var/run/docker.sock
 
+# Cross-host datastore reachability (VM model, NO swarm).
+# When the deployment spans more than one docker_compose host, datastore
+# containers (cassandra/solr/zookeeper/mysql/postgres) publish their port on the
+# host private IP so remote consumers can reach them via host:port + static DNS
+# (extra_hosts). Computed in generate-compose.yml; defaults here keep single-host
+# behaviour unchanged (no publishing, bind nothing extra).
+publish_db_ports_clusterwide: false
+# Private IP this host binds published datastore ports to (overridden in
+# generate-compose.yml from hostvars[inventory_hostname].ansible_host).
+host_private_ip: "0.0.0.0"
+
 # ============================================
 # Java Memory Configuration
 # ============================================

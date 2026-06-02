@@ -8,6 +8,13 @@ services:
     restart: unless-stopped
     expose:
       - 8983
+{% if publish_db_ports_clusterwide | default(false) | bool %}
+    # Multi-host: publish the Solr port on the host private IP so remote consumers
+    # (e.g. biocache-service on another host) can reach it via host:port + extra_hosts.
+    # Operator must firewall this to the private cluster subnet.
+    ports:
+      - "{{ host_private_ip }}:8983:8983"
+{% endif %}
     environment:
       TZ: {{ server_tz | default('UTC') }}
       SOLR_JAVA_MEM: "-Xms512m -Xmx2g"

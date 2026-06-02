@@ -5,17 +5,29 @@ services:
     container_name: la_biocache-service
     profiles: [app-core, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+{# depends_on can only reference services in THIS host's compose file. cassandra/
+   solr may run on another host (VM model); when remote we omit the dependency and
+   let restart: unless-stopped + app retry converge (swarm converge-by-retry). #}
+{% set _i18n_dep = (i18n.enabled and i18n.strategy == 'volume' and i18n.volume.source == 'init-container') %}
+{% set _cassandra_local = datastore_endpoints.get('cassandra', {}).get('colocated', false) %}
+{% set _solr_local = datastore_endpoints.get('solr', {}).get('colocated', false) %}
+{% if _i18n_dep or _cassandra_local or _solr_local %}
     depends_on:
-{% if i18n.enabled and i18n.strategy == 'volume' and i18n.volume.source == 'init-container' %}
+{% if _i18n_dep %}
       i18n-init:
         condition: service_completed_successfully
 {% endif %}
+{% if _cassandra_local %}
       cassandra:
         condition: service_healthy
       cassandra-load-keyspace:
         condition: service_completed_successfully
+{% endif %}
+{% if _solr_local %}
       solr:
         condition: service_healthy
+{% endif %}
+{% endif %}
     volumes:
       # Host /data/biocache is mounted at TWO container paths because the
       # image's hardcoded -Dlogging.config expects /data/biocache-service/,

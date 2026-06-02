@@ -19,6 +19,13 @@ services:
       - 2181
       - 2888
       - 3888
+{% if publish_db_ports_clusterwide | default(false) | bool %}
+    # Multi-host: publish the client port on the host private IP so remote consumers
+    # (Solr/biocache on another host) can reach it via host:port + extra_hosts.
+    # Operator must firewall this to the private cluster subnet.
+    ports:
+      - "{{ host_private_ip }}:2181:2181"
+{% endif %}
     environment:
       TZ: {{ server_tz | default('UTC') }}
       ZOO_MY_ID: "{{ (zookeeper_servers | default([{'id': '1'}]))[0].id | default('1') }}"

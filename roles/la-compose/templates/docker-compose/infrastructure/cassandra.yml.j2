@@ -12,6 +12,13 @@ services:
       - 7199
       - 9042
       - 9160
+{% if publish_db_ports_clusterwide | default(false) | bool %}
+    # Multi-host: publish the CQL port on the host private IP so remote consumers
+    # (e.g. biocache-service on another host) can reach it via host:port + extra_hosts.
+    # Operator must firewall this to the private cluster subnet.
+    ports:
+      - "{{ host_private_ip }}:9042:9042"
+{% endif %}
     environment:
       TZ: {{ server_tz | default('UTC') }}
       CASSANDRA_CLUSTER_NAME: "ala-cluster"

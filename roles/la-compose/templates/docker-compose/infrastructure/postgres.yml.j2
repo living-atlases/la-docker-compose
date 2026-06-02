@@ -14,9 +14,16 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     expose:
       - 5432
-{% if expose_db_ports_for_init | default(false) %}
+{% if (expose_db_ports_for_init | default(false)) or (publish_db_ports_clusterwide | default(false) | bool) %}
     ports:
+{% if expose_db_ports_for_init | default(false) %}
       - 127.0.0.1:5432:5432
+{% endif %}
+{% if publish_db_ports_clusterwide | default(false) | bool %}
+      # Multi-host: reachable by remote consumers via host:port + extra_hosts.
+      # Operator must firewall this to the private cluster subnet.
+      - "{{ host_private_ip }}:5432:5432"
+{% endif %}
 {% endif %}
     networks:
       default: {}
