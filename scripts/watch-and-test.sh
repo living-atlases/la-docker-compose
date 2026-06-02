@@ -27,6 +27,15 @@ LOG_FILE="/tmp/la-docker-watch.log"
 LAST_LOG="/tmp/la-docker-watch-last.log"
 CHANGES_FLAG="/tmp/la-docker-watcher-changes-pending"
 
+# Idle-stop: tras N minutos sin runs (ni en curso ni encolados), recoge un
+# snapshot de diagnóstico y para el stack con `docker compose stop` para liberar
+# CPU/RAM. Conserva contenedores/redes/volúmenes (reinicio rápido). Solo afecta
+# al watch (tooling de dev); el deploy real (Ansible/producción) no cambia.
+# 0 = desactivado.
+WATCH_IDLE_STOP_MINUTES="${WATCH_IDLE_STOP_MINUTES:-10}"
+IDLE_SNAPSHOT_LOG="/tmp/la-docker-watch-idle-snapshot.log"
+COMPOSE_DIR_FALLBACK="/data/docker-compose"
+
 WATCH_PATHS_RAW=(
     "$ROOT_DIR/roles"
     "$ROOT_DIR/playbooks"
@@ -56,6 +65,10 @@ PENDING_RUN=0
 COLLECTOR_INOTIFY_PID=""
 COLLECTOR_WRITER_PID=""
 COLLECTOR_FIFO="${CHANGES_FLAG}.fifo"
+# Idle-stop state: anclaje del contador a "fin del último run" y flag para no
+# repetir el stop. Inicializado al arrancar para que cuente desde el lanzamiento.
+LAST_RUN_END_EPOCH=$(date +%s)
+IDLE_STOPPED=0
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 send_notification() {
@@ -113,10 +126,113 @@ stop_change_collector() {
     COLLECTOR_WRITER_PID=""
 }
 
+# ── Idle-stop ───────────────────────────────────────────────────────────────────
+# Directorio compose del stack en ejecución (label del contenedor), con fallback.
+compose_dir() {
+    local dir
+    dir=$(docker ps --filter "name=la_" \
+        --format '{{.Label "com.docker.compose.project.working_dir"}}' 2>/dev/null \
+        | grep -v '^$' | head -1)
+    echo "${dir:-$COMPOSE_DIR_FALLBACK}"
+}
+
+# ¿Hay contenedores la_* arrancados (Up)?
+stack_is_up() {
+    [ -n "$(docker ps --filter "name=la_" --filter "status=running" -q 2>/dev/null | head -1)" ]
+}
+
+# Snapshot ligero de diagnóstico: estado de todos los contenedores + logs de los
+# problemáticos (restarting / unhealthy / exited≠0). Mismo filtro que el bloque
+# rescue de roles/la-compose/tasks/main.yml, sin los tests de red lentos.
+collect_idle_snapshot() {
+    local dir=$1
+    local ts
+    ts=$(date '+%Y-%m-%d %H:%M:%S')
+
+    {
+        echo "==== LA Docker idle snapshot @ $ts ===="
+        echo
+        echo "==== docker compose ps -a ===="
+        docker compose -f "$dir/docker-compose.yml" ps -a 2>&1
+        echo
+        echo "==== docker ps -a (la_*) ===="
+        docker ps -a --filter "name=la_" \
+            --format "table {{.Names}}\t{{.Status}}\t{{.State}}" 2>&1
+    } > "$IDLE_SNAPSHOT_LOG"
+
+    # Contenedores no sanos: Status != "Up ...(healthy)" y != "Exited (0)".
+    local non_healthy
+    non_healthy=$(docker ps -a --filter "name=la_" \
+        --format "{{.Names}}\t{{.Status}}" 2>/dev/null \
+        | awk -F'\t' '$2 !~ /Up .*\(healthy\)/ && $2 !~ /Exited \(0\)/ {print $1}')
+
+    local count=0
+    if [ -n "$non_healthy" ]; then
+        for c in $non_healthy; do
+            count=$((count + 1))
+            {
+                echo
+                echo "---- $c ----"
+                echo "State: $(docker inspect --format '{{.State.Status}} exit={{.State.ExitCode}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$c" 2>/dev/null)"
+                echo "-- last 100 log lines --"
+                docker logs --tail 100 "$c" 2>&1
+            } >> "$IDLE_SNAPSHOT_LOG"
+        done
+    fi
+
+    cat "$IDLE_SNAPSHOT_LOG" >> "$LOG_FILE"
+
+    echo ""
+    echo -e "${CYAN}── Idle snapshot ────────────────────────────────────────────${NC}"
+    if [ "$count" -gt 0 ]; then
+        echo -e "  ${YELLOW}$count contenedor(es) no sano(s):${NC}"
+        echo "$non_healthy" | while IFS= read -r c; do [ -n "$c" ] && echo "    - $c"; done
+    else
+        echo -e "  ${GREEN}Todos los contenedores sanos/limpios.${NC}"
+    fi
+    echo -e "  ${CYAN}Detalle:${NC} $IDLE_SNAPSHOT_LOG"
+    SNAPSHOT_NON_HEALTHY_COUNT=$count
+}
+
+# Si procede (idle real, sin runs pendientes), recoge snapshot y para el stack.
+idle_stop_if_due() {
+    [ "$WATCH_IDLE_STOP_MINUTES" -eq 0 ] 2>/dev/null && return
+    [ "$IDLE_STOPPED" -eq 1 ] && return
+    [ "$PENDING_RUN" -eq 1 ] && return   # hay un run encolado: aún hay actividad
+
+    local now elapsed threshold
+    now=$(date +%s)
+    elapsed=$((now - LAST_RUN_END_EPOCH))
+    threshold=$((WATCH_IDLE_STOP_MINUTES * 60))
+    [ "$elapsed" -lt "$threshold" ] && return
+
+    stack_is_up || { IDLE_STOPPED=1; return; }
+
+    local dir
+    dir=$(compose_dir)
+    echo ""
+    echo -e "${YELLOW}${BOLD}Idle ${WATCH_IDLE_STOP_MINUTES}m sin actividad — snapshot + stop del stack${NC}"
+    SNAPSHOT_NON_HEALTHY_COUNT=0
+    collect_idle_snapshot "$dir"
+
+    echo -e "  ${CYAN}Parando:${NC} docker compose stop ($dir)"
+    docker compose -f "$dir/docker-compose.yml" stop >> "$LOG_FILE" 2>&1
+    IDLE_STOPPED=1
+    send_notification "⏸ LA Docker — stack parado (idle)" \
+        "Parado por inactividad (${WATCH_IDLE_STOP_MINUTES}m). No-sanos: ${SNAPSHOT_NON_HEALTHY_COUNT}. Snapshot: $IDLE_SNAPSHOT_LOG" \
+        "low" "dialog-information"
+    echo ""
+    echo -e "${GREEN}Stack parado. Toca un fichero (o r) para rearrancar.${NC}"
+    echo ""
+}
+
 # ── Main run ──────────────────────────────────────────────────────────────────
 run_tests() {
     local timestamp
     timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+
+    # Un run real reinicia el ciclo idle: el stack se rearranca vía ansiblew.
+    IDLE_STOPPED=0
 
     # Fast-iteration mode: when SERVICE=<name> is set in the env, skip the
     # full validate+ansiblew (~924 tasks, ~1 min) and only recreate that one
@@ -147,6 +263,7 @@ run_tests() {
         echo ""
         echo -e "${GREEN}Waiting for changes...${NC}  ${CYAN}(SERVICE=$SERVICE mode  |  r=rerun  q=quit)${NC}"
         echo ""
+        LAST_RUN_END_EPOCH=$(date +%s)
         return
     fi
 
@@ -259,8 +376,11 @@ run_tests() {
     fi
 
     echo ""
-    echo -e "${GREEN}Waiting for changes...${NC}  ${CYAN}(r=rerun  q=quit  Enter=rerun)${NC}"
+    local idle_hint=""
+    [ "$WATCH_IDLE_STOP_MINUTES" -ne 0 ] 2>/dev/null && idle_hint="  ${CYAN}idle-stop=${WATCH_IDLE_STOP_MINUTES}m  s=stop now${NC}"
+    echo -e "${GREEN}Waiting for changes...${NC}  ${CYAN}(r=rerun  q=quit  Enter=rerun)${NC}${idle_hint}"
     echo ""
+    LAST_RUN_END_EPOCH=$(date +%s)
 }
 
 run_pending() {
@@ -320,6 +440,20 @@ watch_loop() {
                     PENDING_RUN=1
                     run_pending
                     ;;
+                s|S)
+                    echo -e "${YELLOW}Manual stop:${NC} snapshot + docker compose stop..."
+                    if stack_is_up; then
+                        local dir
+                        dir=$(compose_dir)
+                        SNAPSHOT_NON_HEALTHY_COUNT=0
+                        collect_idle_snapshot "$dir"
+                        docker compose -f "$dir/docker-compose.yml" stop >> "$LOG_FILE" 2>&1
+                        IDLE_STOPPED=1
+                        echo -e "${GREEN}Stack parado.${NC}"
+                    else
+                        echo -e "${YELLOW}Stack ya parado / no hay contenedores la_*.${NC}"
+                    fi
+                    ;;
                 q|Q)
                     echo -e "${YELLOW}Quitting.${NC}"
                     stty "$stty_backup"
@@ -327,6 +461,11 @@ watch_loop() {
                     ;;
             esac
             continue
+        fi
+
+        if [ -z "$first" ]; then
+            # Sin eventos ni input: tick idle → parar el stack si procede.
+            idle_stop_if_due
         fi
 
         if [ -n "$first" ]; then
@@ -358,8 +497,9 @@ echo -e "${YELLOW}Watching:${NC}"
 for p in "${WATCH_PATHS[@]}"; do echo "  $p"; done
 echo ""
 echo -e "${YELLOW}Debounce:${NC} ${DEBOUNCE_SECONDS}s"
+echo -e "${YELLOW}Idle-stop:${NC} ${WATCH_IDLE_STOP_MINUTES}m (0=off)   Snapshot: $IDLE_SNAPSHOT_LOG"
 echo -e "${YELLOW}Logs:${NC}     $LAST_LOG  (last run)   $LOG_FILE  (rolling)"
-echo -e "${YELLOW}Controls:${NC} Enter / r = run now   q = quit"
+echo -e "${YELLOW}Controls:${NC} Enter / r = run now   s = snapshot+stop now   q = quit"
 echo ""
 echo -e "${GREEN}Waiting for changes...${NC}"
 echo ""
