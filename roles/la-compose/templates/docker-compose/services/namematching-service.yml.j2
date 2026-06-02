@@ -1,7 +1,8 @@
 services:
    namematching-service:
      container_name: la_namematching_service
-     image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}ala-namematching-server:{{ ala_namematching_service_version }}
+     profiles: [app-core, full]
+     image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}ala-namematching-server:{{ namematching_docker_tag | default('latest') }}
      ports:
        - "{{ namematching_service_port }}:9179"
        - "{{ namematching_admin_port }}:9180"
@@ -15,7 +16,7 @@ services:
        default: {}
        {{ docker_network | default('internal') }}:
      healthcheck:
-       test: ["CMD", "curl", "--fail", "--silent", "http://localhost:9180/admin/health"]
+       test: ["CMD", "curl", "--fail", "--silent", "http://localhost:9180/healthcheck"]
        interval: 30s
        timeout: 10s
        retries: 3

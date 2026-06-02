@@ -11,12 +11,15 @@ services:
     environment:
       TZ: {{ server_tz | default('UTC') }}
       JAVA_OPTS: {{ image_service_java_opts | default('-Xmx1g -Xms1g') }}
+    # Image CMD hardcodes -Dlogging.config=.../logback.groovy, which modern Logback
+    # (>=1.3, bundled in 4.1.0) rejects. Override to point at logback.xml and honor JAVA_OPTS.
+    command: ["/bin/sh", "-c", "exec java $$JAVA_OPTS -Djava.awt.headless=true -Dlogging.config=/data/image-service/config/logback.xml -Dspring.config.additional-location=/data/image-service/config/ -Dspring.config.name=application,application-local-config,image-service-config -jar /opt/atlas/$$APP_ARTIFACT/app.jar"]
     volumes:
-      - {{ docker_compose_data_dir }}/image-service/config:/data/image-service/config
-      - {{ docker_compose_data_dir }}/image-service/store:/data/image-service/store
-      - {{ docker_compose_data_dir }}/image-service/incoming:/data/image-service/incoming
-      - {{ docker_compose_data_dir }}/image-service/exports:/data/image-service/exports
-      - {{ docker_compose_data_dir }}/image-service/bin:/data/image-service/bin
+      - {{ data_dir }}/image-service/config:/data/image-service/config
+      - {{ data_dir }}/image-service/store:/data/image-service/store
+      - {{ data_dir }}/image-service/incoming:/data/image-service/incoming
+      - {{ data_dir }}/image-service/exports:/data/image-service/exports
+      - {{ data_dir }}/image-service/bin:/data/image-service/bin
     networks:
       default: {}
       {{ docker_network | default('internal') }}:

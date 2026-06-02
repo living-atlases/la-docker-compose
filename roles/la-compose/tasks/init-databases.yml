@@ -301,6 +301,90 @@
     - db-init
     - db-password-sync
 
+# --- image-service PostgreSQL database + login role ---
+# postgres:16 only honours POSTGRES_DB/POSTGRES_USER on the *first* volume init,
+# so image-service's `images` DB + role never exist on an aged volume and Flyway
+# dies with "password authentication failed for user images". Provision both
+# idempotently. PG15+ locks down the public schema (owned by pg_database_owner),
+# so the role must OWN the database to be able to create its schema/tables.
+- name: "DB Init: Start postgres container (for image-service provisioning)"
+  command: docker compose up -d postgres
+  args:
+    chdir: "{{ docker_compose_data_dir }}"
+  become: true
+  when: "'image-service' in physical_server_groups"
+  tags:
+    - db-init
+
+- name: "DB Init: Wait for postgres to be healthy"
+  shell: |
+    docker inspect --format='{{ "{{" }}.State.Health.Status{{ "}}" }}' la_postgres
+  register: postgres_health
+  until: 'postgres_health.stdout == "healthy"'
+  retries: 30
+  delay: 5
+  become: true
+  when: "'image-service' in physical_server_groups"
+  tags:
+    - db-init
+
+- name: "DB Init: Create/sync image-service postgres login role (idempotent)"
+  command: >
+    docker exec -u postgres la_postgres psql -v ON_ERROR_STOP=1 -c
+    "DO $$ BEGIN
+       IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='{{ image_service_db_username | default('images') }}') THEN
+         CREATE ROLE {{ image_service_db_username | default('images') }} LOGIN PASSWORD '{{ image_service_db_password }}';
+       END IF;
+     END $$;
+     ALTER ROLE {{ image_service_db_username | default('images') }} WITH LOGIN PASSWORD '{{ image_service_db_password }}';"
+  become: true
+  when: "'image-service' in physical_server_groups"
+  changed_when: false
+  no_log: true
+  tags:
+    - db-init
+    - db-password-sync
+
+- name: "DB Init: Check if image-service postgres database exists"
+  command: >
+    docker exec -u postgres la_postgres psql -tAc
+    "SELECT 1 FROM pg_database WHERE datname='{{ image_service_db_name | default('images') }}'"
+  register: image_db_exists
+  become: true
+  changed_when: false
+  when: "'image-service' in physical_server_groups"
+  tags:
+    - db-init
+
+- name: "DB Init: Create image-service postgres database owned by its role"
+  command: >
+    docker exec -u postgres la_postgres psql -v ON_ERROR_STOP=1 -c
+    "CREATE DATABASE {{ image_service_db_name | default('images') }}
+     OWNER {{ image_service_db_username | default('images') }}"
+  become: true
+  when:
+    - "'image-service' in physical_server_groups"
+    - (image_db_exists.stdout | default('') | trim) != "1"
+  tags:
+    - db-init
+
+- name: "DB Init: Verify image-service postgres user can authenticate (closes provisioning race)"
+  command: >
+    docker exec -e PGPASSWORD={{ image_service_db_password }} la_postgres
+    psql -h localhost -U {{ image_service_db_username | default('images') }}
+    -d {{ image_service_db_name | default('images') }} -tAc "SELECT 1;"
+  register: image_db_probe
+  retries: 10
+  delay: 2
+  until: image_db_probe.rc == 0
+  become: true
+  changed_when: false
+  no_log: true
+  when: "'image-service' in physical_server_groups"
+  tags:
+    - db-init
+    - db-password-sync
+
 - name: "DB Init: Verify database initialization completed successfully"
   include_tasks: validate-db-init.yml
   when: "'cas-servers' in physical_server_groups"

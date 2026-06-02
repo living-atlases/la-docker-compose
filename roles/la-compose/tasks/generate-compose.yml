@@ -21,6 +21,18 @@
   tags:
     - always
 
+# use_la_site_certs is decided upstream by generator-living-atlas (auto-detected
+# from the deployment domain: l-a.site or a subdomain -> demo wildcard certs).
+# The generated inventory always carries an explicit value, so here we only
+# normalise it to a boolean and provide a safe false fallback for hand-written
+# inventories that omit it. la-compose itself performs no domain detection.
+- name: "SSL: Normalise use_la_site_certs (decided upstream by the generator)"
+  set_fact:
+    use_la_site_certs: "{{ use_la_site_certs | default(false) | bool }}"
+  tags:
+    - always
+    - docker-compose
+
 - name: Ensure nginx_docker_internal_aliases is a list
   set_fact:
     nginx_docker_internal_aliases: "{{ nginx_docker_internal_aliases | from_json if nginx_docker_internal_aliases is string else nginx_docker_internal_aliases }}"
@@ -779,6 +791,178 @@
   tags:
     - biocache-service
     - config
+    - docker-compose
+
+# Bulk load all LOGGER-SERVICE variables from service alias context
+- name: "Bulk load LOGGER-SERVICE variables from service alias context"
+  set_fact:
+    "{{ item.key }}": "{{ item.value }}"
+  loop: >-
+    {{ hostvars[service_aliases.get('logger-service', '')] | default({})
+       | dict2items
+       | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
+       | rejectattr('key', 'match', '^ansible_.*')
+       | rejectattr('key', 'in', system_vars_blacklist)
+       | list }}
+  loop_control:
+    label: "{{ item.key }}"
+  when: service_aliases.get('logger-service') is defined
+  tags:
+    - logger-service
+    - config
+    - bulk-load
+
+- name: Re-normalize database hostnames after LOGGER-SERVICE bulk load
+  include_tasks: normalize-hostnames.yml
+  when: service_aliases.get('logger-service') is defined
+  tags:
+    - logger-service
+    - config
+    - normalize
+
+- name: Run logger-service configuration generation
+  include_role:
+    name: logger-service
+    apply:
+      tags:
+        - docker-compose
+  vars:
+    nginx_vhost_fast_mode: true
+  when:
+    - "'logger' in services_enabled"
+    - "service_aliases.get('logger-service') is defined"
+  tags:
+    - logger-service
+    - config
+    - nginx_vhost
+    - docker-compose
+
+# Bulk load all IMAGE-SERVICE variables from service alias context
+- name: "Bulk load IMAGE-SERVICE variables from service alias context"
+  set_fact:
+    "{{ item.key }}": "{{ item.value }}"
+  loop: >-
+    {{ hostvars[service_aliases.get('image-service', '')] | default({})
+       | dict2items
+       | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
+       | rejectattr('key', 'match', '^ansible_.*')
+       | rejectattr('key', 'in', system_vars_blacklist)
+       | list }}
+  loop_control:
+    label: "{{ item.key }}"
+  when: service_aliases.get('image-service') is defined
+  tags:
+    - image-service
+    - config
+    - bulk-load
+
+- name: Re-normalize database hostnames after IMAGE-SERVICE bulk load
+  include_tasks: normalize-hostnames.yml
+  when: service_aliases.get('image-service') is defined
+  tags:
+    - image-service
+    - config
+    - normalize
+
+- name: Run image-service configuration generation
+  include_role:
+    name: image-service
+    apply:
+      tags:
+        - docker-compose
+  vars:
+    nginx_vhost_fast_mode: true
+    image_user: "{{ docker_default_user }}"
+    image_service_logfile: logback.xml
+    # image-service reads ES from the `elasticsearch_hosts` list. The inventory
+    # leaves it undefined (VMs co-locate ES on localhost), so the config template
+    # renders no `hosts:` block and the client defaults to localhost:9200 — which
+    # fails in Docker where ES is the separate `elasticsearch` container. Provide a
+    # Docker default here (scoped to this role invocation, not a global fact).
+    # `default()` keeps any inventory-provided value, so VM deploys are untouched.
+    elasticsearch_hosts: "{{ elasticsearch_hosts | default([{'host': 'elasticsearch', 'scheme': 'http', 'port': 9200}]) }}"
+  when:
+    - "'images' in services_enabled"
+    - "service_aliases.get('image-service') is defined"
+  tags:
+    - image-service
+    - config
+    - nginx_vhost
+    - docker-compose
+
+# Bulk load all NAMEMATCHING-SERVICE variables from service alias context
+- name: "Bulk load NAMEMATCHING-SERVICE variables from service alias context"
+  set_fact:
+    "{{ item.key }}": "{{ item.value }}"
+  loop: >-
+    {{ hostvars[service_aliases.get('namematching-service', '')] | default({})
+       | dict2items
+       | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
+       | rejectattr('key', 'match', '^ansible_.*')
+       | rejectattr('key', 'in', system_vars_blacklist)
+       | list }}
+  loop_control:
+    label: "{{ item.key }}"
+  when: service_aliases.get('namematching-service') is defined
+  tags:
+    - namematching-service
+    - config
+    - bulk-load
+
+- name: Run namematching-service configuration generation (config + nameindex download)
+  include_role:
+    name: namematching-service
+    apply:
+      tags:
+        - docker-compose
+  vars:
+    nginx_vhost_fast_mode: true
+    namematching_user: "{{ docker_default_user }}"
+    namematching_search_config_dir: /data/ala-namematching-server/config
+  when:
+    - "'namematchingService' in services_enabled"
+    - "service_aliases.get('namematching-service') is defined"
+  tags:
+    - namematching-service
+    - config
+    - nginx_vhost
+    - docker-compose
+
+# Bulk load all SENSITIVE-DATA-SERVICE variables from service alias context
+- name: "Bulk load SENSITIVE-DATA-SERVICE variables from service alias context"
+  set_fact:
+    "{{ item.key }}": "{{ item.value }}"
+  loop: >-
+    {{ hostvars[service_aliases.get('sensitive-data-service', '')] | default({})
+       | dict2items
+       | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
+       | rejectattr('key', 'match', '^ansible_.*')
+       | rejectattr('key', 'in', system_vars_blacklist)
+       | list }}
+  loop_control:
+    label: "{{ item.key }}"
+  when: service_aliases.get('sensitive-data-service') is defined
+  tags:
+    - sensitive-data-service
+    - config
+    - bulk-load
+
+- name: Run sensitive-data-service configuration generation (config + data download)
+  include_role:
+    name: sensitive-data-service
+    apply:
+      tags:
+        - docker-compose
+  vars:
+    nginx_vhost_fast_mode: true
+    sensitive_data_user: "{{ docker_default_user }}"
+  when:
+    - "'sensitiveDataService' in services_enabled"
+    - "service_aliases.get('sensitive-data-service') is defined"
+  tags:
+    - sensitive-data-service
+    - config
+    - nginx_vhost
     - docker-compose
 
 - name: Ensure database init directories exist with correct permissions
@@ -1680,6 +1864,54 @@
   when: "'pipelines' in services_enabled"
   tags:
     - pipelines
+    - docker-compose
+
+- name: Generate logger-service.yml
+  template:
+    src: docker-compose/services/logger-service.yml.j2
+    dest: "{{ docker_compose_data_dir }}/services/logger-service.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'logger' in services_enabled"
+  tags:
+    - logger-service
+    - docker-compose
+
+- name: Generate image-service.yml
+  template:
+    src: docker-compose/services/image-service.yml.j2
+    dest: "{{ docker_compose_data_dir }}/services/image-service.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'images' in services_enabled"
+  tags:
+    - image-service
+    - docker-compose
+
+- name: Generate namematching-service.yml
+  template:
+    src: docker-compose/services/namematching-service.yml.j2
+    dest: "{{ docker_compose_data_dir }}/services/namematching-service.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'namematchingService' in services_enabled"
+  tags:
+    - namematching-service
+    - docker-compose
+
+- name: Generate sensitive-data-service.yml
+  template:
+    src: docker-compose/services/sensitive-data-service.yml.j2
+    dest: "{{ docker_compose_data_dir }}/services/sensitive-data-service.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'sensitiveDataService' in services_enabled"
+  tags:
+    - sensitive-data-service
     - docker-compose
 
 # Paths are now correctly set to dockerfiles/ in templates, no fix needed

@@ -72,6 +72,18 @@ include:
 {% if 'pipelines' in services_enabled %}
   - ./services/pipelines.yml
 {% endif %}
+{% if 'logger' in services_enabled %}
+  - ./services/logger-service.yml
+{% endif %}
+{% if 'images' in services_enabled %}
+  - ./services/image-service.yml
+{% endif %}
+{% if 'namematchingService' in services_enabled %}
+  - ./services/namematching-service.yml
+{% endif %}
+{% if 'sensitiveDataService' in services_enabled %}
+  - ./services/sensitive-data-service.yml
+{% endif %}
 {% if 'gatus' in all_groups %}
   - ./infrastructure/gatus.yml
 {% endif %}

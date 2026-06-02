@@ -140,9 +140,11 @@ biocache_hub_port: 8080
 biocache_service_port: 8080
 image_service_port: 8080
 logger_service_port: 8080
-namematching_service_port: 8080
+namematching_service_port: 9179
+namematching_admin_port: 9180
 doi_service_port: 8080
-sensitive_data_service_port: 8080
+sensitive_data_service_port: 9189
+sensitive_data_admin_port: 9190
 species_list_port: 8080
 
 # ============================================
@@ -172,6 +174,14 @@ species_list_docker_host: la_species-list
 biocache_hub: ala-hub
 grouped_facets_json: grouped_facets_ala.json
 biocache_hub_tomcat_server_address: "0.0.0.0"
+
+# Docker image tags for namematching/SDS servers. The inventory pins these vars
+# to Debian apt-package versions (e.g. 1.2-SNAPSHOT+0~...), which are INVALID as
+# Docker tags. The livingatlases/ala-{namematching,sensitive-data}-server images
+# only publish a `latest` tag, so default to that. Override per-inventory if a
+# real tag is ever published.
+namematching_docker_tag: "latest"
+sensitive_data_docker_tag: "latest"
 
 # ============================================
 # Services Configuration
@@ -223,8 +233,16 @@ gatus_interval: "1m"
 # ============================================
 
 # Use livingatlases/l-a-site-certs Docker image for demo SSL certs (l-a.site wildcard).
-# Set to false when using your own certificates mounted from ssl_certificate_server_dir.
-use_la_site_certs: true
+#
+# Decided upstream by generator-living-atlas: when the deployment domain (LA_domain)
+# is l-a.site or a subdomain, the generated inventory sets use_la_site_certs=true
+# (demo wildcard certs); for any other (real) domain it is false, and the deploy
+# must provide its own certs via ssl_certificate_server_dir / ssl_cert_file /
+# ssl_key_file. An explicit value in the toolkit/inventory always wins.
+#
+# la-compose performs NO domain detection; generate-compose.yml only normalises
+# this to a boolean with a false fallback for hand-written inventories that omit it.
+# use_la_site_certs: false
 ssl_certificate_server_dir: "/etc/letsencrypt/live"
 ssl_cert_file: "fullchain.pem"
 ssl_key_file: "privkey.pem"

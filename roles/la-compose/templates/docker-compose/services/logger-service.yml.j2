@@ -13,10 +13,16 @@ services:
       JAVA_OPTS: {{ logger_service_java_opts | default('-Xmx1g -Xms1g') }}
       SERVER_CONTEXT_PATH: {{ logger_context_path | default('/logger-service') }}
     volumes:
-      - {{ docker_compose_data_dir }}/logger/config:/data/logger/config
+      # Role writes config to {data_dir}/logger/config; image CMD reads /data/logger-service/config.
+      - {{ data_dir }}/logger/config:/data/logger-service/config
     networks:
       default: {}
       {{ docker_network | default('internal') }}:
+    # logger boots straight into a MySQL connection; without this gate it starts
+    # before la_mysql accepts connections and dies with "Connection refused".
+    depends_on:
+      mysql:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:{{ logger_service_port | default('8080') }}{{ logger_context_path | default('/logger-service') }}/status"]
       interval: 30s
