@@ -1048,7 +1048,7 @@
   synchronize:
     src: "{{ branding_source_path }}/"
     dest: "{{ docker_compose_data_dir }}/dockerfiles/branding/"
-    delete: no
+    delete: yes
     recursive: yes
     rsync_opts:
       - "--exclude=node_modules"

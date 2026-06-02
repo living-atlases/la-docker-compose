@@ -350,6 +350,14 @@ EOF
                     node -e "console.log('generator-living-atlas:', require('generator-living-atlas/package.json').version)"
                     node -e "console.log('generator-living-atlas path:', require.resolve('generator-living-atlas/package.json'))"
                     
+                    # Remove stale branding workspace so the republished (vite)
+                    # generator writes a pristine tree. --force overwrites files
+                    # the generator writes but never deletes ones it no longer
+                    # writes, so a brunch→vite switch would otherwise leave a
+                    # stale brunch-config.js / yarn.lock behind.
+                    echo "Cleaning stale branding workspace before replay..."
+                    rm -rf "${INVENTORY_PARENT_DIR}/lademo-branding"
+
                     echo "Running generator..."
                     node ./node_modules/yo/lib/cli.js living-atlas --replay-dont-ask --force
                     
