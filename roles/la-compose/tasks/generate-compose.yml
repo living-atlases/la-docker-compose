@@ -129,7 +129,7 @@
             {%- endif -%}
           {%- endfor -%}
           {%- set colocated = colo.val -%}
-          {%- set ip = hostvars[owner.host].ansible_host | default(owner.host) -%}
+          {%- set ip = hostvars[owner.host].ansible_default_ipv4.address | default(hostvars[owner.host].ansible_host) | default(owner.host) -%}
           {%- set _ = result.update({ds: {'owner': owner.host, 'colocated': colocated, 'ip': ip, 'port': spec.port, 'aliases': spec.aliases}}) -%}
         {%- endif -%}
       {%- endfor -%}
@@ -156,7 +156,7 @@
 
 - name: Derive cluster-wide datastore port publishing facts
   set_fact:
-    host_private_ip: "{{ hostvars[inventory_hostname].ansible_host | default(ansible_default_ipv4.address | default('0.0.0.0')) }}"
+    host_private_ip: "{{ ansible_default_ipv4.address | default(hostvars[inventory_hostname].ansible_host) | default('0.0.0.0') }}"
     publish_db_ports_clusterwide: "{{ (groups['docker_compose'] | default([]) | length | int) > 1 }}"
   tags:
     - always
