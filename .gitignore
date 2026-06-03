@@ -51,3 +51,6 @@ AGENTS.md
 
 # OpenCode session memory
 .opencode/memory/
+
+# Tabla de status de saneo de servicios (working file local)
+SERVICIOS-STATUS.md
