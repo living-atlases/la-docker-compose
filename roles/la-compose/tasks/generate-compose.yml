@@ -496,10 +496,27 @@
   tags:
     - docker-compose
 
-- name: Load nginx role defaults
+# Load nginx role defaults WITHOUT clobbering inventory-provided nginx_* vars.
+# A plain include_vars has higher precedence than inventory group_vars, so it
+# would override host customizations (nginx_other_log_formats, client_max_body_size,
+# rate limits, cache, ...). We namespace the defaults and only fill the gaps.
+- name: Load nginx role defaults (namespaced)
   include_vars:
     file: "{{ playbook_dir }}/../ala-install/ansible/roles/nginx/defaults/main.yml"
+    name: _nginx_role_defaults
   when: "'nginx' in services_enabled"
+  tags:
+    - docker-compose
+
+- name: Apply nginx defaults only where inventory did not provide a value
+  set_fact:
+    "{{ item.key }}": "{{ item.value }}"
+  loop: "{{ _nginx_role_defaults | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when:
+    - "'nginx' in services_enabled"
+    - item.key not in hostvars[inventory_hostname]
   tags:
     - docker-compose
 
