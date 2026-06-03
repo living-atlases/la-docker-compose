@@ -106,7 +106,7 @@
     driver: local
     docker_host: "{{ docker_socket }}"
     state: present
-  when: use_la_site_certs | default(false)
+  when: use_la_site_certs | default(false) | bool
   tags:
     - db-init
     - docker-volumes
