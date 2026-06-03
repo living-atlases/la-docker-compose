@@ -980,7 +980,7 @@
     # fails in Docker where ES is the separate `elasticsearch` container. Provide a
     # Docker default here (scoped to this role invocation, not a global fact).
     # `default()` keeps any inventory-provided value, so VM deploys are untouched.
-    elasticsearch_hosts: "{{ elasticsearch_hosts | default([{'host': 'elasticsearch', 'scheme': 'http', 'port': 9200}]) }}"
+    elasticsearch_hosts: "{{ hostvars[inventory_hostname].elasticsearch_hosts | default([{'host': 'elasticsearch', 'scheme': 'http', 'port': 9200}]) }}"
   when:
     - "'images' in services_enabled"
     - "service_aliases.get('image-service') is defined"
