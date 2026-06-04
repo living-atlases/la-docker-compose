@@ -12,6 +12,12 @@ services:
       TZ: {{ server_tz | default('UTC') }}
       JAVA_OPTS: {{ logger_service_java_opts | default('-Xmx1g -Xms1g') }}
       SERVER_CONTEXT_PATH: {{ logger_context_path | default('/logger-service') }}
+    # Image CMD hardcodes -Xmx2g (ignores JAVA_OPTS -> Exit 137 OOM) and
+    # -Dspring.config.name=application,application-local-config, which never loads
+    # the role-generated logger-config.properties -> datasource falls back to
+    # localhost -> "Connection refused". Override to honor JAVA_OPTS and add the
+    # logger-config name (mirrors image-service).
+    command: ["/bin/sh", "-c", "exec java $$JAVA_OPTS -Xss512k -Djava.awt.headless=true -Dlogging.config=/data/logger-service/config/logback.xml -Dspring.config.additional-location=/data/logger-service/config/ -Dspring.config.name=application,application-local-config,logger-config -jar /opt/atlas/$$APP_ARTIFACT/app.jar"]
     volumes:
       # Role writes config to {data_dir}/logger/config; image CMD reads /data/logger-service/config.
       - {{ data_dir }}/logger/config:/data/logger-service/config
@@ -23,8 +29,11 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+    # App serves at ROOT context (SERVER_CONTEXT_PATH is ignored by the image); nginx
+    # proxies /service/logger/* -> :8080/service/logger/*. /service/logger/reasons returns
+    # 200 only when the MySQL datasource is up, so it doubles as a DB-connectivity probe.
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:{{ logger_service_port | default('8080') }}{{ logger_context_path | default('/logger-service') }}/status"]
+      test: ["CMD", "curl", "-f", "http://localhost:{{ logger_service_port | default('8080') }}/service/logger/reasons"]
       interval: 30s
       timeout: 10s
       retries: 5

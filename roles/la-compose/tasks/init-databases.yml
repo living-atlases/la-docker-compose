@@ -301,6 +301,84 @@
     - db-init
     - db-password-sync
 
+# --- logger-service MySQL user ---
+# Same gap as specieslists: the mysql image never auto-creates this user, and
+# init-databases never provisioned it, so logger-service restart-loops with
+# "Access denied for user 'logger_user'@...". Provision idempotently.
+- name: "DB Init: Create/sync logger MySQL user and grants"
+  command: >
+    docker exec la_mysql mysql -u root -p{{ mysql_root_password }} -e "
+    CREATE DATABASE IF NOT EXISTS {{ logger_db_name | default('logger') }} CHARACTER SET utf8mb4;
+    CREATE USER IF NOT EXISTS '{{ logger_db_username | default('logger_user') }}'@'%' IDENTIFIED WITH mysql_native_password BY '{{ logger_db_password }}';
+    ALTER USER IF EXISTS '{{ logger_db_username | default('logger_user') }}'@'%' IDENTIFIED WITH mysql_native_password BY '{{ logger_db_password }}';
+    GRANT ALL PRIVILEGES ON {{ logger_db_name | default('logger') }}.* TO '{{ logger_db_username | default('logger_user') }}'@'%';
+    FLUSH PRIVILEGES;"
+  become: true
+  when: "'logger-service' in physical_server_groups"
+  changed_when: false
+  tags:
+    - db-init
+    - db-password-sync
+
+- name: "DB Init: Verify logger MySQL user can authenticate (closes FLUSH PRIVILEGES race)"
+  command: >
+    docker exec la_mysql mysql
+    -u {{ logger_db_username | default('logger_user') }}
+    -p{{ logger_db_password }}
+    -e "SELECT 1;"
+  register: logger_db_probe
+  retries: 10
+  delay: 2
+  until: logger_db_probe.rc == 0
+  become: true
+  when: "'logger-service' in physical_server_groups"
+  changed_when: false
+  no_log: true
+  tags:
+    - db-init
+    - db-password-sync
+
+# The logger app's Liquibase changeset 1 only does CREATE INDEX on log_event;
+# it assumes the base schema already exists (the VM role imports schema.sql).
+# In docker-local that import never ran, so Liquibase dies with
+# "Table 'logger.log_event' doesn't exist". Import schema + reference data once,
+# guarded on log_event absence so re-runs don't DROP/recreate (data loss).
+- name: "DB Init: Check whether logger schema is already loaded"
+  command: >
+    docker exec la_mysql mysql -u root -p{{ mysql_root_password }} -N -e
+    "SELECT COUNT(*) FROM information_schema.tables
+     WHERE table_schema='{{ logger_db_name | default('logger') }}' AND table_name='log_event';"
+  register: logger_schema_check
+  become: true
+  when: "'logger-service' in physical_server_groups"
+  changed_when: false
+  no_log: true
+  tags:
+    - db-init
+
+- name: "DB Init: Import logger schema, stored procs and reference data (first run only)"
+  shell: >
+    docker exec -i la_mysql mysql -u root -p{{ mysql_root_password }}
+    {{ logger_db_name | default('logger') }}
+    < "{{ playbook_dir }}/../ala-install/ansible/roles/logger-service/files/db/{{ item }}"
+  loop:
+    - schema.sql
+    - eventLogType.sql
+    - reasonLogType.sql
+    - sourceLogType.sql
+    - refresh_summary_breakdown_email.sql
+    - refresh_summary_breakdown_reason.sql
+    - refresh_summary_breakdown_source.sql
+    - refresh_summary_totals.sql
+    - update_breakdown_summary_information.sql
+  become: true
+  when:
+    - "'logger-service' in physical_server_groups"
+    - (logger_schema_check.stdout | default('1') | trim) == '0'
+  changed_when: true
+  tags:
+    - db-init
+
 # --- image-service PostgreSQL database + login role ---
 # postgres:16 only honours POSTGRES_DB/POSTGRES_USER on the *first* volume init,
 # so image-service's `images` DB + role never exist on an aged volume and Flyway

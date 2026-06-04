@@ -984,6 +984,9 @@
         - docker-compose
   vars:
     nginx_vhost_fast_mode: true
+    # docker-local: nginx must proxy to the app container, not 127.0.0.1 (which is
+    # nginx itself). Use the compose service-name alias (resolvable via docker DNS).
+    logger_service_upstream_host: "logger-service"
   when:
     - "'logger' in services_enabled"
     - "service_aliases.get('logger-service') is defined"
@@ -1075,6 +1078,9 @@
     nginx_vhost_fast_mode: true
     namematching_user: "{{ docker_default_user }}"
     namematching_search_config_dir: /data/ala-namematching-server/config
+    # docker-local: nginx proxies to the app container via the compose service-name
+    # alias (docker DNS), not 127.0.0.1 (which is nginx itself).
+    namematching_service_upstream_host: "namematching-service"
   when:
     - "'namematchingService' in services_enabled"
     - "service_aliases.get('namematching-service') is defined"
