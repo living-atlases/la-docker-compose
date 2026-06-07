@@ -139,6 +139,28 @@
          else ('postfix' if (not (docker_mail_development_mode | default(false) | bool) and
          mail_smtp_host | default('localhost') in ['localhost', '127.0.0.1'])
          else mail_smtp_host | default('postfix')) }}
+    # grails-mail convention (userdetails, merit, ecodata, biocollect, webapi,
+    # logger). Resolved here in setup-facts so the value exists before the
+    # userdetails role is rendered by generate-compose. dev → mailhog:1025,
+    # external inventory host → kept as-is, otherwise → postfix:25.
+    mail_host: >-
+      {{ 'mailhog' if (docker_mail_development_mode | default(false) | bool and
+         mail_host | default('localhost') in ['localhost', '127.0.0.1'])
+         else ('postfix' if (not (docker_mail_development_mode | default(false) | bool) and
+         mail_host | default('localhost') in ['localhost', '127.0.0.1'])
+         else mail_host | default('postfix')) }}
+    mail_port: >-
+      {{ 1025 if (docker_mail_development_mode | default(false) | bool and
+         mail_host | default('localhost') in ['localhost', '127.0.0.1'])
+         else (25 if (not (docker_mail_development_mode | default(false) | bool) and
+         mail_host | default('localhost') in ['localhost', '127.0.0.1'])
+         else (mail_port | default(mail_smtp_port) | default(25))) }}
+    mail_smtp_port: >-
+      {{ 1025 if (docker_mail_development_mode | default(false) | bool and
+         mail_smtp_host | default('localhost') in ['localhost', '127.0.0.1'])
+         else (25 if (not (docker_mail_development_mode | default(false) | bool) and
+         mail_smtp_host | default('localhost') in ['localhost', '127.0.0.1'])
+         else (mail_smtp_port | default(mail_port) | default(25))) }}
   tags:
     - always
     - docker-compose

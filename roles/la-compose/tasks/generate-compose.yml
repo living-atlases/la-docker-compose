@@ -1521,23 +1521,49 @@
   tags:
     - mail
 
-- name: Set mail configuration variables when docker_mail_development_mode is enabled
+# Single source of truth for mail host/port resolution. Fixes both naming
+# conventions at once: mail_host/mail_port (grails-mail: userdetails, merit,
+# ecodata, biocollect, webapi, logger) and mail_smtp_host/mail_smtp_port
+# (biocache mail.smtp.*). Runs after all normalize-hostnames includes, so it is
+# the final word and nothing downstream clobbers it.
+- name: Set mail configuration variables (development mode → mailhog)
   set_fact:
     docker_mail_development_url: "{{ docker_mail_development_url | default('mailhog.l-a.site') }}"
     mail_smtp_host: mailhog
     mail_smtp_port: 1025
     mail_http_port: 8025
     mail_host: mailhog
+    mail_port: 1025
   when: docker_mail_development_mode | default(false) | bool
   tags:
     - mail
 
-- name: Set mail configuration variables when docker_mail_development_mode is disabled
+# Production with an external SMTP server declared in the inventory: keep the
+# inventory host/port instead of forcing postfix.
+- name: Set mail configuration variables (production, external SMTP from inventory)
+  set_fact:
+    mail_host: "{{ mail_host if (mail_host | default('localhost') not in ['localhost', '127.0.0.1']) else mail_smtp_host }}"
+    mail_smtp_host: "{{ mail_smtp_host if (mail_smtp_host | default('localhost') not in ['localhost', '127.0.0.1']) else mail_host }}"
+    mail_port: "{{ mail_port | default(mail_smtp_port) | default(25) }}"
+    mail_smtp_port: "{{ mail_smtp_port | default(mail_port) | default(25) }}"
+  when:
+    - not (docker_mail_development_mode | default(false) | bool)
+    - (mail_host | default('localhost')) not in ['localhost', '127.0.0.1']
+      or (mail_smtp_host | default('localhost')) not in ['localhost', '127.0.0.1']
+  tags:
+    - mail
+
+# Production with no external SMTP server: relay through the postfix container.
+- name: Set mail configuration variables (production, default postfix relay)
   set_fact:
     mail_smtp_host: postfix
     mail_smtp_port: 25
     mail_host: postfix
-  when: not (docker_mail_development_mode | default(false) | bool)
+    mail_port: 25
+  when:
+    - not (docker_mail_development_mode | default(false) | bool)
+    - (mail_host | default('localhost')) in ['localhost', '127.0.0.1']
+    - (mail_smtp_host | default('localhost')) in ['localhost', '127.0.0.1']
   tags:
     - mail
 
