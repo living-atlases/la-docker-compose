@@ -193,6 +193,10 @@ EOF
                     echo "Initializing ala-install submodule..."
                     git submodule update --init --remote ala-install
                     echo "ala-install submodule SHA: \$(git -C ala-install rev-parse HEAD)"
+                    # Disable sparse checkout in case it was left active from a prior build
+                    git -C ala-install config core.sparseCheckout false 2>/dev/null || true
+                    git -C ala-install read-tree -mu HEAD 2>/dev/null || true
+                    echo "ala-install SQL files present: \$(ls ala-install/ansible/roles/logger-service/files/db/*.sql 2>/dev/null | wc -l || echo 0)"
                     
                     echo "Setting up Python virtual environment for Ansible..."
                     if [ ! -d "${VENV_DIR}" ]; then
