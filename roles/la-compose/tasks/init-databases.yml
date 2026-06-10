@@ -2,6 +2,21 @@
 # Database Initialization Tasks
 # Called from main.yml before starting all Docker Compose services
 
+- name: "DB Init: Define logger SQL files to import (first-run schema/reference data)"
+  set_fact:
+    logger_db_sql_files:
+      - schema.sql
+      - eventLogType.sql
+      - reasonLogType.sql
+      - sourceLogType.sql
+      - refresh_summary_breakdown_email.sql
+      - refresh_summary_breakdown_reason.sql
+      - refresh_summary_breakdown_source.sql
+      - refresh_summary_totals.sql
+      - update_breakdown_summary_information.sql
+  tags:
+    - db-init
+
 - name: "DB Init: Load CAS variables for database configuration"
   include_vars:
     file: "{{ playbook_dir }}/../ala-install/ansible/roles/cas5/vars/main.yml"
@@ -356,21 +371,29 @@
   tags:
     - db-init
 
+# The docker exec `< file` redirect is interpreted by the shell on the *target*
+# host, not on the Ansible controller. {{ playbook_dir }} is a controller-side
+# path that does not exist on remote managed nodes, so we must first push the
+# SQL files to the target with `copy` (mirrors the upstream VM logger-service
+# role), then import from the now-local /tmp path.
+- name: "DB Init: Stage logger SQL files on target host (first run only)"
+  copy:
+    src: "{{ playbook_dir }}/../ala-install/ansible/roles/logger-service/files/db/{{ item }}"
+    dest: "/tmp/logger-{{ item }}"
+  loop: "{{ logger_db_sql_files }}"
+  become: true
+  when:
+    - "'logger-service' in physical_server_groups"
+    - (logger_schema_check.stdout | default('1') | trim) == '0'
+  tags:
+    - db-init
+
 - name: "DB Init: Import logger schema, stored procs and reference data (first run only)"
   shell: >
     docker exec -i la_mysql mysql -u root -p{{ mysql_root_password }}
     {{ logger_db_name | default('logger') }}
-    < "{{ playbook_dir }}/../ala-install/ansible/roles/logger-service/files/db/{{ item }}"
-  loop:
-    - schema.sql
-    - eventLogType.sql
-    - reasonLogType.sql
-    - sourceLogType.sql
-    - refresh_summary_breakdown_email.sql
-    - refresh_summary_breakdown_reason.sql
-    - refresh_summary_breakdown_source.sql
-    - refresh_summary_totals.sql
-    - update_breakdown_summary_information.sql
+    < "/tmp/logger-{{ item }}"
+  loop: "{{ logger_db_sql_files }}"
   become: true
   when:
     - "'logger-service' in physical_server_groups"
