@@ -140,6 +140,34 @@
       tags:
         - docker-compose
 
+    # Container-mode config provisioning. The upstream ALA roles (biocache-hub,
+    # logger-service, ...) only create /data/<svc>/config and chown it on their VM
+    # code paths (when: exec_jar / not exec_jar) and copy config files without an
+    # owner. In container mode the JVM runs as uid/gid 1000, so on a clean host
+    # either the dir is missing (ala-hub: "Config data location '/data/ala-hub/
+    # config/' does not exist") or the files are root-owned (logger:
+    # "logback.xml (Permission denied)"). Single-host hides it because /data is
+    # pre-populated from prior runs. Ensure the config trees exist and are owned by
+    # the container uid on the host that actually runs the container (gated per-host
+    # via services_enabled). recurse:true both creates the dir and fixes root-owned
+    # files copied by the upstream role. Idempotent; ala-install untouched.
+    - name: "Ensure container-mode service config dirs exist and are owned by container uid"
+      file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: "{{ docker_container_uid }}"
+        group: "{{ docker_container_gid }}"
+        recurse: true
+      become: true
+      loop:
+        - { svc: 'ala_hub', path: "{{ data_dir }}/ala-hub/config" }
+        - { svc: 'logger', path: "{{ data_dir }}/logger/config" }
+      when: item.svc in services_enabled
+      loop_control:
+        label: "{{ item.path }}"
+      tags:
+        - docker-compose
+
     - name: "LAYER 2: Pre-deployment validation"
       include_tasks: validate-pre-deploy.yml
       when: auto_deploy | default(true) | bool
