@@ -160,8 +160,24 @@
         recurse: true
       become: true
       loop:
-        - { svc: 'ala_hub', path: "{{ data_dir }}/ala-hub/config" }
-        - { svc: 'logger', path: "{{ data_dir }}/logger/config" }
+        - { svc: 'cas',                  path: "{{ data_dir }}/cas/config" }
+        - { svc: 'userdetails',          path: "{{ data_dir }}/userdetails/config" }
+        - { svc: 'apikey',               path: "{{ data_dir }}/apikey/config" }
+        - { svc: 'cas_management',       path: "{{ data_dir }}/cas-management/config" }
+        - { svc: 'collectory',           path: "{{ collectory_data_dir | default(data_dir + '/collectory') }}/config" }
+        - { svc: 'species_lists',        path: "{{ data_dir }}/specieslist-webapp/config" }
+        - { svc: 'ala_bie',              path: "{{ data_dir }}/{{ bie_hub | default('generic-bie') }}/config" }
+        - { svc: 'bie_index',            path: "{{ data_dir }}/bie-index/config" }
+        - { svc: 'ala_hub',              path: "{{ data_dir }}/{{ biocache_hub | default('ala-hub') }}/config" }
+        - { svc: 'biocache_service',     path: "{{ data_dir }}/biocache/config" }
+        - { svc: 'logger',               path: "{{ data_dir }}/logger/config" }
+        - { svc: 'images',               path: "{{ data_dir }}/image-service/config" }
+        - { svc: 'namematchingService',  path: "{{ data_dir }}/ala-namematching-server/config" }
+        - { svc: 'sensitiveDataService', path: "{{ data_dir }}/ala-sensitive-data-server/config" }
+        # Future services — no-ops until added to generate-compose.yml
+        - { svc: 'spatial',              path: "{{ data_dir }}/spatial-hub/config" }
+        - { svc: 'spatialService',       path: "{{ data_dir }}/spatial-service/config" }
+        - { svc: 'sds',                  path: "{{ data_dir }}/sds/config" }
       when: item.svc in services_enabled
       loop_control:
         label: "{{ item.path }}"

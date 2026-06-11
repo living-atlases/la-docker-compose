@@ -54,3 +54,6 @@ AGENTS.md
 
 # Tabla de status de saneo de servicios (working file local)
 SERVICIOS-STATUS.md
+
+# Nested git repos (branding assets, not tracked)
+inventories/testing/lademo-branding/commonui-bs3-2019/

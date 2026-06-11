@@ -678,6 +678,7 @@
 - name: Run cas configuration generation
   include_role:
     name: cas5
+  become: true
   when:
     - "'cas' in services_enabled"
     - "service_aliases.get('cas-servers') is defined"
@@ -690,6 +691,7 @@
 - name: Run userdetails configuration generation
   include_role:
     name: userdetails
+  become: true
   when:
     - "'userdetails' in services_enabled"
     - "service_aliases.get('cas-servers') is defined"
@@ -701,6 +703,7 @@
 - name: Run apikey configuration generation
   include_role:
     name: apikey
+  become: true
   when:
     - "'apikey' in services_enabled"
     - "service_aliases.get('cas-servers') is defined"
@@ -712,6 +715,7 @@
 - name: Run cas-management configuration generation
   include_role:
     name: cas-management
+  become: true
   when:
     - "'cas_management' in services_enabled"
     - "service_aliases.get('cas-servers') is defined"
@@ -772,6 +776,7 @@
 - name: Run collectory configuration generation (asset copy, config templates)
   include_role:
     name: collectory
+  become: true
   vars:
     nginx_vhost_fast_mode: true
   when:
@@ -813,6 +818,7 @@
 - name: Run species-list configuration generation (asset copy, config templates)
   include_role:
     name: species-list
+  become: true
   vars:
     nginx_vhost_fast_mode: true
   when:
@@ -845,6 +851,7 @@
 - name: Run bie-hub configuration generation
   include_role:
     name: bie-hub
+  become: true
   vars:
     bie_hub_docker_host: la_bie-hub
     nginx_vhost_fast_mode: true
@@ -878,6 +885,7 @@
 - name: Run bie-index configuration generation
   include_role:
     name: bie-index
+  become: true
   vars:
     bie_index_docker_host: la_bie-index
     nginx_vhost_fast_mode: false  # bie-index has is_websocket paths; fast_mode skips the map directive
@@ -911,6 +919,7 @@
 - name: Run biocache-hub configuration generation
   include_role:
     name: biocache-hub
+  become: true
   vars:
     biocache_hub_docker_host: la_biocache-hub
     nginx_vhost_fast_mode: true
@@ -952,6 +961,7 @@
 - name: Run biocache-service properties generation
   include_role:
     name: biocache3-properties
+  become: true
   vars:
     biocache_service_docker_host: la_biocache-service
     biocache_db_host: la_cassandra
@@ -968,6 +978,7 @@
 - name: Run biocache-service configuration generation
   include_role:
     name: biocache3-service
+  become: true
   vars:
     biocache_service_docker_host: la_biocache-service
     biocache_db_host: la_cassandra
@@ -1013,6 +1024,7 @@
     apply:
       tags:
         - docker-compose
+  become: true
   vars:
     nginx_vhost_fast_mode: true
     # docker-local: nginx must proxy to the app container, not 127.0.0.1 (which is
@@ -1060,6 +1072,7 @@
     apply:
       tags:
         - docker-compose
+  become: true
   vars:
     nginx_vhost_fast_mode: true
     image_user: "{{ docker_default_user }}"
@@ -1105,6 +1118,7 @@
     apply:
       tags:
         - docker-compose
+  become: true
   vars:
     nginx_vhost_fast_mode: true
     namematching_user: "{{ docker_default_user }}"
@@ -1146,6 +1160,7 @@
     apply:
       tags:
         - docker-compose
+  become: true
   vars:
     nginx_vhost_fast_mode: true
     sensitive_data_user: "{{ docker_default_user }}"
