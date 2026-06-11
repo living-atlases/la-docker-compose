@@ -258,6 +258,9 @@
                 echo
                 echo "---- $c ----"
                 echo "State: $(docker inspect --format '{{ '{{' }}.State.Status{{ '}}' }} exit={{ '{{' }}.State.ExitCode{{ '}}' }} health={{ '{{' }}if .State.Health{{ '}}' }}{{ '{{' }}.State.Health.Status{{ '}}' }}{{ '{{' }}else{{ '}}' }}none{{ '{{' }}end{{ '}}' }}' "$c" 2>/dev/null)"
+                # Healthcheck probe output (e.g. `nginx -t` failures) lives here, NOT in docker logs
+                echo "-- healthcheck probe output (last attempts) --"
+                docker inspect --format '{{ '{{' }}if .State.Health{{ '}}' }}{{ '{{' }}range .State.Health.Log{{ '}}' }}{{ '{{' }}.Output{{ '}}' }}{{ '{{' }}end{{ '}}' }}{{ '{{' }}else{{ '}}' }}(no healthcheck defined){{ '{{' }}end{{ '}}' }}' "$c" 2>/dev/null
                 echo "-- last 100 log lines --"
                 docker logs --tail 100 "$c" 2>&1
               } >> "$FULL"
@@ -268,14 +271,23 @@
               echo "Root-cause candidates per non-healthy container:"
               echo "  (full log: /tmp/la-docker-deploy-failure.log)"
               echo
+              # Scan both docker logs (Java/app errors) AND the healthcheck probe output
+              # (nginx -t / curl failures surface only in .State.Health.Log, never in logs).
+              RC_PATTERN='Caused by:|FATAL|Public Key Retrieval|UnableToConnect|Connection refused|ERROR \[|panic:|level=fatal|nginx:|host not found in upstream|cannot load certificate|\[emerg\]|\[error\]|\[crit\]|bind\(\) to|unhealthy|no such file or directory'
               for c in $NON_HEALTHY; do
-                FIRST=$(docker logs "$c" 2>&1 \
-                  | grep -m1 -E 'Caused by:|FATAL|Public Key Retrieval|UnableToConnect|Connection refused|ERROR \[|panic:|level=fatal')
+                HC=$(docker inspect --format '{{ '{{' }}if .State.Health{{ '}}' }}{{ '{{' }}range .State.Health.Log{{ '}}' }}{{ '{{' }}.Output{{ '}}' }}{{ '{{' }}end{{ '}}' }}{{ '{{' }}end{{ '}}' }}' "$c" 2>/dev/null)
+                FIRST=$( { docker logs "$c" 2>&1; echo "$HC"; } \
+                  | grep -m1 -E "$RC_PATTERN")
                 [ -n "$FIRST" ] && echo "[$c] $FIRST"
               done
             } > "$ROOT"
 
             cat "$ROOT"
+            # Surface the full diagnostic to the Ansible/Jenkins console: the file lives on
+            # the remote host and was previously invisible to CI. Bounded tail keeps it readable.
+            echo
+            echo "==== tail -n 200 of full diagnostic ($FULL) ===="
+            tail -n 200 "$FULL"
           args:
             chdir: "{{ docker_compose_data_dir }}"
             executable: /bin/bash
