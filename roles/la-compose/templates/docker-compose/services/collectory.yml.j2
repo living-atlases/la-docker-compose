@@ -20,16 +20,23 @@ services:
     networks:
       default: {}
       {{ docker_network | default('internal') }}:
+{# depends_on only resolves services in THIS host's compose. Gate each dep by
+   co-location (mysql remote => omit; cas* already per-host via services_enabled)
+   and wrap the whole block so it is never emitted empty. #}
+{% set _i18n_dep = (i18n.enabled and i18n.strategy == 'volume' and i18n.volume.source == 'init-container') %}
+{% set _mysql_local = datastore_endpoints.get('mysql', {}).get('colocated', false) %}
+{% set _cas_local = ('cas' in services_enabled) %}
+{% if _i18n_dep or _mysql_local or _cas_local %}
     depends_on:
-{% if i18n.enabled and i18n.strategy == 'volume' and i18n.volume.source == 'init-container' %}
+{% if _i18n_dep %}
       i18n-init:
         condition: service_completed_successfully
 {% endif %}
-{% if enable_mysql | default(false) | bool %}
+{% if _mysql_local %}
       mysql:
         condition: service_healthy
 {% endif %}
-{% if 'cas' in services_enabled %}
+{% if _cas_local %}
       cas:
         condition: service_healthy
       userdetails:
@@ -38,6 +45,7 @@ services:
         condition: service_healthy
       cas-management:
         condition: service_healthy
+{% endif %}
 {% endif %}
     healthcheck:
       # No tiene /actuator/health activado. La home (/) da 500 por un NPE de messageSource

@@ -22,11 +22,11 @@ services:
       i18n-init:
         condition: service_completed_successfully
 {% endif %}
-{% if enable_mysql | default(false) | bool %}
+{% if datastore_endpoints.get('mysql', {}).get('colocated', false) %}
       mysql:
         condition: service_healthy
 {% endif %}
-{% if enable_mongo | default(false) | bool %}
+{% if datastore_endpoints.get('mongodb', {}).get('colocated', false) %}
       mongodb:
         condition: service_healthy
 {% endif %}

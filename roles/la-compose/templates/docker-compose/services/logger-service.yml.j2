@@ -26,9 +26,13 @@ services:
       {{ docker_network | default('internal') }}:
     # logger boots straight into a MySQL connection; without this gate it starts
     # before la_mysql accepts connections and dies with "Connection refused".
+    # Only when mysql is co-located on this host: a remote mysql is not in this
+    # compose file, so the gate would abort the up; remote => omit, converge by retry.
+{% if datastore_endpoints.get('mysql', {}).get('colocated', false) %}
     depends_on:
       mysql:
         condition: service_healthy
+{% endif %}
     # App serves at ROOT context (SERVER_CONTEXT_PATH is ignored by the image); nginx
     # proxies /service/logger/* -> :8080/service/logger/*. /service/logger/reasons returns
     # 200 only when the MySQL datasource is up, so it doubles as a DB-connectivity probe.

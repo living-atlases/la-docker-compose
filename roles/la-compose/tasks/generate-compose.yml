@@ -99,13 +99,17 @@
         port: 2181
         aliases: ['zookeeper', 'la_zookeeper']
       mysql:
-        groups: ['cas-servers', 'collectory', 'species-list', 'logger-service', 'alerts-service']
+        groups: ['mysql', 'cas-servers', 'collectory', 'species-list', 'logger-service', 'alerts-service']
         port: 3306
         aliases: ['mysql', 'la_mysql']
       postgres:
-        groups: ['spatial', 'image-service', 'doi-service', 'data_quality_filter_service']
+        groups: ['postgres', 'spatial', 'image-service', 'doi-service', 'data_quality_filter_service']
         port: 5432
         aliases: ['postgres', 'la_postgres']
+      mongodb:
+        groups: ['mongo', 'mongodb', 'cas-servers', 'ecodata']
+        port: 27017
+        aliases: ['mongodb', 'la_mongodb']
   tags:
     - always
     - docker-compose
