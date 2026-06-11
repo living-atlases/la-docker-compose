@@ -563,6 +563,33 @@
   tags:
     - docker-compose
 
+# nginx.conf is rendered in the general (docker_compose host) scope, which does NOT
+# bulk-load per-service-group vars. So `nginx_other_log_formats` defined under a service
+# group (e.g. [logger-service:vars] sets it to ["postdata '$request_body'"]) never reaches
+# this render and the previous task fills it with the role default []. Meanwhile the logger
+# vhost — rendered with the logger-service alias context — emits `access_log ... postdata`,
+# which references a log_format that nginx.conf never defines => nginx: [emerg] unknown log
+# format "postdata" => nginx crash-loops => cas (depends_on nginx healthy) never starts.
+# Fix: union nginx_other_log_formats across every group co-located on this physical server
+# (same ansible_host), mirroring physical_server_groups detection in setup-facts.yml.
+- name: Collect nginx_other_log_formats from co-located service groups
+  set_fact:
+    nginx_other_log_formats: >-
+      {%- set result = [] -%}
+      {%- for host in groups['all'] -%}
+        {%- if hostvars[host].get('ansible_host', host) == hostvars[inventory_hostname].get('ansible_host', inventory_hostname) -%}
+          {%- for fmt in hostvars[host].get('nginx_other_log_formats', []) -%}
+            {%- if fmt not in result -%}
+              {%- set _ = result.append(fmt) -%}
+            {%- endif -%}
+          {%- endfor -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ result }}
+  when: "'nginx' in services_enabled"
+  tags:
+    - docker-compose
+
 - name: Generate nginx.conf
   template:
     src: "{{ playbook_dir }}/../ala-install/ansible/roles/nginx/templates/nginx.conf.j2"
