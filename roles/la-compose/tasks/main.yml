@@ -273,7 +273,9 @@
               echo
               # Scan both docker logs (Java/app errors) AND the healthcheck probe output
               # (nginx -t / curl failures surface only in .State.Health.Log, never in logs).
-              RC_PATTERN='Caused by:|FATAL|Public Key Retrieval|UnableToConnect|Connection refused|ERROR \[|panic:|level=fatal|nginx:|host not found in upstream|cannot load certificate|\[emerg\]|\[error\]|\[crit\]|bind\(\) to|unhealthy|no such file or directory'
+              # NOTE: do NOT match a bare `nginx:` — it also matches benign `nginx: [warn]`
+              # lines and grep -m1 would mask the real `[emerg]` fatal behind a warning.
+              RC_PATTERN='Caused by:|FATAL|Public Key Retrieval|UnableToConnect|Connection refused|ERROR \[|panic:|level=fatal|host not found in upstream|cannot load certificate|\[emerg\]|\[error\]|\[crit\]|bind\(\) to|no such file or directory'
               for c in $NON_HEALTHY; do
                 HC=$(docker inspect --format '{{ '{{' }}if .State.Health{{ '}}' }}{{ '{{' }}range .State.Health.Log{{ '}}' }}{{ '{{' }}.Output{{ '}}' }}{{ '{{' }}end{{ '}}' }}{{ '{{' }}end{{ '}}' }}' "$c" 2>/dev/null)
                 FIRST=$( { docker logs "$c" 2>&1; echo "$HC"; } \
