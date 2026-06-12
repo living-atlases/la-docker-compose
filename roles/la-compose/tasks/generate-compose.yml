@@ -1175,6 +1175,11 @@
   vars:
     nginx_vhost_fast_mode: true
     sensitive_data_user: "{{ docker_default_user }}"
+    # The nameindex is downloaded and mounted at .../namematching-nm (matching
+    # namematching-service). Upstream SDS templates still use namematching-{{ nameindex_datestamp }}.
+    # Override here so both SDS configs resolve to the real container path.
+    # VM deploys never go through this block, so they keep their datestamped dirs.
+    nameindex_datestamp: nm
   when:
     - "'sensitiveDataService' in services_enabled"
     - "service_aliases.get('sensitive-data-service') is defined"
