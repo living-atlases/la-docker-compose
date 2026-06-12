@@ -81,9 +81,7 @@ include:
 {% if 'namematchingService' in services_enabled %}
   - ./services/namematching-service.yml
 {% endif %}
-{# SDS parked: upstream image is broken (crash-loop) and would fail the post-deploy
-   health check. Gate on deploy_sensitive_data_service (default false) until fixed. #}
-{% if 'sensitiveDataService' in services_enabled and deploy_sensitive_data_service | default(false) | bool %}
+{% if 'sensitiveDataService' in services_enabled %}
   - ./services/sensitive-data-service.yml
 {% endif %}
 {% if 'gatus' in all_groups %}

@@ -194,14 +194,6 @@ biocache_hub_tomcat_server_address: "0.0.0.0"
 namematching_docker_tag: "latest"
 sensitive_data_docker_tag: "latest"
 
-# The livingatlases/ala-sensitive-data-server:latest image is currently BROKEN:
-# it ships a thin jar without /lib/ dependencies => the container crash-loops with
-# NoClassDefFoundError: io/dropwizard/Application. A crash-looping SDS fails the
-# post-deploy health check (validate-post-deploy.yml) and blocks the whole build,
-# even though nothing depends_on SDS. Park it (omit from the compose include) until
-# upstream publishes a working image; flip to true to re-enable. See TODO.org.
-deploy_sensitive_data_service: false
-
 # ============================================
 # Services Configuration
 # ============================================
