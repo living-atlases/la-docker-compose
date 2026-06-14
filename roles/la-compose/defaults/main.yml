@@ -239,6 +239,12 @@ monitoring_enabled: false
 # Gatus health-check interval (default 5m in upstream role; tightened for docker-compose dev)
 gatus_interval: "1m"
 
+# Post-deploy health gate timeout (seconds). validate-post-deploy.yml passes this
+# to wait-for-health.sh --timeout. Raised from 300 to accommodate cassandra cold-start:
+# start_period 120s + schema load (la_cassandra_init cqlsh) + biocache-service retry
+# all need to fit within this window on a clean host.
+health_check_timeout: 480
+
 # ============================================
 # SSL / Certificates
 # ============================================

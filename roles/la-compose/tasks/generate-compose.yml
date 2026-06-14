@@ -932,9 +932,7 @@
   vars:
     biocache_hub_docker_host: la_biocache-hub
     nginx_vhost_fast_mode: true
-  when:
-    - "'ala_hub' in services_enabled"
-    - "service_aliases.get('biocache-hub') is defined"
+  when: "'ala_hub' in services_enabled"
   tags:
     - biocache-hub
     - config
@@ -1831,28 +1829,47 @@
 
 # Collect every FQDN that gatus monitors and add it as a docker-network alias on the
 # nginx container, so checks done from inside the docker network resolve to nginx.
-- name: Find gatus endpoint files to extract monitored hostnames
+# IMPORTANT: gatus runs on ONE host; only that host's nginx needs the aliases.
+# Gated to 'gatus' in services_enabled so it runs only on the gatus host (where
+# the *-http.yaml files are local). On other hosts this block is skipped and
+# nginx_docker_internal_aliases stays empty (correct — those nginx instances do
+# not need internal aliases for gatus checks).
+# slurp reads from the remote target (gatus host), not the controller, unlike
+# lookup('file') which caused FATAL on hosts where the files don't exist.
+- name: Find gatus endpoint files (only on the gatus host where they live)
   find:
-    paths: "{{ docker_compose_data_dir }}/gatus/config"
+    paths: "{{ gatus_config_dir | default(docker_compose_data_dir + '/gatus/config') }}"
     patterns: "*-http.yaml"
   register: gatus_endpoint_files
-  when: groups['gatus'] is defined and groups['gatus'] | length > 0
+  when: "'gatus' in services_enabled"
   tags:
     - docker-compose
     - nginx
 
-- name: Extract hostnames from gatus endpoint files
-  set_fact:
-    nginx_docker_internal_aliases: >-
-      {{ nginx_docker_internal_aliases | default([])
-         | union([((lookup('file', item.path) | from_yaml).endpoints | first).group])
-         | unique }}
+- name: Slurp gatus endpoint files (local to the gatus host)
+  slurp:
+    src: "{{ item.path }}"
+  register: gatus_endpoint_blobs
   loop: "{{ gatus_endpoint_files.files | default([]) }}"
   loop_control:
     label: "{{ item.path | basename }}"
   when:
-    - gatus_endpoint_files.files is defined
-    - gatus_endpoint_files.files | length > 0
+    - "'gatus' in services_enabled"
+    - gatus_endpoint_files.files | default([]) | length > 0
+  tags:
+    - docker-compose
+    - nginx
+
+- name: Extract monitored hostnames into nginx_docker_internal_aliases
+  set_fact:
+    nginx_docker_internal_aliases: >-
+      {{ nginx_docker_internal_aliases | default([])
+         | union([((item.content | b64decode | from_yaml).endpoints | first).group])
+         | unique }}
+  loop: "{{ gatus_endpoint_blobs.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.path | basename }}"
+  when: gatus_endpoint_blobs.results is defined
   tags:
     - docker-compose
     - nginx
