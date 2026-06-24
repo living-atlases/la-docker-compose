@@ -784,9 +784,12 @@
       become: true
   vars:
     nginx_vhost_fast_mode: true
+  # Gate solo por services_enabled (derivado de physical_server_groups = co-ubicación).
+  # El gate extra service_aliases.get('collectory') era asimétrico: si el alias no
+  # casaba el regex pero el servicio estaba enabled, se saltaba la generación de config
+  # -> "Config data location does not exist" en deploy. Mismo fix que biocache-hub (29787e8).
   when:
     - "'collectory' in services_enabled"
-    - "service_aliases.get('collectory') is defined"
   tags:
     - collectory
     - config
@@ -827,9 +830,10 @@
       become: true
   vars:
     nginx_vhost_fast_mode: true
+  # Gate solo por services_enabled (ver nota en collectory). El gate extra
+  # service_aliases.get('species-list') era asimétrico -> config no generada en deploy.
   when:
     - "'species_lists' in services_enabled"
-    - "service_aliases.get('species-list') is defined"
   tags:
     - species-list
     - config

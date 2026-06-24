@@ -38,6 +38,9 @@ inventories/dev/hosts
 # Copy from la-toolkit or generate with: yo living-atlas --replay-dont-ask --force
 inventories/testing/*-passwords.ini
 inventories/testing/*-local-passwords.ini
+# Recursivo: cubre fixtures anidados como lademo-multihost/lademo-inventories/
+inventories/testing/**/*-passwords.ini
+inventories/testing/**/*-local-passwords.ini
 CLAUDE.md
 docs
 AUDIT_REPORT.md

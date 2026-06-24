@@ -13,7 +13,10 @@ services:
        - "{{ data_dir }}/lucene/namematching-nm:/data/lucene/namematching-nm:ro"
        - "{{ data_dir }}/sds:/data/sds:ro"
        - "{{ data_dir }}/biocache/layers:/data/biocache/layers:ro"
-       - "{{ data_dir }}/ala-sensitive-data-service/config:/data/ala-sensitive-data-server/config:ro"
+       # El contenedor lee la config en .../ala-sensitive-data-service/config (la app dropwizard
+       # falla con FileNotFoundException si se monta en .../ala-sensitive-data-server/config).
+       # La imagen se llama -server pero el path de config que espera es -service.
+       - "{{ data_dir }}/ala-sensitive-data-service/config:/data/ala-sensitive-data-service/config:ro"
      networks:
        default: {}
        {{ docker_network | default('internal') }}:
