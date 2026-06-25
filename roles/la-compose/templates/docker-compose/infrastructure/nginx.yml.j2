@@ -81,6 +81,14 @@ services:
       # Mount srv directory only if no branding (branding uses volume instead)
       - ../srv:/srv:ro
 {% endif %}
+{% set sds_serving_groups = group_names | union(physical_server_groups | default([])) %}
+{% if 'sds-static-home' in sds_serving_groups or 'sensitive-data-service' in sds_serving_groups %}
+      # SDS XML files (sensitive-species-data.xml, sensitivity-*.xml) are served as
+      # static aliases by the sds.<domain> / sensitive-data-service vhosts, so nginx
+      # itself needs read access to them ({{ data_dir }}/sds is otherwise mounted only
+      # into the sensitive-data-service container).
+      - "{{ data_dir }}/sds:{{ data_dir }}/sds:ro"
+{% endif %}
 {% if use_la_site_certs %}
       - la-site-certs:/etc/letsencrypt/live:ro
 {% else %}
