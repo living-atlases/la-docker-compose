@@ -85,6 +85,37 @@
               changed_when: false
               ignore_errors: true
 
+            - name: Validate biocache-service dependencies (Solr/ZooKeeper/Cassandra/HTTP)
+              # biocache-service is the usual last-unhealthy service: its /index/fields
+              # healthcheck only goes green once it reaches SolrCloud. Probe its real
+              # dependencies from inside its own network namespace so a failed build
+              # pinpoints the broken link (e.g. unresolvable la_solrcloud_zoo_1) instead
+              # of just "unhealthy". Gated to the host that actually runs biocache-service.
+              when: "'biocache_service' in (services_enabled | default([]))"
+              block:
+                - name: Copy biocache dependency validator to target
+                  copy:
+                    src: "{{ role_path }}/../../scripts/validate-biocache-deps.sh"
+                    dest: "{{ docker_compose_data_dir }}/validate-biocache-deps.sh"
+                    mode: "0755"
+                    owner: "{{ docker_compose_userid }}"
+                    group: "{{ docker_compose_usergid }}"
+                  become: true
+
+                - name: Run biocache dependency validation
+                  command: >
+                    "{{ docker_compose_data_dir }}/validate-biocache-deps.sh"
+                    --container la_biocache-service
+                    --output "{{ data_dir }}/diagnostics/biocache-deps.txt"
+                  register: biocache_deps_result
+                  become: true
+                  changed_when: false
+                  ignore_errors: true
+
+                - name: Display biocache dependency check result
+                  debug:
+                    msg: "{{ biocache_deps_result.stdout_lines | default(['(no output captured)']) }}"
+
             - name: Display diagnostic location
               debug:
                 msg: |
