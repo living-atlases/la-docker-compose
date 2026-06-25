@@ -84,6 +84,9 @@ include:
 {% if 'sensitiveDataService' in services_enabled %}
   - ./services/sensitive-data-service.yml
 {% endif %}
+{% if 'sds-static-home' in all_groups %}
+  - ./services/sds-static-home.yml
+{% endif %}
 {% if 'gatus' in all_groups %}
   - ./infrastructure/gatus.yml
 {% endif %}

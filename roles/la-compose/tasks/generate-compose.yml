@@ -2197,6 +2197,62 @@
     - sensitive-data-service
     - docker-compose
 
+# SDS static home page (sds.<domain>). Image-only service (built in la-docker-images),
+# gated on the raw 'sds-static-home' inventory group (no docker_services_desc entry).
+- name: Generate sds-static-home.yml
+  template:
+    src: docker-compose/services/sds-static-home.yml.j2
+    dest: "{{ docker_compose_data_dir }}/services/sds-static-home.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'sds-static-home' in group_names or 'sds-static-home' in (physical_server_groups | default([]))"
+  tags:
+    - sds-static-home
+    - docker-compose
+
+- name: Register nginx vhost for sds-static-home (sds.<domain>)
+  include_role:
+    name: nginx_vhost
+  vars:
+    appname: "sds-static-home"
+    hostname: "{{ sds_static_home_hostname }}"
+    context_path: "/"
+    vhost_required: true
+    nginx_vhost_fast_mode: true
+    # Same-origin routing so the SPA's relative defaults resolve on sds.<domain>:
+    #  *.xml -> static files in {{ data_dir }}/sds, /ws -> sensitive-data backend,
+    #  / -> the home page container.
+    nginx_paths:
+      - path: "sensitive-species-data.xml"
+        sort_label: "1_ssd_xml"
+        is_proxy: false
+        alias: "{{ data_dir }}/sds/sensitive-species-data.xml"
+      - path: "sensitivity-zones.xml"
+        sort_label: "2_zones_xml"
+        is_proxy: false
+        alias: "{{ data_dir }}/sds/sensitivity-zones.xml"
+      - path: "sensitivity-categories.xml"
+        sort_label: "3_categories_xml"
+        is_proxy: false
+        alias: "{{ data_dir }}/sds/sensitivity-categories.xml"
+      - path: "/ws"
+        sort_label: "8_ws_proxy"
+        is_proxy: true
+        proxy_pass: "http://la_sensitive_data_service:9189/ws"
+      - path: "/"
+        sort_label: "9_home"
+        is_proxy: true
+        proxy_pass: "http://la_sds_static_home:8080/"
+  when:
+    - "'sds-static-home' in group_names or 'sds-static-home' in (physical_server_groups | default([]))"
+    - sds_static_home_hostname is defined
+    - webserver_nginx | default(true) | bool
+  tags:
+    - nginx_vhost
+    - sds-static-home
+    - docker-compose
+
 # Paths are now correctly set to dockerfiles/ in templates, no fix needed
 
 # Create directories for all services that HAVE a build tool in the description

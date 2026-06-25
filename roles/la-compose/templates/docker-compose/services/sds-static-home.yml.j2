@@ -1,0 +1,25 @@
+services:
+   sds-static-home:
+     container_name: la_sds_static_home
+     profiles: [app-core, full]
+     image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}sds-static-home:{{ sds_static_home_docker_tag | default('latest') }}
+     environment:
+       # The SPA bakes placeholder tokens; the image substitutes these at container
+       # start. Defaults are RELATIVE so the sds.<domain> nginx vhost routes them
+       # same-origin (/ws -> sensitive-data backend, *.xml -> static files). Override
+       # per portal in inventory (e.g. when the SDS backend lives on another host).
+       - SDS_WS_URL={{ sds_ws_url | default('/ws') }}
+       - SDS_XML_URL={{ sds_xml_url | default('/sensitive-species-data.xml') }}
+       - SDS_SWAGGER_URL={{ sds_swagger_url | default('/ws/swagger') }}
+       - SDS_LISTS_URL={{ sds_lists_url | default('/specieslists') }}
+       - SDS_HELP_URL={{ sds_help_url | default('https://support.ala.org.au') }}
+     networks:
+       default: {}
+       {{ docker_network | default('internal') }}:
+     healthcheck:
+       test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/"]
+       interval: 30s
+       timeout: 10s
+       retries: 3
+       start_period: 20s
+     restart: unless-stopped
