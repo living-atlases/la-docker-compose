@@ -221,6 +221,18 @@
       - role_path
       - omit
       - deployment_type
+      # Deployment-level user mapping (container uid). It is set once for all
+      # services to docker_container_uid (=1000) just above; the ala-install roles
+      # create /data/<svc>{,/config,/cache,...} with owner={{tomcat_user}}. The
+      # alias hostvars carry the VM default (tomcat -> uid 997); without this
+      # blacklist the per-service bulk-load re-imports tomcat_user=tomcat and
+      # CLOBBERS the uid-1000 value, so the role makes dirs tomcat:tomcat 0750.
+      # The container runs as uid 1000 and cannot traverse the parent -> Spring
+      # crash-loop "Config data location '/data/<svc>/config/' does not exist"
+      # (biocache-hub, collectory, species-list; build #186). This is the swarm
+      # *-docker.yml `tomcat_user: docker_default_user` contract — keep it out of
+      # the bulk-load instead of patching perms afterwards.
+      - tomcat_user
   tags:
     - always
 
