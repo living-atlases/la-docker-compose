@@ -1,0 +1,94 @@
+# NO-AWS overlay: Airflow + MinIO for la-docker-compose.
+#
+# Runs the UNMODIFIED pipelines-airflow DAGs against the local `la_pipelines`
+# container. The overlay sitecustomize.py (mounted on PYTHONPATH) swaps the EMR
+# operators for local shims; boto3 is pointed at MinIO via AWS_ENDPOINT_URL_S3.
+#
+# Join it to the la-docker-compose network so the DAGs reach solr/collectory/
+# namematching/sds by hostname, e.g.:
+#   docker compose -f /data/docker-compose/docker-compose.yml \
+#                  -f overlay/compose/docker-compose.airflow.yml up -d
+# Set LA_NETWORK to the la-docker-compose network name.
+name: pipelines-airflow-overlay
+
+x-airflow-common: &airflow-common
+  build:
+    context: .
+    dockerfile: Dockerfile.airflow
+  environment: &airflow-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db/airflow
+    # --- overlay switches ---
+    PYTHONPATH: /opt/overlay
+    PIPELINES_COMPUTE_BACKEND: local
+    PIPELINES_CONTAINER: la_pipelines
+    # --- storage -> MinIO (zero code change; boto3 honours these) ---
+    AWS_ENDPOINT_URL_S3: http://minio:9000
+    AWS_ENDPOINT_URL: http://minio:9000
+    AWS_ACCESS_KEY_ID: minioadmin
+    AWS_SECRET_ACCESS_KEY: minioadmin
+    AWS_DEFAULT_REGION: us-east-1
+  volumes:
+    - ${PIPELINES_AIRFLOW_REPO:?set PIPELINES_AIRFLOW_REPO to the pipelines-airflow checkout}/dags:/opt/airflow/dags:ro
+    - ..:/opt/overlay:ro                                  # sitecustomize + pa_local_compute + variables + tests
+    - /var/run/docker.sock:/var/run/docker.sock          # for `docker exec la_pipelines`
+  networks: [default, la]
+
+services:
+  airflow-db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 5s
+      retries: 20
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports: ["9000:9000", "9001:9001"]
+    volumes: [minio-data:/data]
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      retries: 20
+
+  # one-shot: init Airflow DB, seed Variables/Connections, create MinIO buckets
+  airflow-init:
+    <<: *airflow-common
+    depends_on:
+      airflow-db: {condition: service_healthy}
+      minio: {condition: service_healthy}
+    entrypoint: /bin/bash
+    command: ["-c", "/opt/overlay/compose/seed.sh"]
+    volumes:
+      - ${PIPELINES_AIRFLOW_REPO:?set PIPELINES_AIRFLOW_REPO to the pipelines-airflow checkout}/dags:/opt/airflow/dags:ro
+      - ..:/opt/overlay:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  airflow-webserver:
+    <<: *airflow-common
+    depends_on: {airflow-init: {condition: service_completed_successfully}}
+    command: webserver
+    ports: ["8088:8080"]
+
+  airflow-scheduler:
+    <<: *airflow-common
+    depends_on: {airflow-init: {condition: service_completed_successfully}}
+    command: scheduler
+
+volumes:
+  minio-data:
+
+networks:
+  default:
+  la:
+    external: true
+    name: ${LA_NETWORK:-la}

@@ -1,0 +1,19 @@
+# Airflow image for the pipelines-airflow NO-AWS overlay.
+# Adds the providers the DAGs import + docker CLI (to `docker exec la_pipelines`).
+ARG AIRFLOW_VERSION=2.10.3
+FROM apache/airflow:${AIRFLOW_VERSION}-python3.11
+
+USER root
+# docker CLI only (uses the host daemon via the mounted socket)
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends docker.io \
+ && rm -rf /var/lib/apt/lists/*
+USER airflow
+
+# Providers/libraries used by the DAGs (amazon -> EMR symbols our overlay swaps;
+# slack -> notifications; oauth2 -> jwt_auth.py).
+RUN pip install --no-cache-dir \
+      "apache-airflow-providers-amazon==8.23.0" \
+      "apache-airflow-providers-slack" \
+      "requests_oauth2client" \
+      "boto3>=1.34"
