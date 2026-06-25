@@ -136,6 +136,12 @@
         - download-readme.html
         - facets.json
         - pipelines-field-config.json
+      # Gate to the host that runs biocache-service. Elsewhere /data/biocache/config
+      # does not exist, so `file: mode=` (state:file) fails on the absent path and
+      # DROPS 2023-2/2023-3 from the play BEFORE the deploy stage -> cassandra (2023-3)
+      # and image-service (2023-2) never start, and biocache-service then can't reach
+      # Cassandra (build #187). Same un-co-located gate class as the service includes.
+      when: "'biocache_service' in services_enabled"
       become: true
       tags:
         - docker-compose
