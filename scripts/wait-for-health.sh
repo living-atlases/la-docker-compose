@@ -324,6 +324,45 @@ collect_diagnostics() {
     log_info "=== Container Health Details ==="
     docker ps --format "table {{.Names}}\t{{.Status}}" 2>/dev/null || log_error "Could not list containers"
     
+    # Config-mount visibility probe. Several Grails/Spring apps crash-loop with
+    # "Config data location '/data/<svc>/config/' does not exist" even though the
+    # role generates and uid-1000-owns that dir on the host before compose up.
+    # That points at a RUNTIME mount-visibility gap (seen only multi-host). This
+    # probe prints, per container, the host-side dir (owner/mode/contents) AND the
+    # container-side view (id + ls of the mounted target) so the failing build log
+    # shows exactly whether the container sees its config — host perms vs mount vs
+    # nothing — instead of an opaque 480s timeout. Read-only; never fails the run.
+    echo ""
+    log_info "=== Config-mount visibility (host vs container) ==="
+    local cnames
+    cnames=$(docker compose -f "$compose_dir/docker-compose.yml" ps -a --format '{{.Name}}' 2>/dev/null || echo "")
+    while read -r cname; do
+        if [[ -z "$cname" ]]; then continue; fi
+        # config mount targets for this container: "<hostSrc> <containerDest>"
+        local mounts
+        mounts=$(docker inspect -f '{{range .Mounts}}{{.Source}} {{.Destination}}{{"\n"}}{{end}}' "$cname" 2>/dev/null \
+                 | grep -E '/config(/)?$|/data/' || true)
+        if [[ -z "$mounts" ]]; then continue; fi
+        local cstatus
+        cstatus=$(docker inspect -f '{{.State.Status}}' "$cname" 2>/dev/null || echo "?")
+        echo ""
+        echo "--- $cname (state=$cstatus) ---"
+        while read -r src dest; do
+            if [[ -z "$src" ]]; then continue; fi
+            echo "  mount: host:$src -> container:$dest"
+            echo "  [host] $(stat -c '%U:%G %a' "$src" 2>/dev/null || echo 'MISSING') $src"
+            ls -la "$src" 2>/dev/null | sed 's/^/    /' | head -8 || true
+            if [[ -d "$src/config" ]]; then
+                echo "  [host] $(stat -c '%U:%G %a' "$src/config" 2>/dev/null) $src/config"
+            fi
+            # container side only if it is actually running (restarting can't exec)
+            if [[ "$cstatus" == "running" ]]; then
+                echo "  [container] id: $(docker exec "$cname" id 2>/dev/null || echo 'exec failed')"
+                docker exec "$cname" ls -la "$dest" 2>&1 | sed 's/^/    /' | head -8 || true
+            fi
+        done <<< "$mounts"
+    done <<< "$cnames"
+
     echo ""
     log_info "=== Recent Container Logs (last 50 lines per service) ==="
     local services
