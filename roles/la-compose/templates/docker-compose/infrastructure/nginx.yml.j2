@@ -81,7 +81,7 @@ services:
       # Mount srv directory only if no branding (branding uses volume instead)
       - ../srv:/srv:ro
 {% endif %}
-{% set sds_serving_groups = group_names | union(physical_server_groups | default([])) %}
+{% set sds_serving_groups = (group_names | union(physical_server_groups | default([]))) | reject('in', skip_services | default([])) | list %}
 {% if 'sds-static-home' in sds_serving_groups or 'sensitive-data-service' in sds_serving_groups %}
       # SDS XML files (sensitive-species-data.xml, sensitivity-*.xml) are served as
       # static aliases by the sds.<domain> / sensitive-data-service vhosts, so nginx

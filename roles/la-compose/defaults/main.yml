@@ -200,6 +200,11 @@ sensitive_data_docker_tag: "latest"
 
 services_enabled: []
 
+# Lista TEMPORAL de servicios a omitir en el despliegue (nombres de grupo de inventario),
+# p.ej. ['sds-static-home','sensitive-data-service']. Vacío = desplegar todo.
+# Se pasa por ansiblew -e o por el parámetro SKIP_SERVICES de Jenkins. No tocar inventarios.
+skip_services: []
+
 # ============================================
 # Nginx Configuration
 # ============================================

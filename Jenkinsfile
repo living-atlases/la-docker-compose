@@ -52,6 +52,11 @@ pipeline {
             defaultValue: true,
             description: 'Automatically start containers after generating configuration'
         )
+        string(
+            name: 'SKIP_SERVICES',
+            defaultValue: 'sds-static-home,sensitive-data-service',
+            description: 'Comma-separated inventory groups to skip (temporary: immature services). Empty to deploy everything.'
+        )
     }
 
     stages {
@@ -483,7 +488,15 @@ EOF
                         inventoryArg += " -i ${INVENTORY_DIR}/lademo-local-passwords.ini"
                         echo "Found lademo-local-passwords.ini"
                     }
-                    
+
+                    // Temporary flag: skip immature services (e.g. SDS) without touching inventories.
+                    def skipArg = ''
+                    if (params.SKIP_SERVICES?.trim()) {
+                        def skipList = params.SKIP_SERVICES.split(',').collect { it.trim() }.findAll { it }
+                        skipArg = " --extra-vars '" + groovy.json.JsonOutput.toJson([skip_services: skipList]) + "'"
+                        echo "Skipping services: ${skipList}"
+                    }
+
                     sh """
                         set -eu
                         
@@ -497,7 +510,7 @@ EOF
                         ansible-playbook --version
                         
                         echo "Running playbook against docker_compose group (all hosts)..."
-                        ansible-playbook ${playbook} ${inventoryArg} --limit docker_compose --extra-vars "auto_deploy=${params.AUTO_DEPLOY}" -vv
+                        ansible-playbook ${playbook} ${inventoryArg} --limit docker_compose --extra-vars "auto_deploy=${params.AUTO_DEPLOY}"${skipArg} -vv
                     """
                 }
             }

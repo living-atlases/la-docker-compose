@@ -503,6 +503,19 @@
       }}
   tags: [always, only, docker-compose, build]
 
+# skip_services (flag temporal): no construir imágenes de servicios omitidos.
+- name: Apply skip_services to cluster_services
+  set_fact:
+    cluster_services: >-
+      {{ cluster_services
+         | reject('in', skip_services | default([]))
+         | reject('in', docker_services_desc | dict2items
+             | selectattr('value.group', 'in', skip_services | default([]))
+             | map(attribute='key') | list)
+         | list }}
+  when: skip_services | default([]) | length > 0
+  tags: [always, only, docker-compose, build]
+
 - name: Set services to build on this host
   set_fact:
     services_to_build: "{{ cluster_services | unique if (inventory_hostname == (groups['docker_compose'] | first)) else services_enabled }}"
@@ -2206,7 +2219,9 @@
     mode: '0644'
     owner: "{{ docker_compose_userid }}"
     group: "{{ docker_compose_usergid }}"
-  when: "'sds-static-home' in group_names or 'sds-static-home' in (physical_server_groups | default([]))"
+  when:
+    - "'sds-static-home' in group_names or 'sds-static-home' in (physical_server_groups | default([]))"
+    - "'sds-static-home' not in (skip_services | default([]))"
   tags:
     - sds-static-home
     - docker-compose
@@ -2246,6 +2261,7 @@
         proxy_pass: "http://la_sds_static_home:8080/"
   when:
     - "'sds-static-home' in group_names or 'sds-static-home' in (physical_server_groups | default([]))"
+    - "'sds-static-home' not in (skip_services | default([]))"
     - sds_static_home_hostname is defined
     - webserver_nginx | default(true) | bool
   tags:

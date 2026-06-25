@@ -51,6 +51,33 @@
     - always
     - docker-compose
 
+# --- skip_services (flag temporal) ---------------------------------------
+# Permite omitir servicios en tiempo de ejecución sin tocar inventarios.
+# Acepta nombres de grupo de inventario (p.ej. 'sensitive-data-service') o
+# claves de docker_services_desc (p.ej. 'sensitiveDataService').
+- name: Normalize skip_services (allow comma-separated string)
+  set_fact:
+    skip_services: >-
+      {{ (skip_services.split(',') | map('trim') | list)
+         if (skip_services is string) else (skip_services | default([])) }}
+  tags:
+    - always
+    - docker-compose
+
+- name: Apply skip_services to services_enabled
+  set_fact:
+    services_enabled: >-
+      {{ services_enabled
+         | reject('in', skip_services)
+         | reject('in', docker_services_desc | dict2items
+             | selectattr('value.group', 'in', skip_services)
+             | map(attribute='key') | list)
+         | list }}
+  when: skip_services | length > 0
+  tags:
+    - always
+    - docker-compose
+
 - name: Determine if MySQL is required
   set_fact:
     enable_mysql: >-
