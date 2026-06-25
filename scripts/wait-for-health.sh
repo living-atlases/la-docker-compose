@@ -376,6 +376,46 @@ collect_diagnostics() {
     done <<< "$services"
 }
 
+# Converge-by-retry for cross-host startup races. Some apps (e.g. biocache-service
+# -> Cassandra on another node) initialise their datastore connection ONCE at
+# startup and do NOT retry; if the cross-host datastore was not ready yet they stay
+# "Up (unhealthy)" forever even after it converges. Confirmed on the cluster:
+# cassandra Up(healthy) + la_cassandra:9042 reachable from biocache-service, yet
+# biocache-service Up(unhealthy) for 16 min. So: restart the still-UNHEALTHY
+# services (their deps are healthy now) and re-wait, a few bounded rounds, letting
+# the chain cassandra -> biocache-service -> biocache-hub converge. Only restarts
+# containers reporting 'unhealthy' (not 'starting'), so a genuinely-broken service
+# (e.g. SDS data error) just exhausts the rounds and the gate still fails — no masking.
+CONVERGE_ROUNDS="${CONVERGE_ROUNDS:-3}"
+CONVERGE_TIMEOUT="${CONVERGE_TIMEOUT:-180}"
+
+converge_unhealthy() {
+    local services="$1"
+    local round=0 to_restart svc
+    while [[ $round -lt $CONVERGE_ROUNDS ]]; do
+        round=$((round + 1))
+        to_restart=""
+        while read -r svc; do
+            [[ -z "$svc" ]] && continue
+            check_service_health "$svc" >/dev/null 2>&1
+            [[ $? -eq 1 ]] && to_restart="$to_restart $svc"
+        done <<< "$services"
+        if [[ -z "$to_restart" ]]; then
+            return 1   # nothing 'unhealthy' to restart (remaining are 'starting'/absent)
+        fi
+        log_warn "Converge round ${round}/${CONVERGE_ROUNDS}: restarting unhealthy ->${to_restart}"
+        # shellcheck disable=SC2086
+        docker compose -f "$COMPOSE_DIR/docker-compose.yml" restart $to_restart 2>&1 | sed 's/^/    /' || true
+        START_TIME=$(date +%s)
+        TIMEOUT=$CONVERGE_TIMEOUT
+        if wait_for_all_healthy; then
+            log_success "Converged after restart round ${round}"
+            return 0
+        fi
+    done
+    return 1
+}
+
 # Main execution
 main() {
     parse_args "$@"
@@ -386,11 +426,17 @@ main() {
 
     if wait_for_all_healthy; then
         exit 0
-    else
-        collect_diagnostics "$COMPOSE_DIR"
-        if [[ "$NO_EXIT_CODE" == false ]]; then
-            exit 1
-        fi
+    fi
+
+    # Initial wait failed: try converge-by-retry (restart cross-host apps whose
+    # datastores are healthy now) before declaring failure.
+    if converge_unhealthy "$(get_services)"; then
+        exit 0
+    fi
+
+    collect_diagnostics "$COMPOSE_DIR"
+    if [[ "$NO_EXIT_CODE" == false ]]; then
+        exit 1
     fi
 }
 
