@@ -24,11 +24,38 @@
   tags:
     - db-init
 
-- name: "DB Init: Start database containers only (MySQL and MongoDB)"
-  command: docker compose up -d mysql mongodb
+# Multi-host: a host whose generated compose does NOT define mysql/mongodb (e.g. the
+# Solr/image host 2023-2) would hit `docker compose up mysql mongodb -> no such
+# service: mysql`, FAIL, and get dropped from the play *before* Solr/biocache ever
+# deploy — cascading the whole multi-host build to red (Solr never starts there, so
+# init-solr never creates the collections, so biocache/bie stay UNHEALTHY on every
+# host). Gate every mysql/mongodb step on the service actually being present on this
+# host (same idea as the postgres provisioning below, gated to image-service hosts).
+- name: "DB Init: List services defined in this host's compose"
+  command: docker compose config --services
+  args:
+    chdir: "{{ docker_compose_data_dir }}"
+  register: db_compose_services
+  changed_when: false
+  become: true
+  tags:
+    - db-init
+
+- name: "DB Init: Start MySQL container (only where defined)"
+  command: docker compose up -d mysql
   args:
     chdir: "{{ docker_compose_data_dir }}"
   become: true
+  when: "'mysql' in db_compose_services.stdout_lines"
+  tags:
+    - db-init
+
+- name: "DB Init: Start MongoDB container (only where defined)"
+  command: docker compose up -d mongodb
+  args:
+    chdir: "{{ docker_compose_data_dir }}"
+  become: true
+  when: "'mongodb' in db_compose_services.stdout_lines"
   tags:
     - db-init
 
@@ -40,6 +67,7 @@
   retries: 30
   delay: 5
   become: true
+  when: "'mysql' in db_compose_services.stdout_lines"
   tags:
     - db-init
 
@@ -51,6 +79,7 @@
   retries: 60
   delay: 6
   become: true
+  when: "'mongodb' in db_compose_services.stdout_lines"
   tags:
     - db-init
 
@@ -63,6 +92,7 @@
   delay: 3
   become: true
   changed_when: false
+  when: "'mysql' in db_compose_services.stdout_lines"
   tags:
     - db-init
 
@@ -75,6 +105,7 @@
   delay: 5
   become: true
   changed_when: false
+  when: "'mongodb' in db_compose_services.stdout_lines"
   tags:
     - db-init
 
