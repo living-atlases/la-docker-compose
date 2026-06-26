@@ -424,7 +424,7 @@ EOF
                                      # 4. Verify Docker is healthy with more retries (it takes longer after nuclear cleanup)
                                      echo "  - Verifying Docker is ready..."
                                      retry_count=0
-                                     max_retries=10
+                                     max_retries=40
                                      while [ \$retry_count -lt \$max_retries ]; do
                                          if sudo docker info >/dev/null 2>&1; then
                                              echo "    ✓ Docker is responding and healthy"
@@ -438,8 +438,18 @@ EOF
                                      done
                                      
                                      if [ \$retry_count -eq \$max_retries ]; then
-                                         echo "ERROR: Docker not responding after nuclear cleanup"
-                                         exit 1
+                                         echo "ERROR: Docker not responding after nuclear cleanup (waited ~120s)"
+                                         echo "  - one last restart attempt before giving up..."
+                                         sudo systemctl restart docker 2>/dev/null || sudo systemctl start docker 2>/dev/null || true
+                                         sleep 10
+                                         if sudo docker info >/dev/null 2>&1; then
+                                             echo "    ✓ Docker recovered after final restart"
+                                         else
+                                             echo "  - dumping docker daemon state for diagnosis:"
+                                             sudo systemctl status docker --no-pager 2>&1 | tail -n 20 || true
+                                             sudo journalctl -u docker --no-pager -n 40 2>&1 || true
+                                             exit 1
+                                         fi
                                      fi
                                      
                                      # 5. Confirm clean state
