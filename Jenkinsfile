@@ -374,6 +374,23 @@ EOF
                     test -f "${INVENTORY_DIR}/lademo-inventory.ini" || { echo "ERROR: inventory not generated"; exit 1; }
                     ls -lh "${INVENTORY_DIR}/lademo-inventory.ini"
                     echo "✓ Inventory generated successfully"
+
+                    # Refresh base-branding to its latest before it is packaged into the
+                    # branding-builder image. The replay above provisions lademo-branding
+                    # (a clone of living-atlases/base-branding); pull origin so CI builds
+                    # with the CURRENT branding source (vite config, footer/head/banner).
+                    # Submodules (commonui-bs3-2019) are intentionally NOT updated: that ALA
+                    # submodule already ships its build/ committed (footer/head/banner +
+                    # js/css/fonts) at the pinned, current commit, and our pipeline only
+                    # consumes it (vite static-copy) — it never rebuilds commonui.
+                    # Non-blocking: a refresh hiccup must never fail the deploy, and it
+                    # skips cleanly when the replayed tree is not a git checkout.
+                    if [ -d "${INVENTORY_PARENT_DIR}/lademo-branding/.git" ]; then
+                      echo "Refreshing base-branding (git pull)..."
+                      git -C "${INVENTORY_PARENT_DIR}/lademo-branding" pull --autostash --no-edit || echo "WARN: base-branding pull failed (continuing with replayed tree)"
+                    else
+                      echo "INFO: ${INVENTORY_PARENT_DIR}/lademo-branding has no .git; skipping base-branding pull"
+                    fi
                 """
             }
         }
