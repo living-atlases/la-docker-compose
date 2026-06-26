@@ -2,3 +2,7 @@
 	path = ala-install
 	url = https://github.com/vjrj/ala-install.git
 	branch = docker-compose-min-pr
+[submodule "pipelines-airflow"]
+	path = pipelines-airflow
+	url = https://github.com/AtlasOfLivingAustralia/pipelines-airflow.git
+	branch = develop

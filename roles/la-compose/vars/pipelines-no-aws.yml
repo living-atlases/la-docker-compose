@@ -1,0 +1,45 @@
+---
+# NO-AWS overlay: container overrides for rendering the la-pipelines config
+# (ala-install roles/pipelines/templates/la-pipelines-local.yaml) in docker-compose.
+#
+# Why this file: the lademo inventory carries VM/HDFS-style values (e.g.
+# pipelines_data_dir=/pipelines-data, vocabulary_dir=/pipelines-vocabularies,
+# external https service URLs). In a container we want the LOCAL filesystem and the
+# in-network service names. These overrides are applied ONLY when la-compose renders
+# the pipelines config, so the shared inventory and the VM path stay untouched.
+
+# Filesystem backend: local (bare paths, no hdfsSiteConfig). See the template's
+# pipelines_use_hdfs switch. Override to true to force HDFS even in a container.
+pipelines_use_hdfs: false
+
+# Paths must match the volumes mounted in services/pipelines.yml.j2.
+data_dir: /data
+pipelines_data_dir: /data/la-pipelines/data
+spark_tmp: /data/la-pipelines/spark-tmp
+dwca_tmp: /data/dwca-tmp
+dwca_import_dir: /data/la-pipelines/dwca-import
+vocabulary_dir: /data/la-pipelines/vocabularies
+spark_master: ""          # local[*] run; no standalone Spark master
+
+# In-network service endpoints (bare docker service key : internal container port).
+namematching_service_url: "http://namematching-service:9179"
+sensitive_data_service_url: "http://sensitive-data-service:9189"
+collectory_url: "http://collectory:8080"
+collectory_service_slash_url: "http://collectory:8080/ws/"
+image_service_url: "http://image-service:8080"
+layers_service_url: "http://spatial-service:8080/ws"
+specieslist_base_url: "http://species-list:8080"
+zk_host: "zookeeper:2181"
+
+# Small single-dataset path: skip the heavy all-datasets stages.
+include_sampling: "false"
+include_jackknife: "false"
+include_clustering: "false"
+check_solr: "false"
+
+# Memory: one knob for every local/spark-embedded stage (the Exit-137 fix). Pair
+# with mem_limit in services/pipelines.yml.j2 (PIPELINES_MEM_LIMIT, default 4g).
+pipelines_jvm_def_options: "-Xmx3g -XX:+UseG1GC"
+
+# API key used in the collectory/image auth headers (placeholder for local dev).
+pipelines_api_key: "{{ ala_api_key | default('changeme') }}"

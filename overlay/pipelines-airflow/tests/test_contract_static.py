@@ -1,0 +1,114 @@
+"""
+Contract test (static, no Airflow runtime) for the NO-AWS overlay.
+
+Turns SILENT overlay drift into a LOUD failure. Run on every bump of the pinned
+pipelines-airflow checkout:  python3 tests/test_contract_static.py
+
+Checks:
+  A. Variable fixture is in sync with the repo (no missing/extra Variable.get keys).
+  B. Step translation rules hold (s3-dist-cp -> no-op; command-runner --cluster ->
+     local; unknown jar -> raises, never silently skipped).
+  C. sitecustomize actually swaps the 4 EMR classes when backend=local.
+"""
+import importlib.util
+import json
+import os
+import re
+import sys
+import types
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+OVERLAY = os.path.dirname(HERE)
+# Default: the pipelines-airflow submodule at the la-docker-compose repo root
+# (<repo>/pipelines-airflow). Override with PIPELINES_AIRFLOW_REPO to point at any
+# other checkout.
+REPO = os.environ.get(
+    "PIPELINES_AIRFLOW_REPO",
+    os.path.abspath(os.path.join(OVERLAY, "..", "..", "pipelines-airflow")),
+)
+sys.path.insert(0, OVERLAY)
+
+failures = []
+
+
+def check(name, cond, detail=""):
+    print(("PASS" if cond else "FAIL"), "-", name, ("" if cond else f":: {detail}"))
+    if not cond:
+        failures.append(name)
+
+
+# ---- A. Variable fixture in sync with the repo ------------------------------
+needed = set()
+for root, _, files in os.walk(os.path.join(REPO, "dags")):
+    for f in files:
+        if f.endswith(".py"):
+            txt = open(os.path.join(root, f), encoding="utf-8").read()
+            needed |= set(re.findall(r'Variable\.get\(\s*"([^"]+)"', txt))
+
+fixture = json.load(open(os.path.join(OVERLAY, "variables", "airflow-variables.local.json")))
+have = {k for k in fixture if not k.startswith("_")}
+check("A. no Variables missing from fixture", not (needed - have), sorted(needed - have))
+check("A. no stale Variables in fixture", not (have - needed), sorted(have - needed))
+
+# ---- B. translation rules ---------------------------------------------------
+from pa_local_compute import translate_step  # noqa: E402
+
+s3_step = {"Name": "copy", "HadoopJarStep":
+           {"Jar": "/usr/share/aws/emr/s3-dist-cp/lib/s3-dist-cp.jar",
+            "Args": ["--src=s3://b/x", "--dest=hdfs:///x"]}}
+cmd_step = {"Name": "sample", "HadoopJarStep":
+            {"Jar": "command-runner.jar",
+             "Args": ["bash", "-c", "la-pipelines sample all --cluster 1>&2"]}}
+bad_step = {"Name": "weird", "HadoopJarStep": {"Jar": "mystery.jar", "Args": []}}
+helper_step = {"Name": "Download data", "HadoopJarStep":
+               {"Jar": "command-runner.jar",
+                "Args": ["bash", "-c", "/tmp/download-datasets.sh dwca-imports pipelines-data dr-test"]}}
+
+check("B. s3-dist-cp -> no-op", translate_step(s3_step)["kind"] == "noop-copy")
+t = translate_step(cmd_step)
+check("B. command-runner -> local exec", t["kind"] == "exec")
+# --embedded, not --local: `sample` (and uuid/image-sync/...) reject --local per the CLI.
+check("B. --cluster rewritten to --embedded", t.get("cmd") == "la-pipelines sample all --embedded", t)
+check("B. unknown jar flagged (not silently skipped)", translate_step(bad_step)["kind"] == "unknown")
+check("B. bootstrap helper script -> no-op", translate_step(helper_step)["kind"] == "noop-script")
+
+# ---- C. sitecustomize swaps the 4 EMR classes -------------------------------
+def _mod(name):
+    m = types.ModuleType(name); sys.modules[name] = m; return m
+
+class _FakeBaseOperator:
+    def __init__(self, task_id=None, dag=None, **kwargs):
+        self.task_id = task_id
+
+_mod("airflow"); _mod("airflow.models")
+_mod("airflow.models.baseoperator").BaseOperator = _FakeBaseOperator
+_mod("airflow.providers"); _mod("airflow.providers.amazon")
+_mod("airflow.providers.amazon.aws"); _mod("airflow.providers.amazon.aws.operators")
+_mod("airflow.providers.amazon.aws.sensors")
+ops = _mod("airflow.providers.amazon.aws.operators.emr")
+sen = _mod("airflow.providers.amazon.aws.sensors.emr")
+ops.EmrCreateJobFlowOperator = type("EmrCreateJobFlowOperator", (), {})
+ops.EmrAddStepsOperator = type("EmrAddStepsOperator", (), {})
+sen.EmrStepSensor = type("EmrStepSensor", (), {})
+sen.EmrJobFlowSensor = type("EmrJobFlowSensor", (), {})
+
+os.environ["PIPELINES_COMPUTE_BACKEND"] = "local"
+_spec = importlib.util.spec_from_file_location("overlay_sitecustomize",
+                                               os.path.join(OVERLAY, "sitecustomize.py"))
+_sc = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_sc)
+
+check("C. EmrCreateJobFlowOperator swapped", ops.EmrCreateJobFlowOperator.__name__ == "LocalCreateJobFlowOperator")
+check("C. EmrAddStepsOperator swapped", ops.EmrAddStepsOperator.__name__ == "LocalAddStepsOperator")
+check("C. EmrStepSensor swapped", sen.EmrStepSensor.__name__ == "LocalStepSensor")
+check("C. EmrJobFlowSensor swapped", sen.EmrJobFlowSensor.__name__ == "LocalJobFlowSensor")
+
+add = ops.EmrAddStepsOperator(task_id="add_steps", job_flow_id="x",
+                              aws_conn_id="aws_default", steps=[s3_step])
+check("C. shim runs a no-op step end to end", add.execute(context={}) == ["noop:copy"])
+
+print()
+if failures:
+    print(f"CONTRACT FAILED: {len(failures)} check(s) -> {failures}")
+    sys.exit(1)
+print("CONTRACT OK — overlay in sync with pinned pipelines-airflow")

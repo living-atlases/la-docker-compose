@@ -1,0 +1,110 @@
+# NO-AWS overlay: Airflow + MinIO for la-docker-compose.
+#
+# Runs the UNMODIFIED pipelines-airflow DAGs against the local `la_pipelines`
+# container. The overlay sitecustomize.py (mounted on PYTHONPATH) swaps the EMR
+# operators for local shims; boto3 is pointed at MinIO via AWS_ENDPOINT_URL_S3.
+#
+# DAGs come from the pipelines-airflow git submodule at <repo>/pipelines-airflow
+# (no personal paths). The mount below defaults to that submodule via a relative
+# path; override with PIPELINES_AIRFLOW_REPO to point at any other checkout.
+#
+# Join it to the la-docker-compose network so the DAGs reach solr/collectory/
+# namematching/sds by hostname. NOTE: compose resolves relative volume paths
+# against the FIRST -f file's project dir, so when merging with the generated
+# stack set PIPELINES_AIRFLOW_REPO to the ABSOLUTE submodule path, e.g.:
+#   export PIPELINES_AIRFLOW_REPO="$(git rev-parse --show-toplevel)/pipelines-airflow"
+#   export LA_NETWORK=la_internal      # the stack network; check `docker network ls`
+#   docker compose -f /data/docker-compose/docker-compose.yml \
+#                  -f overlay/pipelines-airflow/compose/docker-compose.airflow.yml up -d
+name: pipelines-airflow-overlay
+
+x-airflow-common: &airflow-common
+  build:
+    context: .
+    dockerfile: Dockerfile.airflow
+  environment: &airflow-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db/airflow
+    # --- overlay switches ---
+    PYTHONPATH: /opt/overlay
+    PIPELINES_COMPUTE_BACKEND: local
+    PIPELINES_CONTAINER: la_pipelines
+    # --- storage -> MinIO (zero code change; boto3 honours these) ---
+    AWS_ENDPOINT_URL_S3: http://minio:9000
+    AWS_ENDPOINT_URL: http://minio:9000
+    AWS_ACCESS_KEY_ID: minioadmin
+    AWS_SECRET_ACCESS_KEY: minioadmin
+    AWS_DEFAULT_REGION: us-east-1
+  volumes:
+    - ${PIPELINES_AIRFLOW_REPO:-../../../pipelines-airflow}/dags:/opt/airflow/dags:ro
+    - ..:/opt/overlay:ro                                  # sitecustomize + pa_local_compute + variables + tests
+    - /var/run/docker.sock:/var/run/docker.sock          # for `docker exec la_pipelines`
+  networks: [default, la]
+
+services:
+  airflow-db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 5s
+      retries: 20
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports: ["9000:9000", "9001:9001"]
+    volumes: [minio-data:/data]
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      retries: 20
+
+  # one-shot: init Airflow DB, seed Variables/Connections, create MinIO buckets
+  airflow-init:
+    <<: *airflow-common
+    depends_on:
+      airflow-db: {condition: service_healthy}
+      minio: {condition: service_healthy}
+    entrypoint: /bin/bash
+    command: ["-c", "/opt/overlay/compose/seed.sh"]
+    volumes:
+      - ${PIPELINES_AIRFLOW_REPO:-../../../pipelines-airflow}/dags:/opt/airflow/dags:ro
+      - ..:/opt/overlay:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  airflow-webserver:
+    <<: *airflow-common
+    # Stable name + network alias so the stack's nginx can proxy_pass to it
+    # (http://la_airflow:8080) across compose projects on the shared `la` network.
+    container_name: la_airflow
+    depends_on: {airflow-init: {condition: service_completed_successfully}}
+    command: webserver
+    ports: ["8088:8080"]
+    networks:
+      default: {}
+      la:
+        aliases: [la_airflow, airflow]
+
+  airflow-scheduler:
+    <<: *airflow-common
+    depends_on: {airflow-init: {condition: service_completed_successfully}}
+    command: scheduler
+
+volumes:
+  minio-data:
+
+networks:
+  default:
+  la:
+    external: true
+    # The generated stack uses compose project `la` + network `internal` => `la_internal`.
+    # Override LA_NETWORK if your `docker network ls` shows a different name.
+    name: ${LA_NETWORK:-la_internal}

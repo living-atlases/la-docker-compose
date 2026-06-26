@@ -4,6 +4,9 @@ services:
     container_name: la_pipelines
     profiles: [app-core, full]
     user: "1000:1000"
+    # Cap container memory to avoid the Exit 137 OOM-kill. Must be >= the per-stage JVM
+    # heap (pipelines_jvm_def_options, e.g. -Xmx3g) plus ~1g overhead. Tune via env.
+    mem_limit: ${PIPELINES_MEM_LIMIT:-4g}
     environment:
       - TZ=${TZ:-Europe/Brussels}
       - JAVA_OPTS=${PIPELINES_JAVA_OPTS:-}

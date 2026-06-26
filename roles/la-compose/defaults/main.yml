@@ -178,6 +178,12 @@ doi_service_docker_host: la_doi-service
 sensitive_data_service_docker_host: la_sensitive-data-service
 species_list_docker_host: la_species-list
 
+# Airflow (NO-AWS pipelines-airflow overlay): runs in the overlay compose project,
+# reachable on the `la` network as `la_airflow`. Define `airflow_hostname` per-inventory
+# (e.g. airflow.l-a.site) to expose the Airflow UI via nginx + monitor it with gatus.
+airflow_docker_host: la_airflow
+airflow_port: 8080
+
 # ============================================
 # Service-Specific Configuration
 # ============================================
