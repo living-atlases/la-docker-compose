@@ -22,9 +22,14 @@ services:
       # Register this node in ZooKeeper under a cross-host-resolvable name so a remote
       # biocache-service (reading live-nodes from ZK) reaches it via extra_hosts + the
       # published host port. Without SOLR_HOST, Solr advertises its container hostname,
-      # which is not resolvable from another host. `la_solr` is in the cross-host alias
-      # map and the container publishes host_private_ip:8983 in multi-host mode.
-      SOLR_HOST: la_solr
+      # which is not resolvable from another host. Use `solr`, NOT `la_solr`: both alias
+      # names are injected into the cross-host extra_hosts map (generate-compose.yml
+      # datastore spec aliases ['solr','la_solr']), but `la_solr` has an underscore and
+      # java.net.URI — used by biocache's CloudSolrClient to build the node URL — rejects
+      # underscore hostnames, so getHost() returns null and biocache dies with
+      # "Invalid URI host: null (authority: la_solr:8983)". `solr` is URI-valid and the
+      # container still publishes host_private_ip:8983 in multi-host mode.
+      SOLR_HOST: solr
       # Point Solr at the external ZK container (mirrors production where Solr
       # uses a separate ZK ensemble). Without this, Solr starts its embedded ZK
       # on :9983 and clients hitting :2181 get connection refused.
