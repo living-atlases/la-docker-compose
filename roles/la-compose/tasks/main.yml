@@ -172,7 +172,12 @@
         - { svc: 'cas_management',       path: "{{ data_dir }}/cas-management/config" }
         - { svc: 'collectory',           path: "{{ collectory_data_dir | default(data_dir + '/collectory') }}/config" }
         - { svc: 'species_lists',        path: "{{ data_dir }}/specieslist-webapp/config" }
-        - { svc: 'ala_bie',              path: "{{ data_dir }}/{{ bie_hub | default('generic-bie') }}/config" }
+        # Literal ala-bie-hub (NOT the bie_hub var): the inventory sets bie_hub=ala-bie
+        # for this play scope, but the bie-hub role copies config to and the container
+        # mounts/reads /data/ala-bie-hub/config. languages.json/charts.json land there
+        # root:root 0640 (role copies them after its own chown), so without chowning the
+        # REAL dir the container (uid 1000) gets FileNotFoundException (Permission denied).
+        - { svc: 'ala_bie',              path: "{{ data_dir }}/ala-bie-hub/config" }
         - { svc: 'bie_index',            path: "{{ data_dir }}/bie-index/config" }
         - { svc: 'ala_hub',              path: "{{ data_dir }}/{{ biocache_hub | default('ala-hub') }}/config" }
         - { svc: 'biocache_service',     path: "{{ data_dir }}/biocache/config" }

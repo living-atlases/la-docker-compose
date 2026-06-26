@@ -7,13 +7,12 @@ services:
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     volumes:
       - {{ data_dir }}/ala-bie-hub:/data/ala-bie-hub
-      # Bind the config subdir EXPLICITLY (not only via the parent above). The
-      # ala-bie-hub image declares a VOLUME on /data/ala-bie-hub/config, so with
-      # just the parent bind Docker overlays an EMPTY anonymous volume there and the
-      # container sees no config -> "Unable to process file:.../config/languages.json"
-      # (the host dir IS populated by the bie-hub role; it's a mount shadow, not a
-      # missing/deleted file). An explicit bind on the exact VOLUME path overrides
-      # the anonymous volume. Same pattern as la-pipelines (binds each subdir).
+      # Explicit bind of the config subdir (also reachable via the parent bind above;
+      # kept defensively, same pattern as la-pipelines). The config files are populated
+      # on the host by the bie-hub role. The container runs as uid 1000, so config
+      # READABILITY is ensured separately by config-dir-ensure (tasks/main.yml) which
+      # recurse-chowns /data/ala-bie-hub/config to the container uid — languages.json /
+      # charts.json are copied by the role as root:root 0640 otherwise.
       - {{ data_dir }}/ala-bie-hub/config:/data/ala-bie-hub/config
       - {{ data_dir }}/ala-bie-hub/logs:/var/log/tomcat9
 {% include '_i18n_volumes.yml.j2' %}
