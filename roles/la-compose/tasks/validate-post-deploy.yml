@@ -201,7 +201,7 @@
             msg: |
               Port Accessibility:
               {% for result in port_check.results %}
-              - Port {{ result.item }}: {{ 'OK' if result.state == 'started' else 'FAILED' }}
+              - Port {{ result.item }}: {{ 'OK' if (result.state | default('')) == 'started' else 'FAILED' }}
               {% endfor %}
 
       when: check_port_accessibility | default(true)
