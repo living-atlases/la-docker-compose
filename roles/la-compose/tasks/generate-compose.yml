@@ -2223,7 +2223,35 @@
 # above, so pipelines_use_hdfs defaults to local.
 - name: Render la-pipelines NO-AWS config (local FS + in-network services)
   when: "'pipelines' in services_enabled"
-  vars: "{{ lookup('file', role_path ~ '/vars/pipelines-no-aws.yml') | from_yaml }}"
+  # NO-AWS container overrides, BLOCK-SCOPED on purpose: these shadow global names
+  # (data_dir, collectory_url, image_service_url, zk_host, ...) only while rendering
+  # the pipelines config, so other service renders are untouched. Inlined as a literal
+  # mapping because Ansible rejects a templated string for block vars ("Vars in a Block
+  # must be specified as a dictionary"); previously this was
+  # `lookup('file', role_path ~ '/vars/pipelines-no-aws.yml') | from_yaml` (parse-fail).
+  vars:
+    pipelines_use_hdfs: false
+    data_dir: /data
+    pipelines_data_dir: /data/la-pipelines/data
+    spark_tmp: /data/la-pipelines/spark-tmp
+    dwca_tmp: /data/dwca-tmp
+    dwca_import_dir: /data/la-pipelines/dwca-import
+    vocabulary_dir: /data/la-pipelines/vocabularies
+    spark_master: ""
+    namematching_service_url: "http://namematching-service:9179"
+    sensitive_data_service_url: "http://sensitive-data-service:9189"
+    collectory_url: "http://collectory:8080"
+    collectory_service_slash_url: "http://collectory:8080/ws/"
+    image_service_url: "http://image-service:8080"
+    layers_service_url: "http://spatial-service:8080/ws"
+    specieslist_base_url: "http://species-list:8080"
+    zk_host: "zookeeper:2181"
+    include_sampling: "false"
+    include_jackknife: "false"
+    include_clustering: "false"
+    check_solr: "false"
+    pipelines_jvm_def_options: "-Xmx3g -XX:+UseG1GC"
+    pipelines_api_key: "{{ ala_api_key | default('changeme') }}"
   tags:
     - pipelines
     - la-pipelines-config
