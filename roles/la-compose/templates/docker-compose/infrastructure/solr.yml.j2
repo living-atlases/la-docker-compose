@@ -19,6 +19,12 @@ services:
       TZ: {{ server_tz | default('UTC') }}
       SOLR_JAVA_MEM: "-Xms512m -Xmx2g"
       SOLR_MODE: solrcloud
+      # Register this node in ZooKeeper under a cross-host-resolvable name so a remote
+      # biocache-service (reading live-nodes from ZK) reaches it via extra_hosts + the
+      # published host port. Without SOLR_HOST, Solr advertises its container hostname,
+      # which is not resolvable from another host. `la_solr` is in the cross-host alias
+      # map and the container publishes host_private_ip:8983 in multi-host mode.
+      SOLR_HOST: la_solr
       # Point Solr at the external ZK container (mirrors production where Solr
       # uses a separate ZK ensemble). Without this, Solr starts its embedded ZK
       # on :9983 and clients hitting :2181 get connection refused.
