@@ -168,6 +168,11 @@
   become: true
   ignore_errors: true
   changed_when: false
+  # Gate to hosts that actually run mysql (see header note): on a solr/zk-only host
+  # there is no la_mysql container, so `docker exec la_mysql` errors and — even with
+  # ignore_errors — leaves mysql_databases_exist unset, which then breaks the
+  # needs_db_init fact below. beb746a gated start/health but missed these two checks.
+  when: "'mysql' in db_compose_services.stdout_lines"
   tags:
     - db-init
 
@@ -183,6 +188,7 @@
   become: true
   ignore_errors: true
   changed_when: false
+  when: "'mysql' in db_compose_services.stdout_lines"
   tags:
     - db-init
 
@@ -196,6 +202,10 @@
         or (mysql_users_exist.stdout | trim | int) < 3
         or force_db_init | default(false)
       }}
+  # Same mysql co-location gate as the two checks above: the expression dereferences
+  # mysql_databases_exist/mysql_users_exist, which are only set on mysql hosts. The
+  # downstream init tasks already guard with `needs_db_init | default(false)`.
+  when: "'mysql' in db_compose_services.stdout_lines"
   tags:
     - db-init
 
