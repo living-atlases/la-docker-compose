@@ -1254,7 +1254,11 @@
     context_path: "/"
     vhost_required: true
     nginx_vhost_fast_mode: true
-    use_gatus: "{{ use_gatus | default(false) }}"
+    # NOTE: do NOT pass `use_gatus` here. nginx_vhost already reads the global
+    # use_gatus fact (set above + inventory). Passing `use_gatus: "{{ use_gatus
+    # | default(false) }}"` made the var reference itself -> "recursive loop
+    # detected in template string" inside nginx_vhost (only when airflow_hostname
+    # is defined, so it bit local deploys but not CI).
     nginx_paths:
       - path: "/"
         sort_label: "1"
