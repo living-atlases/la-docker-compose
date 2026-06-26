@@ -43,6 +43,25 @@
       become: true
       changed_when: false
 
+    # Stage the configsets INTO the la_solr container via `docker cp`, then upconfig
+    # from there — instead of reading them through the `:ro` bind mount at
+    # /var/solr/init. That bind is nested inside the external `la_solr-data` volume
+    # (la_solr-data:/var/solr  +  .../solr/init:/var/solr/init), and on the cluster's
+    # Docker the nested bind intermittently does NOT become visible inside the
+    # container: upconfig failed with "Path /var/solr/init/biocache/conf does not
+    # exist" even though the host dir was correctly staged (multi-host build #198;
+    # NOT reproducible with a single-host/newer Docker). `docker cp` reads straight
+    # from the host path into the container's writable layer, immune to that nested
+    # mount race. Idempotent: removed + re-copied every run.
+    - name: "Solr Init: Stage configsets into the la_solr container (bypass nested :ro bind)"
+      shell: |
+        docker exec la_solr rm -rf /tmp/solr-init
+        docker cp {{ docker_compose_data_dir }}/solr/init/. la_solr:/tmp/solr-init/
+      args:
+        executable: /bin/bash
+      become: true
+      changed_when: true
+
     - name: "Solr Init: Upload configsets to ZooKeeper (upconfig — idempotent overwrite)"
       command: >
         docker exec la_solr
@@ -50,7 +69,7 @@
         -cmd upconfig -zkhost zookeeper:2181
         -confname {{ item }}
         -solrhome /var/solr/data
-        -confdir /var/solr/init/{{ item }}/conf
+        -confdir /tmp/solr-init/{{ item }}/conf
       become: true
       changed_when: false
       loop:
