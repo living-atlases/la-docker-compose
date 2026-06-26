@@ -116,6 +116,14 @@
                   debug:
                     msg: "{{ biocache_deps_result.stdout_lines | default(['(no output captured)']) }}"
 
+            # Health gate failed -> probe cross-host datastore ports so the diagnostics
+            # bundle says "Solr/ZK/Cassandra on host X is BLOCKED from here" (firewall),
+            # not just "unhealthy". Report-only here (ignore_errors) — never mask the
+            # original failure. This is the signal that caught the #195/#196 ufw block.
+            - name: Validate cross-host datastore port reachability (firewall)
+              include_tasks: validate-cross-host-ports.yml
+              ignore_errors: true
+
             - name: Display diagnostic location
               debug:
                 msg: |

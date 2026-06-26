@@ -391,3 +391,19 @@
         - validate
         - post-deploy
       register: post_deploy_result
+
+    # Cross-host datastore port reachability (firewall sanity). On a healthy deploy
+    # this prints an OPEN/BLOCKED matrix for every remote datastore this host
+    # consumes; on a blocked port it is the clearest single signal of "services are
+    # up but cannot talk" (the #195/#196 ufw block). Report-only by default; the same
+    # check also runs inside validate-post-deploy's rescue so a FAILED build surfaces
+    # the blocked port as the root cause. Run standalone with --tags cross-host-ports.
+    - name: "LAYER 4b: Cross-host datastore port reachability (firewall sanity)"
+      include_tasks: validate-cross-host-ports.yml
+      when: auto_deploy | default(true) | bool
+      tags:
+        - always
+        - docker-compose
+        - validate
+        - post-deploy
+        - cross-host-ports
