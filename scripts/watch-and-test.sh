@@ -315,6 +315,10 @@ run_tests() {
         echo -e "  ${CYAN}Log:${NC} $LAST_LOG"
         echo -e "  ${CYAN}(includes pre-deploy validation: no localhost in inter-service configs)${NC}"
 
+        # Local default: skip immature optional services (mirror Jenkinsfile SKIP_SERVICES).
+        # Override with SKIP_SERVICES="" to deploy/test SDS locally.
+        SKIP_SERVICES="${SKIP_SERVICES-sds-static-home,sensitive-data-service}"
+
         (
             cd "$ROOT_DIR/inventories/testing/lademo-inventories" || exit 1
             ANSIBLE_CONFIG="$ROOT_DIR/playbooks/ansible.cfg" \
@@ -324,7 +328,7 @@ run_tests() {
                 --nodryrun \
                 --docker-local \
                 --skip=docker \
-                --extra="auto_deploy=true${ANSIBLE_LOCAL_EXTRA_VARS:+ $ANSIBLE_LOCAL_EXTRA_VARS}" \
+                --extra="auto_deploy=true${SKIP_SERVICES:+ skip_services=$SKIP_SERVICES}${ANSIBLE_LOCAL_EXTRA_VARS:+ $ANSIBLE_LOCAL_EXTRA_VARS}" \
                 all
         ) >> "$LAST_LOG" 2>&1
         exit_code=$?
