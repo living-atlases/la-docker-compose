@@ -185,9 +185,13 @@ check_service_health() {
         return 2  # Not yet running
     fi
 
-    # Get health status
+    # Get health status. Guard the nil .State.Health explicitly: on newer Docker
+    # (29.x) '{{.State.Health.Status}}' on a container without a healthcheck ERRORS
+    # and prints a blank line, so the '|| echo none' fallback yields "\nnone"
+    # (newline-prefixed) — which matches none of the cases below and gets the service
+    # stuck "STARTING" forever. The {{if .State.Health}} guard returns a clean "none".
     local health_status
-    health_status=$(docker inspect --format='{{.State.Health.Status}}' "$container_name" 2>/dev/null || echo "none")
+    health_status=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container_name" 2>/dev/null || echo "none")
 
     case "$health_status" in
         "healthy")
