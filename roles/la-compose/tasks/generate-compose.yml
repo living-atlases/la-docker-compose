@@ -1216,6 +1216,37 @@
     - nginx_vhost
     - docker-compose
 
+# NO-AWS overlay: expose the Airflow webserver via nginx + auto-register it in gatus.
+# Airflow runs in the overlay compose project (container `la_airflow`) joined to the
+# `la` network; nginx proxies to it by container name. One nginx_vhost call does both
+# the reverse-proxy vhost AND (when use_gatus is set — global fact when a gatus group
+# exists) the gatus endpoint file (airflow-http.yaml). Opt-in: only when airflow_hostname
+# is defined (e.g. set airflow_hostname=airflow.l-a.site in your inventory/extras).
+- name: Register airflow nginx vhost (+ gatus monitoring)
+  include_role:
+    name: nginx_vhost
+  vars:
+    appname: "airflow"
+    hostname: "{{ airflow_hostname }}"
+    context_path: "/"
+    vhost_required: true
+    nginx_vhost_fast_mode: true
+    use_gatus: "{{ use_gatus | default(false) }}"
+    nginx_paths:
+      - path: "/"
+        sort_label: "1"
+        is_proxy: true
+        proxy_pass: "http://{{ airflow_docker_host | default('la_airflow') }}:{{ airflow_port | default('8080') }}"
+  when:
+    - "'pipelines' in services_enabled or 'airflow' in services_enabled"
+    - "airflow_hostname is defined"
+  tags:
+    - airflow
+    - pipelines
+    - nginx_vhost
+    - config
+    - docker-compose
+
 - name: Ensure database init directories exist with correct permissions
   file:
     path: "{{ item }}"
@@ -2161,6 +2192,50 @@
   tags:
     - pipelines
     - docker-compose
+
+# NO-AWS overlay: render the la-pipelines config so `la_pipelines` runs without
+# Hadoop/AWS. The upstream flow never renders it, so we do it here from the
+# ala-install template, fed the container overrides (local FS paths + in-network
+# service URLs + bounded heap). deployment_type is already forced to container
+# above, so pipelines_use_hdfs defaults to local.
+- name: Render la-pipelines NO-AWS config (local FS + in-network services)
+  when: "'pipelines' in services_enabled"
+  vars: "{{ lookup('file', role_path ~ '/vars/pipelines-no-aws.yml') | from_yaml }}"
+  tags:
+    - pipelines
+    - la-pipelines-config
+    - docker-compose
+  block:
+    - name: Ensure la-pipelines dirs exist and are owned by the container uid
+      # la_pipelines runs as uid 1000; these mounted dirs must be writable by it or
+      # stages fail (and the dwca-import/config dirs must exist to seed data/config).
+      # Upstream pipelines role does this on its VM path only; replicate for container.
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ docker_container_uid }}"
+        group: "{{ docker_container_gid }}"
+        recurse: true
+      become: true
+      loop:
+        - "{{ data_dir }}/la-pipelines/config"
+        - "{{ data_dir }}/la-pipelines/data"
+        - "{{ data_dir }}/la-pipelines/dwca-import"
+        - "{{ data_dir }}/la-pipelines/spark-tmp"
+        - "{{ data_dir }}/la-pipelines/vocabularies"
+        - "{{ data_dir }}/dwca-tmp"
+        - "{{ data_dir }}/dwca-export"
+        - "{{ data_dir }}/pipelines-shp"
+
+    - name: Render la-pipelines-local.yaml from the ala-install pipelines template
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../ala-install/ansible/roles/pipelines/templates/la-pipelines-local.yaml"
+        dest: "{{ data_dir }}/la-pipelines/config/la-pipelines-local.yaml"
+        mode: '0644'
+        owner: "{{ docker_container_uid }}"
+        group: "{{ docker_container_gid }}"
+        output_encoding: iso-8859-1
+      become: true
 
 - name: Generate logger-service.yml
   template:

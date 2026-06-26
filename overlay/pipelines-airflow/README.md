@@ -13,7 +13,9 @@ with **zero changes to the pipelines-airflow repo** (least impact on ALA).
    (`EmrCreateJobFlowOperator`, `EmrAddStepsOperator`, `EmrStepSensor`,
    `EmrJobFlowSensor`) for local shims. The shims read the standard EMR step dicts the
    DAGs build: `s3-dist-cp` copies become no-ops (data on the shared volume);
-   `command-runner` bash steps run with `--cluster`→`--local` inside `la_pipelines`.
+   `command-runner` bash steps run with `--cluster`→`--embedded` inside `la_pipelines`
+   (`--embedded` is the one local Spark mode every stage accepts; `--local` is rejected
+   by uuid/image-sync/sample/solr/…).
    This covers BOTH the 12 DAGs that call `run_large_emr` and the 5 that inline the EMR
    operators. (Spike E2: PASS — mechanism + translation.)
 3. **Config → seeded Variables.** The committed `ala_config.py` is AWS-hardcoded and reads
@@ -65,7 +67,7 @@ line-based grep had missed.)
 
 ## Files
 - `sitecustomize.py` — bootstrap: swaps the 4 EMR classes for local shims.
-- `pa_local_compute.py` — Airflow-free step translation (s3-dist-cp→no-op; `--cluster`→`--local`).
+- `pa_local_compute.py` — Airflow-free step translation (s3-dist-cp→no-op; `--cluster`→`--embedded`).
 - `variables/airflow-variables.local.json` — 75 Variables mapped to committed `ala_config` names.
 - `compose/Dockerfile.airflow` — Airflow image + providers + docker CLI.
 - `compose/docker-compose.airflow.yml` — Airflow (+MinIO) services for la-docker-compose.

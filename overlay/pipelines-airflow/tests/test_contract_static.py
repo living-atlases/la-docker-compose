@@ -19,11 +19,12 @@ import types
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OVERLAY = os.path.dirname(HERE)
-# Default: sibling checkout next to the la-docker-compose repo root. Override with
-# PIPELINES_AIRFLOW_REPO (e.g. a submodule path).
+# Default: the pipelines-airflow submodule at the la-docker-compose repo root
+# (<repo>/pipelines-airflow). Override with PIPELINES_AIRFLOW_REPO to point at any
+# other checkout.
 REPO = os.environ.get(
     "PIPELINES_AIRFLOW_REPO",
-    os.path.abspath(os.path.join(OVERLAY, "..", "..", "..", "pipelines-airflow")),
+    os.path.abspath(os.path.join(OVERLAY, "..", "..", "pipelines-airflow")),
 )
 sys.path.insert(0, OVERLAY)
 
@@ -59,12 +60,17 @@ cmd_step = {"Name": "sample", "HadoopJarStep":
             {"Jar": "command-runner.jar",
              "Args": ["bash", "-c", "la-pipelines sample all --cluster 1>&2"]}}
 bad_step = {"Name": "weird", "HadoopJarStep": {"Jar": "mystery.jar", "Args": []}}
+helper_step = {"Name": "Download data", "HadoopJarStep":
+               {"Jar": "command-runner.jar",
+                "Args": ["bash", "-c", "/tmp/download-datasets.sh dwca-imports pipelines-data dr-test"]}}
 
 check("B. s3-dist-cp -> no-op", translate_step(s3_step)["kind"] == "noop-copy")
 t = translate_step(cmd_step)
 check("B. command-runner -> local exec", t["kind"] == "exec")
-check("B. --cluster rewritten to --local", t.get("cmd") == "la-pipelines sample all --local", t)
+# --embedded, not --local: `sample` (and uuid/image-sync/...) reject --local per the CLI.
+check("B. --cluster rewritten to --embedded", t.get("cmd") == "la-pipelines sample all --embedded", t)
 check("B. unknown jar flagged (not silently skipped)", translate_step(bad_step)["kind"] == "unknown")
+check("B. bootstrap helper script -> no-op", translate_step(helper_step)["kind"] == "noop-script")
 
 # ---- C. sitecustomize swaps the 4 EMR classes -------------------------------
 def _mod(name):

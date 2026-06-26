@@ -26,7 +26,22 @@ def translate_step(step: dict) -> dict:
             cmd = args[2]
         else:
             cmd = " ".join(args)
-        cmd = cmd.replace(" 1>&2", "").strip().replace("--cluster", "--local")
+        cmd = cmd.replace(" 1>&2", "").strip()
+        # Bootstrap helper scripts (S3<->local copies, frictionless packaging) are
+        # EMR-cluster plumbing baked into the bootstrap image; they are absent in
+        # la_pipelines and unnecessary locally (data on the shared /data volume +
+        # MinIO). No-op them. Override the list via PIPELINES_LOCAL_NOOP_SCRIPTS.
+        noop_markers = [m.strip() for m in os.environ.get(
+            "PIPELINES_LOCAL_NOOP_SCRIPTS",
+            "download-datasets.sh,upload-datasets.sh,upload-export.sh,frictionless.sh",
+        ).split(",") if m.strip()]
+        if any(m in cmd for m in noop_markers):
+            return {"name": name, "kind": "noop-script", "cmd": cmd}
+        # DAG steps build `--cluster`; locally we run single-node Spark. Use
+        # --embedded, NOT --local: every la-pipelines stage accepts --embedded,
+        # but uuid/image-sync/image-load/sample/solr/dwca-export reject --local
+        # (only interpret/sds/index/do-all accept it). Verified against the CLI.
+        cmd = cmd.replace("--cluster", "--embedded")
         return {"name": name, "kind": "exec", "cmd": cmd}
 
     # Anything else is unexpected -> surface it loudly rather than silently skip.
@@ -43,8 +58,8 @@ def build_argv(action: dict):
 
 def run_local_step(action: dict):
     """Execute one translated action against the local la_pipelines stack."""
-    if action["kind"] == "noop-copy":
-        print(f"{LOG_PREFIX} skip copy: {action['name']}")
+    if action["kind"] in ("noop-copy", "noop-script"):
+        print(f"{LOG_PREFIX} skip {action['kind']}: {action['name']}")
         return f"noop:{action['name']}"
     if action["kind"] == "exec":
         argv = build_argv(action)
