@@ -200,14 +200,21 @@ check_service_health() {
             log_error "Service '$service' reported unhealthy"
             return 1  # Unhealthy
             ;;
-        "none")
-            # No HEALTHCHECK defined, check if running
-            local state
+        "none"|""|"<no value>")
+            # No HEALTHCHECK defined (or healthcheck: disable: true). `docker inspect`
+            # of .State.Health.Status prints "<no value>" (exit 0, so the `|| echo none`
+            # above never fires) for these — handle all three forms here, else they fall
+            # through to `*)` and get stuck "STARTING" forever (gatus, mailhog, and the
+            # one-shot cassandra-load-keyspace job → 480s gate timeout with 0 unhealthy).
+            local state exit_code
             state=$(docker inspect --format='{{.State.Running}}' "$container_name" 2>/dev/null || echo "false")
+            exit_code=$(docker inspect --format='{{.State.ExitCode}}' "$container_name" 2>/dev/null || echo "1")
             if [[ "$state" == "true" ]]; then
-                return 0  # Running (no healthcheck)
+                return 0  # Running, no healthcheck (gatus, mailhog) -> OK
+            elif [[ "$exit_code" == "0" ]]; then
+                return 0  # One-shot job completed cleanly (cassandra-load-keyspace) -> done
             else
-                return 2  # Not running
+                return 1  # Exited non-zero -> genuinely failed
             fi
             ;;
         *)
