@@ -1,31 +1,42 @@
 ---
-# Cross-host datastore port reachability — "does the firewall actually let the
-# services talk to each other?"
+# Cross-host datastore port reachability — "can the services actually talk to each
+# other across hosts, and if not, WHY?"
 #
 # In multi-host mode a consumer (e.g. biocache-service) reaches a datastore that
 # lives on ANOTHER node via the datastore port published on the owner's private IP
 # (publish_db_ports_clusterwide -> "<host_private_ip>:PORT:PORT") plus a cross-host
-# alias injected into /etc/hosts. That path only works when BOTH:
-#   (a) the owner node's firewall allows the port from the cluster subnet
-#       (ufw -> prod-gbif-es-ansible-extras/ufw-docker-cluster.yml, AND any cloud
-#        security group such as OpenStack), and
-#   (b) the datastore container actually publishes host_private_ip:PORT.
-# When it is blocked, every container still shows "up" but the consumer never
-# reaches the datastore: Solr/ZK/Cassandra connection timeouts, biocache-service
-# stuck UNHEALTHY for the whole health-gate window (observed in Jenkins #195/#196).
+# alias injected into /etc/hosts. That path needs BOTH the firewall open (ufw on the
+# owner node + any cloud security group) AND the datastore container actually
+# listening on host_private_ip:PORT.
 #
 # This task probes, FROM the current host, every datastore this host consumes that
-# resolves to a REMOTE node. The target list is derived from `datastore_endpoints`
-# (computed in generate-compose.yml: owner/colocated/ip/port per datastore), so it
-# is fully placement-independent and never probes a co-located datastore. A
-# single-host or fully co-located node yields an empty list -> clean no-op.
+# resolves to a REMOTE node (derived from `datastore_endpoints`, computed in
+# generate-compose.yml: owner/colocated/ip/port per datastore — so it is fully
+# placement-independent and never probes a co-located datastore). Single-host or
+# fully co-located nodes yield an empty list -> clean no-op.
 #
-# It prints a loud OPEN/BLOCKED matrix ("canta"). Report-only by default; set
-# fail_on_blocked_cross_host_ports=true to turn it into a hard gate.
+# CRUCIAL: it does a connect-only TCP probe (`exec 3<>/dev/tcp`, NOT a read) and
+# classifies the outcome into THREE states, because "can't reach it" has two very
+# different causes that demand different fixes:
+#
+#   OPEN     connect succeeded            -> datastore reachable. All good.
+#   REFUSED  connection refused (RST)     -> host reachable + firewall OK, but
+#                                            NOTHING IS LISTENING. The datastore
+#                                            container is down / not started / not
+#                                            publishing the port. NOT a firewall bug.
+#   FILTERED SYN dropped (connect hangs)  -> FIREWALL/network is blocking it
+#                                            (ufw on the owner node, or the cloud
+#                                            security group), or the host is down.
+#
+# (The previous version used `wait_for`, which reports plain "timeout" for BOTH
+# refused and filtered — that ambiguity sent a debug session down a firewall rabbit
+# hole when the real cause was a datastore that simply wasn't running. Hence the
+# explicit refused-vs-filtered split here.)
+#
+# Report-only by default; set fail_on_blocked_cross_host_ports=true for a hard gate.
 #
 # Run on demand against a live cluster:
 #   ./ansiblew ... --tags cross-host-ports
-
 - name: "Cross-host ports: validate datastore reachability between cluster nodes"
   when: datastore_endpoints is defined
   block:
@@ -40,21 +51,42 @@
           {%- endfor -%}
           {{ out }}
 
-    - name: "Cross-host ports: probe each remote datastore (TCP connect from this host)"
-      ansible.builtin.wait_for:
-        host: "{{ item.ip }}"
-        port: "{{ item.port }}"
-        timeout: "{{ cross_host_port_probe_timeout | default(45) }}"
-        state: started
+    # Connect-only probe (does NOT read the socket — reading would hang on an open
+    # port that sends no banner and get misread as blocked). Classifies via exit code:
+    #   rc 0   -> OPEN      (connect succeeded)
+    #   rc 124 -> FILTERED  (timeout killed the attempt = SYN dropped by a firewall)
+    #   other  -> REFUSED   (RST = host reachable but nothing listening)
+    # Retries within the budget so a datastore that is still starting gets time to come
+    # up (breaks early on OPEN); the final attempt's class is reported. Always exits 0
+    # and prints the verdict on stdout.
+    - name: "Cross-host ports: probe each remote datastore (connect-only; open/refused/filtered)"
+      ansible.builtin.shell: |
+        set +e
+        budget={{ (cross_host_port_probe_timeout | default(20)) | int }}
+        end=$(( $(date +%s) + budget ))
+        verdict=FILTERED
+        while : ; do
+          timeout 3 bash -c 'exec 3<>/dev/tcp/{{ item.ip }}/{{ item.port }}' 2>/dev/null
+          rc=$?
+          if [ "$rc" -eq 0 ]; then verdict=OPEN; break; fi
+          if [ "$rc" -eq 124 ]; then verdict=FILTERED; else verdict=REFUSED; fi
+          [ "$(date +%s)" -ge "$end" ] && break
+          sleep 2
+        done
+        printf '%s' "$verdict"
+      args:
+        executable: /bin/bash
       loop: "{{ _xhost_targets }}"
       loop_control:
         label: "{{ item.ds }} -> {{ item.ip }}:{{ item.port }} (owner {{ item.owner }})"
       register: _xhost_probe
-      ignore_errors: true
+      changed_when: false
 
-    - name: "Cross-host ports: collect blocked endpoints"
+    - name: "Cross-host ports: classify results (open / refused / filtered)"
       set_fact:
-        _xhost_blocked: "{{ _xhost_probe.results | default([]) | selectattr('failed', 'defined') | selectattr('failed') | list }}"
+        _xhost_open: "{{ _xhost_probe.results | default([]) | selectattr('stdout', 'equalto', 'OPEN') | list }}"
+        _xhost_refused: "{{ _xhost_probe.results | default([]) | selectattr('stdout', 'equalto', 'REFUSED') | list }}"
+        _xhost_filtered: "{{ _xhost_probe.results | default([]) | selectattr('stdout', 'equalto', 'FILTERED') | list }}"
 
     - name: "Cross-host ports: reachability matrix"
       ansible.builtin.debug:
@@ -65,28 +97,39 @@
           (no remote datastores — single-host or all co-located on this node)
           {% else %}
           {% for r in _xhost_probe.results %}
-          {{ '✅ OPEN   ' if not (r.failed | default(false)) else '❌ BLOCKED' }} {{ r.item.ds }}  {{ r.item.ip }}:{{ r.item.port }}  (owner {{ r.item.owner }})
+          {% set s = r.stdout | trim %}
+          {{ '✅ OPEN    ' if s == 'OPEN' else ('⚠️  REFUSED ' if s == 'REFUSED' else '❌ FILTERED') }} {{ r.item.ds }}  {{ r.item.ip }}:{{ r.item.port }}  (owner {{ r.item.owner }})
           {% endfor %}
-          {% if _xhost_blocked | length == 0 %}
-          ✅ all {{ _xhost_probe.results | length }} cross-host datastore port(s) reachable.
+          {% if (_xhost_filtered | length) == 0 and (_xhost_refused | length) == 0 %}
+          ✅ all {{ _xhost_open | length }} cross-host datastore port(s) reachable.
           {% else %}
-          ❌ {{ _xhost_blocked | length }} BLOCKED. Likely cause: firewall on the owner
-             node (ufw -> prod-gbif-es-ansible-extras/ufw-docker-cluster.yml, or the
-             OpenStack security group), or the datastore not publishing
-             host_private_ip:PORT (publish_db_ports_clusterwide).
+          {% if (_xhost_filtered | length) > 0 %}
+          ❌ {{ _xhost_filtered | length }} FILTERED = SYN dropped -> FIREWALL/network blocks it.
+             Fix on the OWNER node: ufw (prod-gbif-es-ansible-extras/ufw-docker-cluster.yml)
+             and/or the cloud security group (OpenStack). Not a service problem.
+          {% endif %}
+          {% if (_xhost_refused | length) > 0 %}
+          ⚠️  {{ _xhost_refused | length }} REFUSED = reachable + firewall OK, but NOTHING LISTENING.
+             The datastore container is down / not started / not publishing
+             host_private_ip:PORT on the OWNER node. Check `docker ps` there. Not a firewall problem.
+          {% endif %}
           {% endif %}
           {% endif %}
           ═══════════════════════════════════════════════════════════
 
-    - name: "Cross-host ports: FAIL when any are blocked (opt-in hard gate)"
+    - name: "Cross-host ports: FAIL when any are unreachable (opt-in hard gate)"
+      vars:
+        _filtered_ds: "{{ _xhost_filtered | map(attribute='item') | map(attribute='ds') | list }}"
+        _refused_ds: "{{ _xhost_refused | map(attribute='item') | map(attribute='ds') | list }}"
       ansible.builtin.fail:
         msg: >-
-          {{ _xhost_blocked | map(attribute='item') | map(attribute='ds') | list | join(', ') }}
-          unreachable from {{ inventory_hostname }} — see the reachability matrix above.
-          Open the port(s) on the owner node's firewall and re-run.
+          Cross-host datastore(s) unreachable from {{ inventory_hostname }} —
+          FILTERED (firewall/SG): {{ _filtered_ds | join(', ') if _filtered_ds | length else 'none' }};
+          REFUSED (not listening): {{ _refused_ds | join(', ') if _refused_ds | length else 'none' }}.
+          See the reachability matrix above for the per-endpoint verdict and fix.
       when:
         - fail_on_blocked_cross_host_ports | default(false) | bool
-        - _xhost_blocked | length > 0
+        - ((_xhost_filtered | length) + (_xhost_refused | length)) > 0
   tags:
     - validate
     - post-deploy
