@@ -890,6 +890,9 @@
       become: true
   vars:
     bie_hub_docker_host: la_bie-hub
+    # docker-local: nginx must proxy to the app container, not 127.0.0.1 (which is
+    # nginx itself). The bie-hub role reads bie_hub_upstream_host (not _docker_host).
+    bie_hub_upstream_host: la_bie-hub
     nginx_vhost_fast_mode: true
   when:
     - "'ala_bie' in services_enabled"
@@ -925,6 +928,9 @@
       become: true
   vars:
     bie_index_docker_host: la_bie-index
+    # docker-local: nginx must proxy to the app container, not 127.0.0.1 (which is
+    # nginx itself). The bie-index role reads bie_index_upstream_host (not _docker_host).
+    bie_index_upstream_host: la_bie-index
     nginx_vhost_fast_mode: false  # bie-index has is_websocket paths; fast_mode skips the map directive
   when:
     - "'bie_index' in services_enabled"
@@ -1042,6 +1048,9 @@
       become: true
   vars:
     biocache_service_docker_host: la_biocache-service
+    # docker-local: nginx must proxy to the app container, not 127.0.0.1 (which is
+    # nginx itself). biocache3-service reads biocache_service_upstream_host (not _docker_host).
+    biocache_service_upstream_host: la_biocache-service
     biocache_db_host: la_cassandra
     nginx_vhost_fast_mode: true
   when:
@@ -1136,6 +1145,10 @@
         - docker-compose
   vars:
     nginx_vhost_fast_mode: true
+    # docker-local: nginx must proxy to the app container, not 127.0.0.1 (which is
+    # nginx itself). The image-service role hardcoded 127.0.0.1; it now reads
+    # image_service_upstream_host (default 127.0.0.1, so VM/bare-metal is untouched).
+    image_service_upstream_host: la_image-service
     image_user: "{{ docker_default_user }}"
     image_service_logfile: logback.xml
     # image-service reads ES from the `elasticsearch_hosts` list. The inventory
