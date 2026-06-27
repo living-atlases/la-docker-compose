@@ -931,6 +931,14 @@
     # docker-local: nginx must proxy to the app container, not 127.0.0.1 (which is
     # nginx itself). The bie-index role reads bie_index_upstream_host (not _docker_host).
     bie_index_upstream_host: la_bie-index
+    # docker: bie-index talks to Solr over HTTP (index_*_url). The generated inventory
+    # points these at solr.l-a.site:8983 (public hostname, NOT routable in-cluster) ->
+    # taxon/search pages fail with IOException. Repoint to the in-cluster Solr container
+    # (la_solr, resolvable cross-host via extra_hosts; verified reachable). Overrides the
+    # inventory value only for the container deploy; VM/bare-metal use their own inventory.
+    index_admin_url: "http://la_solr:8983/solr"
+    index_live_url: "http://la_solr:8983/solr/bie"
+    index_offline_url: "http://la_solr:8983/solr/bie-offline"
     nginx_vhost_fast_mode: false  # bie-index has is_websocket paths; fast_mode skips the map directive
   when:
     - "'bie_index' in services_enabled"
