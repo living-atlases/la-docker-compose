@@ -12,15 +12,25 @@ services:
     pull_policy: never
     volumes:
       - la_branding-assets:/output
+    # IMPORTANT: never wipe the live volume unless the source actually has assets.
+    # The old 'find -delete && cp' wiped /output first; if /build/public was empty
+    # (stale/rebuilt branding-builder image, pull_policy: never) or the cp failed,
+    # the volume was left EMPTY and nginx served 404s for every asset (ORB-blocked
+    # CSS/JS -> unstyled site). Guard the destructive delete on a non-empty source.
+    # Always exit 0: nginx depends_on this with service_completed_successfully, so a
+    # non-zero exit would block the WHOLE nginx (all vhosts), not just branding.
     command: >
       sh -c "
-        echo '🧹 Clearing previous branding assets...' &&
-        find /output -mindepth 1 -delete &&
-        echo '📦 Copying branding assets to volume...' &&
-        ls -la /build/public/ &&
-        cp -rv /build/public/* /output/ &&
-        echo '✅ Branding assets copied successfully!' &&
-        ls -la /output/
+        if find /build/public -mindepth 1 -maxdepth 1 | grep -q . ; then
+          echo '📦 Source has assets, refreshing branding volume...' &&
+          ls -la /build/public/ &&
+          find /output -mindepth 1 -delete &&
+          cp -rv /build/public/* /output/ &&
+          echo '✅ Branding assets copied successfully!' &&
+          ls -la /output/ ;
+        else
+          echo '⚠️  /build/public is EMPTY — keeping existing volume contents (refusing to wipe)' >&2 ;
+        fi
       "
     environment:
       TZ: {{ server_tz | default('UTC') }}
