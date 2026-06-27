@@ -379,15 +379,29 @@ EOF
                     # branding-builder image. The replay above provisions lademo-branding
                     # (a clone of living-atlases/base-branding); pull origin so CI builds
                     # with the CURRENT branding source (vite config, footer/head/banner).
-                    # Submodules (commonui-bs3-2019) are intentionally NOT updated: that ALA
-                    # submodule already ships its build/ committed (footer/head/banner +
-                    # js/css/fonts) at the pinned, current commit, and our pipeline only
-                    # consumes it (vite static-copy) — it never rebuilds commonui.
+                    #
+                    # CRITICAL: the replay does NOT initialise base-branding's git submodules,
+                    # so commonui-bs3-2019 is left as an EMPTY gitlink directory. That ALA
+                    # submodule ships its build/ COMMITTED (js/css/fonts: bootstrap, jquery,
+                    # ala-styles, application.js, font-awesome, autocomplete) at the pinned
+                    # commit, and our pipeline only CONSUMES it (vite static-copy) — it never
+                    # rebuilds commonui. An empty submodule => the bundle ships without those
+                    # assets => apps requesting /brand-2023/css/ala-styles.css etc. get 404
+                    # (ORB-blocked CSS/JS -> unstyled site). So we MUST check out the pinned
+                    # submodule. Use --init (the recorded pin), NOT --remote (which would
+                    # advance to a tip that may have dropped the committed build/).
                     # Non-blocking: a refresh hiccup must never fail the deploy, and it
                     # skips cleanly when the replayed tree is not a git checkout.
                     if [ -d "${INVENTORY_PARENT_DIR}/lademo-branding/.git" ]; then
                       echo "Refreshing base-branding (git pull)..."
                       git -C "${INVENTORY_PARENT_DIR}/lademo-branding" pull --autostash --no-edit || echo "WARN: base-branding pull failed (continuing with replayed tree)"
+                      echo "Initialising commonui-bs3-2019 submodule (ships committed build/ assets)..."
+                      git -C "${INVENTORY_PARENT_DIR}/lademo-branding" submodule update --init commonui-bs3-2019 || echo "WARN: commonui submodule init failed (branding may miss commonui assets)"
+                      if ls "${INVENTORY_PARENT_DIR}/lademo-branding/commonui-bs3-2019/build/css/ala-styles.css" >/dev/null 2>&1; then
+                        echo "✓ commonui build/ present (ala-styles.css found)"
+                      else
+                        echo "WARN: commonui build/ missing after submodule init — branding bundle will lack commonui assets (ala-styles, jquery, bootstrap)"
+                      fi
                     else
                       echo "INFO: ${INVENTORY_PARENT_DIR}/lademo-branding has no .git; skipping base-branding pull"
                     fi
