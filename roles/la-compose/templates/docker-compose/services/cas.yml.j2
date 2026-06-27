@@ -36,7 +36,10 @@ services:
       mongodb:
         condition: service_healthy
 {% endif %}
-{% if 'branding' in group_names %}
+{# co-location check: branding-init is in this host's compose when branding runs here
+   via group_names OR physical_server_groups (multi-host scope). Matches the branding
+   vhost/init gating; plain 'branding' in group_names misses the physical-host case. #}
+{% if ('branding' in group_names) or ('branding' in (physical_server_groups | default([]))) %}
       branding-init:
         condition: service_completed_successfully
 {% endif %}
