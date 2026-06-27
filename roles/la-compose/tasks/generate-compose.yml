@@ -1888,7 +1888,13 @@
     name: nginx_vhost
   vars:
     appname: "gatus"
-    hostname: "{{ gatus_url }}"
+    # gatus_url is set in [gatus:vars], which only applies to the `.gatus` alias —
+    # NOT the `.docker_compose` deploy host this play actually runs on. Resolve it
+    # from the gatus host's hostvars (same physical server, guaranteed by the
+    # 'gatus' in services_enabled gate below) so the vhost actually renders.
+    # Without this, gatus.l-a.site has no server block and nginx serves it via the
+    # default/first vhost (mailhog) — the "gatus shows mailhog" bug.
+    hostname: "{{ gatus_url | default(hostvars[groups['gatus'][0]].gatus_url | default('')) }}"
     context_path: "/"
     nginx_upstream_host: "la_gatus_service"
     vhost_required: true
@@ -1896,7 +1902,7 @@
   when:
     - "'gatus' in services_enabled"
     - "groups['gatus'] is defined and groups['gatus'] | length > 0"
-    - "gatus_url is defined"
+    - "(gatus_url | default(hostvars[groups['gatus'][0]].gatus_url | default(''))) | length > 0"
   tags:
     - gatus
     - nginx_vhost
