@@ -33,7 +33,7 @@ include:
 {% if 'spatial' in all_groups or 'image-service' in all_groups or 'doi-service' in all_groups or 'data_quality_filter_service' in all_groups or 'geoserver' in all_groups or 'geonetwork' in all_groups %}
   - ./infrastructure/postgres.yml
 {% endif %}
-{% if 'cas-servers' in all_groups or 'ecodata' in all_groups %}
+{% if 'cas-servers' in all_groups or 'ecodata' in all_groups or 'biocollect' in all_groups %}
   - ./infrastructure/mongodb.yml
 {% endif %}
 {% if 'solrcloud' in all_groups or 'solr' in all_groups %}
@@ -112,6 +112,12 @@ include:
 {% if 'geonetwork' in services_enabled %}
   - ./services/geonetwork.yml
 {% endif %}
+{% if 'ecodata' in services_enabled %}
+  - ./services/ecodata.yml
+{% endif %}
+{% if 'biocollect' in services_enabled %}
+  - ./services/biocollect.yml
+{% endif %}
 {% if 'sds-static-home' in all_groups %}
   - ./services/sds-static-home.yml
 {% endif %}
@@ -144,7 +150,7 @@ volumes:
   la_postgres-data:
     external: true
 {% endif %}
-{% if 'cas-servers' in all_groups or 'ecodata' in all_groups %}
+{% if 'cas-servers' in all_groups or 'ecodata' in all_groups or 'biocollect' in all_groups %}
   la_mongodb-data:
     external: true
 {% endif %}

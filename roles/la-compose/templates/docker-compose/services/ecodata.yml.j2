@@ -1,0 +1,36 @@
+# ecodata - data services backend for BioCollect (MongoDB + Elasticsearch, Grails exec jar).
+# INERT plumbing: only emitted when the 'ecodata' group is enabled (use_ecodata=true). The exact
+# command/config-loading should be tuned in CI when first enabled (mirrors doi-service exec-jar).
+services:
+  ecodata:
+    image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}ecodata:{{ ecodata_version | default('latest') }}
+    container_name: {{ ecodata_docker_host | default('la_ecodata') }}
+    profiles: [app-core, full]
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    restart: unless-stopped
+    expose:
+      - {{ ecodata_port | default('8080') }}
+    environment:
+      TZ: {{ server_tz | default('UTC') }}
+      JAVA_OPTS: ${ECODATA_JAVA_OPTS}
+    # Grails Spring Boot exec jar; the baked CMD does not load the role-generated config, so
+    # override the command to honor JAVA_OPTS + external config (mirrors doi-service). Tune in CI.
+    command: ["/bin/sh", "-c", "exec java $$JAVA_OPTS -Djava.io.tmpdir=/data/tmp -Dlogging.config=/data/ecodata/config/logback.xml -Dspring.config.additional-location=/data/ecodata/config/ -Dspring.config.name=application,application-local-config,ecodata-config -jar /opt/atlas/$$APP_ARTIFACT/app.jar"]
+    volumes:
+      - {{ data_dir }}/ecodata/config:/data/ecodata/config
+    networks:
+      default: {}
+      {{ docker_network | default('internal') }}:
+    # ecodata uses MongoDB; gate only when mongodb is co-located on this host (ES is a runtime
+    # dependency, converge by retry — not a boot gate).
+{% if datastore_endpoints.get('mongodb', {}).get('colocated', false) %}
+    depends_on:
+      mongodb:
+        condition: service_healthy
+{% endif %}
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:{{ ecodata_port | default('8080') }}/ws/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s

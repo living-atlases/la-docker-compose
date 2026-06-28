@@ -315,6 +315,8 @@
     spatial_service_docker_host: "{{ spatial_service_docker_host | default('la_spatial-service', true) }}"
     geoserver_docker_host: "{{ geoserver_docker_host | default('la_geoserver', true) }}"
     geonetwork_docker_host: "{{ geonetwork_docker_host | default('la_geonetwork', true) }}"
+    ecodata_docker_host: "{{ ecodata_docker_host | default('la_ecodata', true) }}"
+    biocollect_docker_host: "{{ biocollect_docker_host | default('la_biocollect', true) }}"
     gatus_docker_host: "{{ gatus_docker_host | default('la_gatus', true) }}"
   tags:
     - always
@@ -2856,6 +2858,34 @@
   when: "'geonetwork' in services_enabled"
   tags:
     - geonetwork
+    - docker-compose
+
+# ecodata + biocollect: forward-looking plumbing. Disabled in the inventory today
+# (use_ecodata/use_biocollect=false -> not in services_enabled), so these renders are no-ops
+# until enabled. When enabled, the app config generation (ala-install ecodata/biocollect roles)
+# still needs container-mode adaptation + a service_aliases entry (as spatial does).
+- name: Generate ecodata.yml
+  template:
+    src: docker-compose/services/ecodata.yml.j2
+    dest: "{{ docker_compose_data_dir }}/services/ecodata.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'ecodata' in services_enabled"
+  tags:
+    - ecodata
+    - docker-compose
+
+- name: Generate biocollect.yml
+  template:
+    src: docker-compose/services/biocollect.yml.j2
+    dest: "{{ docker_compose_data_dir }}/services/biocollect.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'biocollect' in services_enabled"
+  tags:
+    - biocollect
     - docker-compose
 
 # SDS static home page (sds.<domain>). Image-only service (built in la-docker-images),

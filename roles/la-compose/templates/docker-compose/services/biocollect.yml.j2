@@ -1,0 +1,36 @@
+# biocollect - data collection portal (consumes ecodata; MongoDB-backed, Grails exec jar).
+# INERT plumbing: only emitted when the 'biocollect' group is enabled (use_biocollect=true). The
+# exact command/config-loading should be tuned in CI when first enabled (mirrors doi-service).
+services:
+  biocollect:
+    image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}biocollect:{{ biocollect_version | default('latest') }}
+    container_name: {{ biocollect_docker_host | default('la_biocollect') }}
+    profiles: [app-core, full]
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    restart: unless-stopped
+    expose:
+      - {{ biocollect_port | default('8080') }}
+    environment:
+      TZ: {{ server_tz | default('UTC') }}
+      JAVA_OPTS: ${BIOCOLLECT_JAVA_OPTS}
+    # Grails Spring Boot exec jar; override the command to honor JAVA_OPTS + external config
+    # (mirrors doi-service). logback.xml for logging. Tune config name/locations in CI.
+    command: ["/bin/sh", "-c", "exec java $$JAVA_OPTS -Djava.io.tmpdir=/data/tmp -Dlogging.config=/data/biocollect/config/logback.xml -Dspring.config.additional-location=/data/biocollect/config/ -Dspring.config.name=application,application-local-config,biocollect-config -jar /opt/atlas/$$APP_ARTIFACT/app.jar"]
+    volumes:
+      - {{ data_dir }}/biocollect/config:/data/biocollect/config
+    networks:
+      default: {}
+      {{ docker_network | default('internal') }}:
+    # biocollect uses MongoDB; gate only when mongodb is co-located on this host. ecodata is an
+    # HTTP runtime dependency (converge by retry), not a boot gate.
+{% if datastore_endpoints.get('mongodb', {}).get('colocated', false) %}
+    depends_on:
+      mongodb:
+        condition: service_healthy
+{% endif %}
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:{{ biocollect_port | default('8080') }}/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
