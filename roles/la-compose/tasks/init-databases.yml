@@ -717,8 +717,15 @@
   tags: [db-init]
 
 - name: "DB Init: Load layersdb schema (first run only)"
+  # Upstream layersdb.sql is a `pg_dump --create` (drop database / create database /
+  # \connect / CREATE EXTENSION postgis). We already created layersdb (OWNER layers) and
+  # enabled PostGIS above, so those cluster-level lines error harmlessly ("cannot drop the
+  # currently open database", "... already exists"). Match the VM `layers-db` role, which
+  # loads with `psql layersdb -f` and NO error-stop: psql prints those errors but continues
+  # and loads the schema (verified: 17 tables + 780 functions on postgis/postgis:16-3.4-alpine).
+  # NB: adding `-v ON_ERROR_STOP=1` is what made the tolerated drop-database error fatal (CI #224).
   shell: >
-    docker exec -i la_postgres psql -v ON_ERROR_STOP=1 -U postgres
+    docker exec -i la_postgres psql -U postgres
     -d {{ layers_db_name | default('layersdb') }} < {{ docker_compose_data_dir }}/layersdb.sql
   become: true
   when:
