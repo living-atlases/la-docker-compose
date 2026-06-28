@@ -192,6 +192,12 @@
         # Future services — no-ops until added to generate-compose.yml
         - { svc: 'spatial',              path: "{{ data_dir }}/spatial-hub/config" }
         - { svc: 'spatial_service',      path: "{{ data_dir }}/spatial-service/config" }
+        # geoserver shares geoserver_data_dir + spatial-data with spatial-service (uid 1000 writes
+        # layer files there); chown so the ALA app can write. kartoza geoserver runs as root.
+        - { svc: 'geoserver',            path: "{{ data_dir }}/geoserver_data_dir" }
+        - { svc: 'geoserver',            path: "{{ data_dir }}/spatial-data" }
+        # geonetwork catalogue data dir (the postgres image runs as root, chown is harmless).
+        - { svc: 'geonetwork',           path: "{{ data_dir }}/geonetwork" }
         - { svc: 'sds',                  path: "{{ data_dir }}/sds/config" }
       when: item.svc in services_enabled
       loop_control:

@@ -30,7 +30,7 @@ include:
 {% if 'cas-servers' in all_groups or 'collectory' in all_groups or 'species-list' in all_groups or 'logger-service' in all_groups or 'alerts-service' in all_groups %}
   - ./infrastructure/mysql.yml
 {% endif %}
-{% if 'spatial' in all_groups or 'image-service' in all_groups or 'doi-service' in all_groups or 'data_quality_filter_service' in all_groups %}
+{% if 'spatial' in all_groups or 'image-service' in all_groups or 'doi-service' in all_groups or 'data_quality_filter_service' in all_groups or 'geoserver' in all_groups or 'geonetwork' in all_groups %}
   - ./infrastructure/postgres.yml
 {% endif %}
 {% if 'cas-servers' in all_groups or 'ecodata' in all_groups %}
@@ -106,6 +106,12 @@ include:
 {% if 'spatial_service' in services_enabled %}
   - ./services/spatial-service.yml
 {% endif %}
+{% if 'geoserver' in services_enabled %}
+  - ./services/geoserver.yml
+{% endif %}
+{% if 'geonetwork' in services_enabled %}
+  - ./services/geonetwork.yml
+{% endif %}
 {% if 'sds-static-home' in all_groups %}
   - ./services/sds-static-home.yml
 {% endif %}
@@ -134,7 +140,7 @@ volumes:
   la_mysql-data:
     external: true
 {% endif %}
-{% if 'spatial' in all_groups or 'image-service' in all_groups or 'doi-service' in all_groups or 'data_quality_filter_service' in all_groups %}
+{% if 'spatial' in all_groups or 'image-service' in all_groups or 'doi-service' in all_groups or 'data_quality_filter_service' in all_groups or 'geoserver' in all_groups or 'geonetwork' in all_groups %}
   la_postgres-data:
     external: true
 {% endif %}

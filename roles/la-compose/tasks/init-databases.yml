@@ -727,15 +727,17 @@
   tags: [db-init]
 
 # --- geonetwork PostGIS database + login role ---
+# CREATEDB is required: the geonetwork:*-postgres image entrypoint connects as this role and
+# createdb's a (vestigial) `admin` db on boot — without CREATEDB it exits (set -e) and crash-loops.
 - name: "DB Init: Create/sync geonetwork postgres login role (idempotent)"
   command: >
     docker exec -u postgres la_postgres psql -v ON_ERROR_STOP=1 -c
     "DO $$ BEGIN
        IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='{{ geonetwork_db_username | default('geonetwork') }}') THEN
-         CREATE ROLE {{ geonetwork_db_username | default('geonetwork') }} LOGIN PASSWORD '{{ geonetwork_db_password }}';
+         CREATE ROLE {{ geonetwork_db_username | default('geonetwork') }} LOGIN CREATEDB PASSWORD '{{ geonetwork_db_password }}';
        END IF;
      END $$;
-     ALTER ROLE {{ geonetwork_db_username | default('geonetwork') }} WITH LOGIN PASSWORD '{{ geonetwork_db_password }}';"
+     ALTER ROLE {{ geonetwork_db_username | default('geonetwork') }} WITH LOGIN CREATEDB PASSWORD '{{ geonetwork_db_password }}';"
   become: true
   when: "'geonetwork' in physical_server_groups"
   changed_when: false

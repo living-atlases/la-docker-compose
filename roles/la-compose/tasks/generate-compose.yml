@@ -313,6 +313,8 @@
     data_quality_filter_service_docker_host: "{{ data_quality_filter_service_docker_host | default('la_data-quality-filter-service', true) }}"
     spatial_docker_host: "{{ spatial_docker_host | default('la_spatial-hub', true) }}"
     spatial_service_docker_host: "{{ spatial_service_docker_host | default('la_spatial-service', true) }}"
+    geoserver_docker_host: "{{ geoserver_docker_host | default('la_geoserver', true) }}"
+    geonetwork_docker_host: "{{ geonetwork_docker_host | default('la_geonetwork', true) }}"
     gatus_docker_host: "{{ gatus_docker_host | default('la_gatus', true) }}"
   tags:
     - always
@@ -1564,6 +1566,58 @@
     - nginx_vhost
     - docker-compose
 
+# geoserver / geonetwork are UPSTREAM images (kartoza/geoserver, geonetwork:*-postgres), not ALA
+# builds, so their ala-install roles (tomcat WAR installers) don't apply. We only need their nginx
+# vhost: call nginx_vhost directly (airflow pattern) and proxy /geoserver|/geonetwork to the
+# container by name. geoserver_*/geonetwork_* vars live in [spatial:vars] -> already loaded as
+# facts by the SPATIAL-HUB bulk load above. Both share the spatial hostname (spatial.l-a.site);
+# nginx prefers the more-specific location over spatial-hub's catch-all "/".
+- name: Register geoserver nginx vhost (docker-local proxy to container)
+  include_role:
+    name: nginx_vhost
+  vars:
+    appname: "geoserver"
+    hostname: "{{ geoserver_hostname }}"
+    context_path: "{{ geoserver_context_path | default('/geoserver') }}"
+    vhost_required: true
+    nginx_vhost_fast_mode: true
+    nginx_paths:
+      - path: "{{ geoserver_context_path | default('/geoserver') }}"
+        sort_label: "2"
+        is_proxy: true
+        proxy_pass: "http://{{ geoserver_docker_host | default('la_geoserver') }}:{{ geoserver_port | default('8080') }}{{ geoserver_context_path | default('/geoserver') }}"
+  when:
+    - "'geoserver' in services_enabled"
+    - "geoserver_hostname is defined"
+  tags:
+    - geoserver
+    - config
+    - nginx_vhost
+    - docker-compose
+
+- name: Register geonetwork nginx vhost (docker-local proxy to container)
+  include_role:
+    name: nginx_vhost
+  vars:
+    appname: "geonetwork"
+    hostname: "{{ geonetwork_hostname }}"
+    context_path: "{{ geonetwork_context_path | default('/geonetwork') }}"
+    vhost_required: true
+    nginx_vhost_fast_mode: true
+    nginx_paths:
+      - path: "{{ geonetwork_context_path | default('/geonetwork') }}"
+        sort_label: "2"
+        is_proxy: true
+        proxy_pass: "http://{{ geonetwork_docker_host | default('la_geonetwork') }}:{{ geonetwork_http_port | default('8080') }}{{ geonetwork_context_path | default('/geonetwork') }}"
+  when:
+    - "'geonetwork' in services_enabled"
+    - "geonetwork_hostname is defined"
+  tags:
+    - geonetwork
+    - config
+    - nginx_vhost
+    - docker-compose
+
 # NO-AWS overlay: expose the Airflow webserver via nginx + auto-register it in gatus.
 # Airflow runs in the overlay compose project (container `la_airflow`) joined to the
 # `la` network; nginx proxies to it by container name. One nginx_vhost call does both
@@ -2778,6 +2832,30 @@
   when: "'spatial_service' in services_enabled"
   tags:
     - spatial-service
+    - docker-compose
+
+- name: Generate geoserver.yml
+  template:
+    src: docker-compose/services/geoserver.yml.j2
+    dest: "{{ docker_compose_data_dir }}/services/geoserver.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'geoserver' in services_enabled"
+  tags:
+    - geoserver
+    - docker-compose
+
+- name: Generate geonetwork.yml
+  template:
+    src: docker-compose/services/geonetwork.yml.j2
+    dest: "{{ docker_compose_data_dir }}/services/geonetwork.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'geonetwork' in services_enabled"
+  tags:
+    - geonetwork
     - docker-compose
 
 # SDS static home page (sds.<domain>). Image-only service (built in la-docker-images),

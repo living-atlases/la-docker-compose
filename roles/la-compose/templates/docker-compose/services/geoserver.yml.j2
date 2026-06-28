@@ -1,0 +1,46 @@
+# Geoserver - WMS/WFS layer server for the spatial stack (upstream kartoza image, NOT an ALA build).
+# Shares geoserver_data_dir + spatial-data with spatial-service so layers written by the service
+# are served without re-upload (mirrors the ALA/vlaams setup). Layer/store config lives inside the
+# data dir (set up at ingestion time) — no DB env needed here; PostGIS stores are configured in-dir.
+services:
+  geoserver:
+    image: kartoza/geoserver:{{ geoserver_image_tag | default('2.23.2') }}
+    container_name: {{ geoserver_docker_host | default('la_geoserver') }}
+    profiles: [app-core, full]
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    volumes:
+      - {{ data_dir }}/geoserver_data_dir:/data/geoserver_data_dir
+      # Static layer files produced by spatial-service; geoserver only reads them.
+      - {{ data_dir }}/spatial-data:/data/spatial-data:ro
+    restart: unless-stopped
+    expose:
+      - {{ geoserver_port | default('8080') }}
+    environment:
+      TZ: {{ server_tz | default('UTC') }}
+      # Memory is set inline (geoserver is not an ALA java -jar app, no <SVC>_JAVA_OPTS autogen).
+      JAVA_OPTS: "{{ geoserver_java_opts | default('-Xmx1g -Xms128m -Xss256k') }}"
+      GEOSERVER_ADMIN_USER: "{{ geoserver_username | default('admin') }}"
+      GEOSERVER_ADMIN_PASSWORD: "{{ geoserver_password | default('geoserver') }}"
+      GEOSERVER_DATA_DIR: /data/geoserver_data_dir
+      GEOWEBCACHE_CACHE_DIR: /data/geoserver_data_dir/gwc
+      GEOSERVER_LOG_LOCATION: /data/geoserver_data_dir/logs/geoserver.log
+      FOOTPRINTS_DATA_DIR: /data/geoserver_data_dir/footprints_dir
+      # CSRF whitelist so the spatial vhost host can POST to geoserver (ALA sets this).
+      GEOSERVER_CSRF_WHITELIST: "{{ geoserver_hostname | default('localhost') }}"
+      GEOSERVER_LOG_PROFILE: PRODUCTION_LOGGING
+      RELINQUISH_LOG4J_CONTROL: "true"
+    networks:
+      default: {}
+      {{ docker_network | default('internal') }}:
+    # geoserver reads PostGIS stores at runtime; gate boot on postgres only when co-located.
+{% if datastore_endpoints.get('postgres', {}).get('colocated', false) %}
+    depends_on:
+      postgres:
+        condition: service_healthy
+{% endif %}
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl --fail --head --silent http://localhost:{{ geoserver_port | default('8080') }}/geoserver/web/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s

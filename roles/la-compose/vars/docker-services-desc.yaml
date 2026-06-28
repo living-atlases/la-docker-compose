@@ -270,6 +270,15 @@ docker_services_desc:
     group: 'geoserver'
     optional: true
     desc: ''
+  geonetwork:
+    name: 'Geonetwork'
+    nameInt: 'geonetwork'
+    isSubService: true
+    parentService: "spatial"
+    role: 'geonetwork'
+    group: 'geonetwork'
+    optional: true
+    desc: 'Metadata catalog (GeoNetwork)'
   dashboard:
     name: 'dashboard'
     nameInt: 'dashboard'

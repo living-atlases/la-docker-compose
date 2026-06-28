@@ -1,0 +1,42 @@
+# Geonetwork - metadata catalog for the spatial stack (official upstream image, NOT an ALA build).
+# Uses the postgres-enabled tag (geonetwork:<v>-postgres): its entrypoint reads POSTGRES_DB_* env,
+# selects config-db/postgres.xml, and createdb's the `geonetwork` (+ vestigial `admin`) databases
+# on the shared la_postgres (PostGIS). The login role + db are pre-provisioned (idempotent) by
+# init-databases.yml; the role needs CREATEDB so the entrypoint can create the `admin` db.
+services:
+  geonetwork:
+    image: geonetwork:{{ geonetwork_image_tag | default('3.4.4-postgres') }}
+    container_name: {{ geonetwork_docker_host | default('la_geonetwork') }}
+    profiles: [app-core, full]
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    volumes:
+      # GeoNetwork data dir (catalogue). Defaults inside the webapp (ephemeral) — bind it out.
+      - {{ data_dir }}/geonetwork:/var/lib/geonetwork/data
+    restart: unless-stopped
+    expose:
+      # HTTP/tomcat port. NOT geonetwork_port — the inventory sets that to the DB port (5432);
+      # use a dedicated var so expose/healthcheck don't collide with the postgres port.
+      - {{ geonetwork_http_port | default('8080') }}
+    environment:
+      TZ: {{ server_tz | default('UTC') }}
+      DATA_DIR: /var/lib/geonetwork/data
+      POSTGRES_DB_HOST: "{{ geonetwork_db_hostname | default('postgres') }}"
+      POSTGRES_DB_PORT: "{{ geonetwork_db_port | default('5432') }}"
+      POSTGRES_DB_USERNAME: "{{ geonetwork_db_username | default('geonetwork') }}"
+      POSTGRES_DB_PASSWORD: "{{ geonetwork_db_password }}"
+    networks:
+      default: {}
+      {{ docker_network | default('internal') }}:
+    # The entrypoint createdb's against postgres at boot; gate on postgres only when co-located
+    # (a remote postgres is not in this compose file — converge by retry via restart otherwise).
+{% if datastore_endpoints.get('postgres', {}).get('colocated', false) %}
+    depends_on:
+      postgres:
+        condition: service_healthy
+{% endif %}
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:{{ geonetwork_http_port | default('8080') }}/geonetwork/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
