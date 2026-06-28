@@ -18,6 +18,10 @@ include:
 {% if 'branding' in all_groups %}
   - ./infrastructure/branding.yml
 {% endif %}
+{% if 'collectory' in services_enabled or 'ala_bie' in services_enabled %}
+  # Order-independent branding readiness gate for commonui hubs (collectory, bie-hub).
+  - ./infrastructure/wait-for-branding.yml
+{% endif %}
 {% if docker_mail_development_mode | default(false) %}
   - ./infrastructure/mailhog.yml
 {% else %}

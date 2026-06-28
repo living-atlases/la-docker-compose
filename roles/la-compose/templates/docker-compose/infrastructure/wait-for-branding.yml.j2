@@ -1,0 +1,48 @@
+services:
+  # Order-independent branding readiness gate.
+  #
+  # The ALA hub apps (collectory, bie-hub, ...) fetch and CACHE the commonui-bs3
+  # header/footer at boot from header_and_footer_baseurl. On a fresh/CLEAN deploy a
+  # hub can start before branding is serving, cache a null header, and then EVERY page
+  # render fails in the ala-bootstrap3 layout with a <g:message>/<g:applyLayout> NPE
+  # -> HTTP 500 (collections.l-a.site, species.l-a.site). A restart once branding is up
+  # fixes it, which proves the problem is timing, not the image version.
+  #
+  # This init blocks the dependent hubs until branding actually serves, INDEPENDENT of
+  # the service start order (which may differ from the test order) and cross-host safe:
+  # it polls the very URL the hub will fetch (the public header/footer base URL), so it
+  # waits for the whole chain (branding-init volume -> nginx -> proxy), wherever branding
+  # happens to be deployed. It always exits 0 (after success or a generous timeout) so it
+  # can never deadlock the converge.
+  wait-for-branding:
+    container_name: la_wait-for-branding
+    profiles: [app-core, full]
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    image: curlimages/curl:8.11.1
+    networks:
+      default: {}
+      {{ docker_network | default('internal') }}: {}
+    environment:
+      TZ: {{ server_tz | default('UTC') }}
+      BRANDING_URL: "{{ header_and_footer_baseurl | default('https://' ~ (branding_url | default('branding')) ~ (branding_path | default('/brand-2023'))) }}"
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        url="${BRANDING_URL%/}/"
+        echo "wait-for-branding: polling $url until branding serves (<500)"
+        n=0
+        while true; do
+          code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 5 "$url" 2>/dev/null || echo 000)
+          if [ "$code" -ge 200 ] 2>/dev/null && [ "$code" -lt 500 ] 2>/dev/null; then
+            echo "wait-for-branding: branding serving (HTTP $code) after $n tries"
+            exit 0
+          fi
+          n=$((n + 1))
+          if [ "$n" -ge 120 ]; then
+            echo "wait-for-branding: giving up after $n tries (last HTTP $code); starting hubs anyway"
+            exit 0
+          fi
+          echo "wait-for-branding: not ready (HTTP $code), retry $n in 3s"
+          sleep 3
+        done
+    restart: "no"

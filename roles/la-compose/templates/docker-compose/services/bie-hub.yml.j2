@@ -5,6 +5,12 @@ services:
     container_name: la_bie-hub
     profiles: [app-core, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    depends_on:
+      # Order-independent: wait until branding actually serves before bie-hub boots and
+      # caches the commonui header/footer (else g:applyLayout NPE -> 500). Cross-host safe
+      # (branding may live on another host); see infrastructure/wait-for-branding.yml.
+      wait-for-branding:
+        condition: service_completed_successfully
     volumes:
       - {{ data_dir }}/ala-bie-hub:/data/ala-bie-hub
       # Explicit bind of the config subdir (also reachable via the parent bind above;

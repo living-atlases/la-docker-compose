@@ -1470,6 +1470,19 @@
     - i18n
     - docker-compose
 
+# Order-independent branding readiness gate. Included by base.yml.j2 only when a
+# commonui hub (collectory / ala_bie) runs on this host; harmless to generate always.
+- name: Generate wait-for-branding.yml (branding readiness gate for commonui hubs)
+  template:
+    src: docker-compose/infrastructure/wait-for-branding.yml.j2
+    dest: "{{ docker_compose_data_dir }}/infrastructure/wait-for-branding.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  tags:
+    - branding
+    - docker-compose
+
 # nginx.yml is generated later (search "Generate nginx.yml (after collecting aliases)")
 # so that nginx_docker_internal_aliases includes hostnames from all nginx_vhost
 # include_role calls — including branding, mailhog, and gatus — letting the
