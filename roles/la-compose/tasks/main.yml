@@ -185,9 +185,13 @@
         - { svc: 'images',               path: "{{ data_dir }}/image-service/config" }
         - { svc: 'namematchingService',  path: "{{ data_dir }}/ala-namematching-server/config" }
         - { svc: 'sensitiveDataService', path: "{{ data_dir }}/ala-sensitive-data-server/config" }
+        - { svc: 'alerts',               path: "{{ data_dir }}/alerts/config" }
+        - { svc: 'regions',              path: "{{ data_dir }}/regions/config" }
+        - { svc: 'doi',                  path: "{{ data_dir }}/doi-service/config" }
+        - { svc: 'dataQuality',          path: "{{ data_dir }}/data-quality-filter-service/config" }
         # Future services — no-ops until added to generate-compose.yml
         - { svc: 'spatial',              path: "{{ data_dir }}/spatial-hub/config" }
-        - { svc: 'spatialService',       path: "{{ data_dir }}/spatial-service/config" }
+        - { svc: 'spatial_service',      path: "{{ data_dir }}/spatial-service/config" }
         - { svc: 'sds',                  path: "{{ data_dir }}/sds/config" }
       when: item.svc in services_enabled
       loop_control:

@@ -1,0 +1,34 @@
+# Regions - regional data frontend
+services:
+  regions:
+    image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}regions:{{ regions_version | default('latest') }}
+    container_name: {{ regions_docker_host | default('la_regions') }}
+    profiles: [app-core, full]
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+{% if 'collectory' in services_enabled or 'ala_bie' in services_enabled %}
+    depends_on:
+      # Order-independent branding readiness gate (commonui header/footer); cross-host safe.
+      wait-for-branding:
+        condition: service_completed_successfully
+{% endif %}
+    volumes:
+      # Role (ala-install/regions) writes config to {{ data_dir }}/regions/config; the image
+      # reads /data/regions/config (artifact name = regions). config-dir-ensure recurse-chowns it.
+      - {{ data_dir }}/regions/config:/data/regions/config
+{% include '_i18n_volumes.yml.j2' %}
+    restart: unless-stopped
+    expose:
+      - {{ regions_port | default('8080') }}
+    environment:
+      TZ: {{ server_tz | default('UTC') }}
+      JAVA_OPTS: ${REGIONS_JAVA_OPTS}
+    networks:
+      default: {}
+      {{ docker_network | default('internal') }}:
+    healthcheck:
+      # Liveness: context root serves the regions UI once Grails is up. Tune endpoint in CI.
+      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:{{ regions_port | default('8080') }}/regions || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s

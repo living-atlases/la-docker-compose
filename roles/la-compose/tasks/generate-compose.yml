@@ -306,8 +306,11 @@
     image_service_docker_host: "{{ image_service_docker_host | default('la_image_service', true) }}"
     logger_service_docker_host: "{{ logger_service_docker_host | default('la_logger_service', true) }}"
     namematching_service_docker_host: "{{ namematching_service_docker_host | default('la_namematching_service', true) }}"
-    doi_service_docker_host: "{{ doi_service_docker_host | default('la_doi_service', true) }}"
+    doi_service_docker_host: "{{ doi_service_docker_host | default('la_doi-service', true) }}"
     sensitive_data_service_docker_host: "{{ sensitive_data_service_docker_host | default('la_sensitive_data_service', true) }}"
+    alerts_docker_host: "{{ alerts_docker_host | default('la_alerts', true) }}"
+    regions_docker_host: "{{ regions_docker_host | default('la_regions', true) }}"
+    data_quality_filter_service_docker_host: "{{ data_quality_filter_service_docker_host | default('la_data-quality-filter-service', true) }}"
     gatus_docker_host: "{{ gatus_docker_host | default('la_gatus', true) }}"
   tags:
     - always
@@ -1256,6 +1259,201 @@
     - "service_aliases.get('sensitive-data-service') is defined"
   tags:
     - sensitive-data-service
+    - config
+    - nginx_vhost
+    - docker-compose
+
+# Bulk load all ALERTS variables from service alias context
+- name: "Bulk load ALERTS variables from service alias context"
+  set_fact:
+    "{{ item.key }}": "{{ item.value }}"
+  loop: >-
+    {{ hostvars[service_aliases.get('alerts-service', '')] | default({})
+       | dict2items
+       | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
+       | rejectattr('key', 'match', '^ansible_.*')
+       | rejectattr('key', 'in', system_vars_blacklist)
+       | list }}
+  loop_control:
+    label: "{{ item.key }}"
+  when: service_aliases.get('alerts-service') is defined
+  tags:
+    - alerts
+    - config
+    - bulk-load
+
+- name: Re-normalize database hostnames after ALERTS bulk load
+  include_tasks: normalize-hostnames.yml
+  when: service_aliases.get('alerts-service') is defined
+  tags:
+    - alerts
+    - config
+    - normalize
+
+- name: Run alerts configuration generation
+  include_role:
+    name: alerts
+    apply:
+      become: true
+      tags:
+        - docker-compose
+  vars:
+    nginx_vhost_fast_mode: true
+    # docker-local: nginx proxies to the app container via the compose service-name alias
+    # (docker DNS), not 127.0.0.1 (which is nginx itself). nginx_vhost's default location
+    # reads nginx_upstream_host (inherited by the nested include).
+    nginx_upstream_host: "alerts"
+    alerts_upstream_host: "alerts"
+  when:
+    - "'alerts' in services_enabled"
+    - "service_aliases.get('alerts-service') is defined"
+  tags:
+    - alerts
+    - config
+    - nginx_vhost
+    - docker-compose
+
+# Bulk load all REGIONS variables from service alias context
+- name: "Bulk load REGIONS variables from service alias context"
+  set_fact:
+    "{{ item.key }}": "{{ item.value }}"
+  loop: >-
+    {{ hostvars[service_aliases.get('regions', '')] | default({})
+       | dict2items
+       | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
+       | rejectattr('key', 'match', '^ansible_.*')
+       | rejectattr('key', 'in', system_vars_blacklist)
+       | list }}
+  loop_control:
+    label: "{{ item.key }}"
+  when: service_aliases.get('regions') is defined
+  tags:
+    - regions
+    - config
+    - bulk-load
+
+- name: Run regions configuration generation
+  include_role:
+    name: regions
+    apply:
+      become: true
+      tags:
+        - docker-compose
+  vars:
+    nginx_vhost_fast_mode: true
+    nginx_upstream_host: "regions"
+    regions_upstream_host: "regions"
+    # App-name var the regions role uses for its config dir ({{data_dir}}/{{regions}}/config)
+    # and config filename ({{regions}}-config.properties). The inventory doesn't emit it
+    # (unlike data_quality_filter_service), so provide it here scoped to this role.
+    regions: "regions"
+  when:
+    - "'regions' in services_enabled"
+    - "service_aliases.get('regions') is defined"
+  tags:
+    - regions
+    - config
+    - nginx_vhost
+    - docker-compose
+
+# Bulk load all DOI-SERVICE variables from service alias context
+- name: "Bulk load DOI-SERVICE variables from service alias context"
+  set_fact:
+    "{{ item.key }}": "{{ item.value }}"
+  loop: >-
+    {{ hostvars[service_aliases.get('doi-service', '')] | default({})
+       | dict2items
+       | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
+       | rejectattr('key', 'match', '^ansible_.*')
+       | rejectattr('key', 'in', system_vars_blacklist)
+       | list }}
+  loop_control:
+    label: "{{ item.key }}"
+  when: service_aliases.get('doi-service') is defined
+  tags:
+    - doi-service
+    - config
+    - bulk-load
+
+- name: Re-normalize database hostnames after DOI-SERVICE bulk load
+  include_tasks: normalize-hostnames.yml
+  when: service_aliases.get('doi-service') is defined
+  tags:
+    - doi-service
+    - config
+    - normalize
+
+- name: Run doi-service configuration generation
+  include_role:
+    name: doi-service
+    apply:
+      become: true
+      tags:
+        - docker-compose
+  vars:
+    nginx_vhost_fast_mode: true
+    # docker-local: the doi-service role hardcodes proxy_pass to 127.0.0.1; it now reads
+    # doi_service_upstream_host (default 127.0.0.1, so VM/bare-metal is untouched).
+    nginx_upstream_host: "doi-service"
+    doi_service_upstream_host: "doi-service"
+    # container mode: chown config dirs to the container runtime user (1000), not the
+    # app-named system user 'doi-service' (which doesn't exist on the generation host).
+    doi_user: "{{ docker_default_user }}"
+  when:
+    - "'doi' in services_enabled"
+    - "service_aliases.get('doi-service') is defined"
+  tags:
+    - doi-service
+    - config
+    - nginx_vhost
+    - docker-compose
+
+# Bulk load all DATA-QUALITY-FILTER-SERVICE variables from service alias context
+- name: "Bulk load DATA-QUALITY-FILTER-SERVICE variables from service alias context"
+  set_fact:
+    "{{ item.key }}": "{{ item.value }}"
+  loop: >-
+    {{ hostvars[service_aliases.get('data_quality_filter_service', '')] | default({})
+       | dict2items
+       | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
+       | rejectattr('key', 'match', '^ansible_.*')
+       | rejectattr('key', 'in', system_vars_blacklist)
+       | list }}
+  loop_control:
+    label: "{{ item.key }}"
+  when: service_aliases.get('data_quality_filter_service') is defined
+  tags:
+    - data-quality
+    - config
+    - bulk-load
+
+- name: Re-normalize database hostnames after DATA-QUALITY-FILTER-SERVICE bulk load
+  include_tasks: normalize-hostnames.yml
+  when: service_aliases.get('data_quality_filter_service') is defined
+  tags:
+    - data-quality
+    - config
+    - normalize
+
+- name: Run data-quality-filter-service configuration generation
+  include_role:
+    name: data_quality_filter_service
+    apply:
+      become: true
+      tags:
+        - docker-compose
+  vars:
+    nginx_vhost_fast_mode: true
+    nginx_upstream_host: "data-quality-filter-service"
+    data_quality_filter_service_upstream_host: "data-quality-filter-service"
+    # container mode: chown config dirs to the container runtime user (1000), not the
+    # app-named system user (which doesn't exist on the generation host).
+    data_quality_filter_service_user: "{{ docker_default_user }}"
+  when:
+    - "'dataQuality' in services_enabled"
+    - "service_aliases.get('data_quality_filter_service') is defined"
+  tags:
+    - data-quality
     - config
     - nginx_vhost
     - docker-compose
@@ -2402,6 +2600,54 @@
   when: "'sensitiveDataService' in services_enabled"
   tags:
     - sensitive-data-service
+    - docker-compose
+
+- name: Generate alerts.yml
+  template:
+    src: docker-compose/services/alerts.yml.j2
+    dest: "{{ docker_compose_data_dir }}/services/alerts.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'alerts' in services_enabled"
+  tags:
+    - alerts
+    - docker-compose
+
+- name: Generate regions.yml
+  template:
+    src: docker-compose/services/regions.yml.j2
+    dest: "{{ docker_compose_data_dir }}/services/regions.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'regions' in services_enabled"
+  tags:
+    - regions
+    - docker-compose
+
+- name: Generate doi-service.yml
+  template:
+    src: docker-compose/services/doi-service.yml.j2
+    dest: "{{ docker_compose_data_dir }}/services/doi-service.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'doi' in services_enabled"
+  tags:
+    - doi-service
+    - docker-compose
+
+- name: Generate data-quality-filter-service.yml
+  template:
+    src: docker-compose/services/data-quality-filter-service.yml.j2
+    dest: "{{ docker_compose_data_dir }}/services/data-quality-filter-service.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'dataQuality' in services_enabled"
+  tags:
+    - data-quality
     - docker-compose
 
 # SDS static home page (sds.<domain>). Image-only service (built in la-docker-images),

@@ -1,0 +1,33 @@
+# Data Quality Filter Service
+services:
+  data-quality-filter-service:
+    image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}data-quality-filter-service:{{ data_quality_filter_service_version | default('latest') }}
+    container_name: {{ data_quality_filter_service_docker_host | default('la_data-quality-filter-service') }}
+    profiles: [app-core, full]
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    restart: unless-stopped
+    expose:
+      - {{ data_quality_filter_service_port | default('8080') }}
+    environment:
+      TZ: {{ server_tz | default('UTC') }}
+      JAVA_OPTS: ${DATAQUALITY_JAVA_OPTS}
+    volumes:
+      # Role writes config to {{ data_dir }}/data-quality-filter-service/config; image reads
+      # /data/data-quality-filter-service/config (artifact = data-quality-filter-service).
+      - {{ data_dir }}/data-quality-filter-service/config:/data/data-quality-filter-service/config
+    networks:
+      default: {}
+      {{ docker_network | default('internal') }}:
+    # Uses PostgreSQL; gate only when postgres is co-located on this host.
+{% if datastore_endpoints.get('postgres', {}).get('colocated', false) %}
+    depends_on:
+      postgres:
+        condition: service_healthy
+{% endif %}
+    healthcheck:
+      # Liveness on the service context root. Tune endpoint in CI.
+      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:{{ data_quality_filter_service_port | default('8080') }}/dataQualityFilter || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s

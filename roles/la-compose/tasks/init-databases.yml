@@ -394,6 +394,44 @@
     - db-init
     - db-password-sync
 
+# --- alerts MySQL DB + user ---
+# The alerts role's own CREATE DATABASE/USER tasks are gated to VM mode (no local mysqld
+# during container config-gen), so provision the DB + login here, idempotently, the same
+# way as logger/specieslists. alerts restart-loops with "Access denied"/"Unknown database"
+# otherwise.
+- name: "DB Init: Create/sync alerts MySQL database, user and grants"
+  command: >
+    docker exec la_mysql mysql -u root -p{{ mysql_root_password }} -e "
+    CREATE DATABASE IF NOT EXISTS {{ alerts_db_name | default('alerts') }} CHARACTER SET utf8mb4;
+    CREATE USER IF NOT EXISTS '{{ alerts_db_username | default('alerts') }}'@'%' IDENTIFIED WITH mysql_native_password BY '{{ alerts_db_password }}';
+    ALTER USER IF EXISTS '{{ alerts_db_username | default('alerts') }}'@'%' IDENTIFIED WITH mysql_native_password BY '{{ alerts_db_password }}';
+    GRANT ALL PRIVILEGES ON {{ alerts_db_name | default('alerts') }}.* TO '{{ alerts_db_username | default('alerts') }}'@'%';
+    FLUSH PRIVILEGES;"
+  become: true
+  when: "'alerts-service' in physical_server_groups"
+  changed_when: false
+  tags:
+    - db-init
+    - db-password-sync
+
+- name: "DB Init: Verify alerts MySQL user can authenticate (closes FLUSH PRIVILEGES race)"
+  command: >
+    docker exec la_mysql mysql
+    -u {{ alerts_db_username | default('alerts') }}
+    -p{{ alerts_db_password }}
+    -e "SELECT 1;"
+  register: alerts_db_probe
+  retries: 10
+  delay: 2
+  until: alerts_db_probe.rc == 0
+  become: true
+  when: "'alerts-service' in physical_server_groups"
+  changed_when: false
+  no_log: true
+  tags:
+    - db-init
+    - db-password-sync
+
 # The logger app's Liquibase changeset 1 only does CREATE INDEX on log_event;
 # it assumes the base schema already exists (the VM role imports schema.sql).
 # In docker-local that import never ran, so Liquibase dies with

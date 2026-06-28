@@ -1,0 +1,36 @@
+# DOI Service - generates DOIs for user downloads
+services:
+  doi-service:
+    image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}doi-service:{{ doi_service_version | default('latest') }}
+    container_name: {{ doi_service_docker_host | default('la_doi-service') }}
+    profiles: [app-core, full]
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    restart: unless-stopped
+    expose:
+      - {{ doi_service_port | default('8080') }}
+    environment:
+      TZ: {{ server_tz | default('UTC') }}
+      JAVA_OPTS: ${DOI_JAVA_OPTS}
+    # Spring Boot exec jar. The baked image CMD/JAVA_OPTS does not load the role-generated
+    # doi-service-config.yml, so override the command to honor JAVA_OPTS and add the config
+    # location + name (mirrors logger-service / image-service). logback.xml (not .groovy:
+    # modern Logback rejects .groovy) for logging.
+    command: ["/bin/sh", "-c", "exec java $$JAVA_OPTS -Xss512k -Djava.awt.headless=true -Dlogging.config=/data/doi-service/config/logback.xml -Dspring.config.additional-location=/data/doi-service/config/ -Dspring.config.name=application,application-local-config,doi-service-config -jar /opt/atlas/$$APP_ARTIFACT/app.jar"]
+    volumes:
+      - {{ data_dir }}/doi-service/config:/data/doi-service/config
+    networks:
+      default: {}
+      {{ docker_network | default('internal') }}:
+    # doi-service uses PostgreSQL; gate only when postgres is co-located on this host.
+{% if datastore_endpoints.get('postgres', {}).get('colocated', false) %}
+    depends_on:
+      postgres:
+        condition: service_healthy
+{% endif %}
+    healthcheck:
+      # /actuator/health if exposed, else context root. Tune in CI against the running image.
+      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:{{ doi_service_port | default('8080') }}/doi/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s

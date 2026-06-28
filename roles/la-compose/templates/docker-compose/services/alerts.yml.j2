@@ -1,0 +1,46 @@
+# Alerts - users subscribe to notifications about new occurrences/regions
+services:
+  alerts:
+    image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}alerts:{{ alerts_version | default('latest') }}
+    container_name: {{ alerts_docker_host | default('la_alerts') }}
+    profiles: [app-core, full]
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+{% set _branding_gate = ('collectory' in services_enabled or 'ala_bie' in services_enabled) %}
+{% set _mysql_local = datastore_endpoints.get('mysql', {}).get('colocated', false) %}
+{% if _branding_gate or _mysql_local %}
+    depends_on:
+{% if _branding_gate %}
+      # Order-independent branding readiness gate (commonui header/footer); cross-host safe.
+      wait-for-branding:
+        condition: service_completed_successfully
+{% endif %}
+{% if _mysql_local %}
+      # alerts boots into a MySQL connection; gate only when mysql is co-located (a remote
+      # mysql is not in this compose file). Remote => omit, converge by restart.
+      mysql:
+        condition: service_healthy
+{% endif %}
+{% endif %}
+    volumes:
+      # Role (ala-install/alerts) writes config to {{ data_dir }}/alerts/config; the image
+      # reads /data/alerts/config (artifact name = alerts). config-dir-ensure recurse-chowns
+      # it to the container uid so logback.xml / alerts-config.properties are readable.
+      - {{ data_dir }}/alerts/config:/data/alerts/config
+{% include '_i18n_volumes.yml.j2' %}
+    restart: unless-stopped
+    expose:
+      - {{ alerts_port | default('8080') }}
+    environment:
+      TZ: {{ server_tz | default('UTC') }}
+      JAVA_OPTS: ${ALERTS_JAVA_OPTS}
+    networks:
+      default: {}
+      {{ docker_network | default('internal') }}:
+    healthcheck:
+      # Liveness: context root serves the alerts UI once Spring/Grails is up. Endpoint to
+      # confirm/tune against the running image in CI.
+      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:{{ alerts_port | default('8080') }}/alerts || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
