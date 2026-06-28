@@ -1,0 +1,27 @@
+---
+# Checks curados (deep API / certs / DNS) — generado, NO editar a mano.
+# Fuente de datos: roles/la-compose/vars/gatus-extra-endpoints.yml
+# Gatus auto-mergea este fichero junto al config.yaml base y los *-http.yaml.
+endpoints:
+{% for ep in gatus_extra_endpoints | default([]) %}
+  - name: "{{ ep.name }}"
+    group: "{{ ep.group | default('extra') }}"
+    url: "{{ ep.url }}"
+    interval: {{ ep.interval | default(gatus_interval | default('1m')) }}
+    conditions:
+{% for c in ep.conditions | default(['[STATUS] < 400']) %}
+      - "{{ c }}"
+{% endfor %}
+{% if ep.client is defined %}
+    client:
+{% for k, v in ep.client.items() %}
+      {{ k }}: {{ v | to_json }}
+{% endfor %}
+{% endif %}
+{% if ep.dns is defined %}
+    dns:
+{% for k, v in ep.dns.items() %}
+      {{ k }}: {{ v | to_json }}
+{% endfor %}
+{% endif %}
+{% endfor %}

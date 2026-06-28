@@ -1,0 +1,208 @@
+---
+# Checks curados de Gatus para l-a.site — adaptados de gatus_endpoints de gbif.es
+# (~/dev/ansible-common/inventory.ini). Aquí en YAML multi-línea legible y versionado,
+# NO en una sola línea ni en la inventory autogenerada.
+#
+# Estos checks NO se autogeneran desde nginx_paths (eso lo hace el rol nginx_vhost con
+# condición simple [STATUS] < 500). Son checks profundos de API, caducidad de
+# certificados TLS y resolución DNS.
+#
+# Renderizado por: roles/la-compose/templates/docker-compose/gatus/extra-checks.yaml.j2
+# → {{ docker_compose_data_dir }}/gatus/config/extra-checks.yaml (Gatus auto-mergea).
+#
+# Cada entrada admite: name / group / url / conditions[] / interval? / client? / dns?
+# Defaults del renderer: conditions=['[STATUS] < 400'], interval=gatus_interval (1m).
+
+# Dominio base: único punto a cambiar para reusar en otro despliegue.
+gatus_base_domain: "l-a.site"
+
+gatus_extra_endpoints:
+
+  # ---------------------------------------------------------------------------
+  # Deep API / funcionales — solo status + patrones de error de framework
+  # (no dependen de datos concretos del despliegue).
+  # ---------------------------------------------------------------------------
+  - name: "records-ws occurrences search"
+    group: "Deep checks"
+    url: "https://records-ws.{{ gatus_base_domain }}/occurrences/search?q=*:*&pageSize=0"
+    conditions: ["[STATUS] < 400"]
+
+  - name: "records-ws index fields"
+    group: "Deep checks"
+    url: "https://records-ws.{{ gatus_base_domain }}/index/fields"
+    conditions: ["[STATUS] < 400"]
+
+  - name: "species search"
+    group: "Deep checks"
+    url: "https://species.{{ gatus_base_domain }}/search?q=Acacia"
+    conditions: ["[STATUS] < 400", "[BODY] != pat(*Application error*)"]
+
+  - name: "species-ws name search"
+    group: "Deep checks"
+    url: "https://species-ws.{{ gatus_base_domain }}/search?q=Acacia"
+    conditions: ["[STATUS] < 400"]
+
+  - name: "collections ws"
+    group: "Deep checks"
+    url: "https://collections.{{ gatus_base_domain }}/ws"
+    conditions: ["[STATUS] < 400"]
+
+  - name: "spatial ws fields"
+    group: "Deep checks"
+    url: "https://spatial.{{ gatus_base_domain }}/ws/fields"
+    conditions: ["[STATUS] < 400"]
+
+  - name: "spatial geoserver"
+    group: "Deep checks"
+    url: "https://spatial.{{ gatus_base_domain }}/geoserver/web/"
+    conditions: ["[STATUS] < 400", "[BODY] != pat(*An error has occurred*)"]
+
+  - name: "lists ws"
+    group: "Deep checks"
+    url: "https://lists.{{ gatus_base_domain }}/ws/speciesList"
+    conditions: ["[STATUS] < 400"]
+
+  - name: "logger reasons"
+    group: "Deep checks"
+    url: "https://logger.{{ gatus_base_domain }}/service/logger/reasons"
+    conditions: ["[STATUS] < 400"]
+
+  - name: "namematching search"
+    group: "Deep checks"
+    url: "https://namematching.{{ gatus_base_domain }}/api/search?q=Acacia"
+    conditions: ["[STATUS] < 400"]
+
+  - name: "sds isSensitive"
+    group: "Deep checks"
+    url: "https://sds.{{ gatus_base_domain }}/api/isSensitive?scientificName=Lynx%20pardinus"
+    conditions: ["[STATUS] < 400"]
+
+  # ---------------------------------------------------------------------------
+  # Certs — caducidad TLS (336h = 14 días). Uno por FQDN público con vhost.
+  # Resuelven a nginx vía aliases internos; validan el wildcard l-a.site.
+  # Si deshabilitas un servicio, comenta su línea (no resolvería).
+  # ---------------------------------------------------------------------------
+  - name: "Cert expiry - root"
+    group: "Certs"
+    url: "tls://{{ gatus_base_domain }}:443"
+    interval: "1h"
+    conditions: ["[CONNECTED] == true", "[CERTIFICATE_EXPIRATION] > 336h"]
+  - name: "Cert expiry - records"
+    group: "Certs"
+    url: "tls://records.{{ gatus_base_domain }}:443"
+    interval: "1h"
+    conditions: ["[CONNECTED] == true", "[CERTIFICATE_EXPIRATION] > 336h"]
+  - name: "Cert expiry - records-ws"
+    group: "Certs"
+    url: "tls://records-ws.{{ gatus_base_domain }}:443"
+    interval: "1h"
+    conditions: ["[CONNECTED] == true", "[CERTIFICATE_EXPIRATION] > 336h"]
+  - name: "Cert expiry - species"
+    group: "Certs"
+    url: "tls://species.{{ gatus_base_domain }}:443"
+    interval: "1h"
+    conditions: ["[CONNECTED] == true", "[CERTIFICATE_EXPIRATION] > 336h"]
+  - name: "Cert expiry - species-ws"
+    group: "Certs"
+    url: "tls://species-ws.{{ gatus_base_domain }}:443"
+    interval: "1h"
+    conditions: ["[CONNECTED] == true", "[CERTIFICATE_EXPIRATION] > 336h"]
+  - name: "Cert expiry - collections"
+    group: "Certs"
+    url: "tls://collections.{{ gatus_base_domain }}:443"
+    interval: "1h"
+    conditions: ["[CONNECTED] == true", "[CERTIFICATE_EXPIRATION] > 336h"]
+  - name: "Cert expiry - images"
+    group: "Certs"
+    url: "tls://images.{{ gatus_base_domain }}:443"
+    interval: "1h"
+    conditions: ["[CONNECTED] == true", "[CERTIFICATE_EXPIRATION] > 336h"]
+  - name: "Cert expiry - lists"
+    group: "Certs"
+    url: "tls://lists.{{ gatus_base_domain }}:443"
+    interval: "1h"
+    conditions: ["[CONNECTED] == true", "[CERTIFICATE_EXPIRATION] > 336h"]
+  - name: "Cert expiry - spatial"
+    group: "Certs"
+    url: "tls://spatial.{{ gatus_base_domain }}:443"
+    interval: "1h"
+    conditions: ["[CONNECTED] == true", "[CERTIFICATE_EXPIRATION] > 336h"]
+  - name: "Cert expiry - logger"
+    group: "Certs"
+    url: "tls://logger.{{ gatus_base_domain }}:443"
+    interval: "1h"
+    conditions: ["[CONNECTED] == true", "[CERTIFICATE_EXPIRATION] > 336h"]
+  - name: "Cert expiry - regions"
+    group: "Certs"
+    url: "tls://regions.{{ gatus_base_domain }}:443"
+    interval: "1h"
+    conditions: ["[CONNECTED] == true", "[CERTIFICATE_EXPIRATION] > 336h"]
+  - name: "Cert expiry - alerts"
+    group: "Certs"
+    url: "tls://alerts.{{ gatus_base_domain }}:443"
+    interval: "1h"
+    conditions: ["[CONNECTED] == true", "[CERTIFICATE_EXPIRATION] > 336h"]
+  - name: "Cert expiry - doi"
+    group: "Certs"
+    url: "tls://doi.{{ gatus_base_domain }}:443"
+    interval: "1h"
+    conditions: ["[CONNECTED] == true", "[CERTIFICATE_EXPIRATION] > 336h"]
+  - name: "Cert expiry - data-quality"
+    group: "Certs"
+    url: "tls://data-quality.{{ gatus_base_domain }}:443"
+    interval: "1h"
+    conditions: ["[CONNECTED] == true", "[CERTIFICATE_EXPIRATION] > 336h"]
+  - name: "Cert expiry - namematching"
+    group: "Certs"
+    url: "tls://namematching.{{ gatus_base_domain }}:443"
+    interval: "1h"
+    conditions: ["[CONNECTED] == true", "[CERTIFICATE_EXPIRATION] > 336h"]
+  - name: "Cert expiry - sds"
+    group: "Certs"
+    url: "tls://sds.{{ gatus_base_domain }}:443"
+    interval: "1h"
+    conditions: ["[CONNECTED] == true", "[CERTIFICATE_EXPIRATION] > 336h"]
+  - name: "Cert expiry - auth"
+    group: "Certs"
+    url: "tls://auth.{{ gatus_base_domain }}:443"
+    interval: "1h"
+    conditions: ["[CONNECTED] == true", "[CERTIFICATE_EXPIRATION] > 336h"]
+  - name: "Cert expiry - gatus"
+    group: "Certs"
+    url: "tls://gatus.{{ gatus_base_domain }}:443"
+    interval: "1h"
+    conditions: ["[CONNECTED] == true", "[CERTIFICATE_EXPIRATION] > 336h"]
+
+  # ---------------------------------------------------------------------------
+  # DNS — registro A vía resolver público 1.1.1.1 (salida pública del contenedor).
+  # ---------------------------------------------------------------------------
+  - name: "DNS A - root"
+    group: "DNS"
+    url: "1.1.1.1"
+    interval: "15m"
+    dns: { query-name: "{{ gatus_base_domain }}", query-type: "A" }
+    conditions: ["[DNS_RCODE] == NOERROR", "[BODY] != "]
+  - name: "DNS A - records"
+    group: "DNS"
+    url: "1.1.1.1"
+    interval: "15m"
+    dns: { query-name: "records.{{ gatus_base_domain }}", query-type: "A" }
+    conditions: ["[DNS_RCODE] == NOERROR", "[BODY] != "]
+  - name: "DNS A - species"
+    group: "DNS"
+    url: "1.1.1.1"
+    interval: "15m"
+    dns: { query-name: "species.{{ gatus_base_domain }}", query-type: "A" }
+    conditions: ["[DNS_RCODE] == NOERROR", "[BODY] != "]
+  - name: "DNS A - collections"
+    group: "DNS"
+    url: "1.1.1.1"
+    interval: "15m"
+    dns: { query-name: "collections.{{ gatus_base_domain }}", query-type: "A" }
+    conditions: ["[DNS_RCODE] == NOERROR", "[BODY] != "]
+  - name: "DNS A - spatial"
+    group: "DNS"
+    url: "1.1.1.1"
+    interval: "15m"
+    dns: { query-name: "spatial.{{ gatus_base_domain }}", query-type: "A" }
+    conditions: ["[DNS_RCODE] == NOERROR", "[BODY] != "]
