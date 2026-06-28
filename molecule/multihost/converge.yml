@@ -1,0 +1,68 @@
+---
+# Multi-host SCOPE-LEAK check — resolved hostvars only. NO render, NO docker,
+# NO host prep, NO filesystem writes. Runs in ~0.1s per host.
+#
+# Why hostvars and not a full render: the CI red streak (#86→#214) was caused by
+# inter-service dependency hostnames resolving to localhost/127.0.0.1 on a deploy
+# host because a `[<service>:vars]` override only reaches the `.<service>` alias,
+# not the `.docker_compose` host the deploy runs on. validate-pre-deploy.yml
+# catches that by grepping RENDERED configs, but a full multi-host render is
+# tightly coupled to target-host prep (chown to ubuntu/nginx, /data, /var/log,
+# image builds) and cannot run cleanly off the target host.
+#
+# This works on each docker_compose host's RESOLVED variables instead. In the
+# docker-compose model every inter-service dependency is reached via a container
+# alias (la_*) or a real host/domain — localhost/127.0.0.1 is ALWAYS a leak
+# (even a co-located dependency is reached over the docker network, not loopback).
+# The role's own normalize-hostnames.yml (pure set_fact, no host prep — the same
+# logic molecule/unit exercises) is applied FIRST, exactly as the real render
+# does; a dependency still pointing at localhost AFTER it is a genuine scope leak.
+#
+# The 3-host fixture (la-mh-1/2/3, each owning a different service subset) lives
+# in inventories/testing/lademo-multihost/lademo-inventories/lademo-inventory.ini.
+#
+# Run standalone (what `molecule test -s multihost` wraps):
+#   ANSIBLE_ROLES_PATH=roles:ala-install/ansible/roles ansible-playbook \
+#     molecule/multihost/converge.yml \
+#     -i inventories/testing/lademo-multihost/lademo-inventories/lademo-inventory.ini \
+#     --limit docker_compose
+- name: Multi-host scope-leak check (resolved hostvars, no render)
+  hosts: docker_compose
+  gather_facts: false
+  # This play only inspects inventory variables; it never needs the real hosts.
+  connection: local
+  vars:
+    # Variable-name patterns that hold an inter-service dependency hostname/URL.
+    # A resolved value containing localhost/127.0.0.1 for any of these is a leak.
+    mh_dep_key_regex: '(_db_hostname|_db_host_address|_db_host|_upstream_host|_docker_host)$|^(solr_host|solr_url|biocache_solr_url|cassandra_host|cassandra_hosts|cassandra_contactpoints|zookeeper_hosts|es_hostname|elasticsearch_host)$'
+  tasks:
+    # Apply the role's OWN localhost->container-alias normalization first (pure
+    # set_fact, no host prep). A dependency STILL localhost after this is a real
+    # scope leak: the override never reached this .docker_compose host's scope.
+    - name: "Normalize hostnames (localhost -> la_* aliases), as the real render does"
+      ansible.builtin.import_role:
+        name: la-compose
+        tasks_from: normalize-hostnames.yml
+
+    - name: "Collect dependency vars resolving to localhost/127.0.0.1 on this host"
+      ansible.builtin.set_fact:
+        mh_scope_leaks: >-
+          {{ hostvars[inventory_hostname] | dict2items
+             | selectattr('key', 'search', mh_dep_key_regex)
+             | selectattr('value', 'string')
+             | selectattr('value', 'search', '(localhost|127\.0\.0\.1)')
+             | list }}
+
+    - name: "Report per-host leaks"
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }}: {{ mh_scope_leaks | items2dict }}"
+      when: mh_scope_leaks | length > 0
+
+    - name: "Assert no inter-service dependency resolves to localhost"
+      ansible.builtin.assert:
+        that: mh_scope_leaks | length == 0
+        fail_msg: >-
+          SCOPE LEAK on {{ inventory_hostname }}: these inter-service dependency
+          vars resolve to localhost/127.0.0.1 (should be a la_* alias or real host):
+          {{ mh_scope_leaks | items2dict }}
+        success_msg: "{{ inventory_hostname }}: no inter-service localhost leaks"

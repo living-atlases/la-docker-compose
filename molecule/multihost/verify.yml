@@ -1,0 +1,10 @@
+---
+# All assertions run in converge.yml (a leak there fails the scenario). This play
+# just confirms the run completed.
+- name: Verify
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Scope-leak assertions passed in converge
+      ansible.builtin.debug:
+        msg: "PASS: no inter-service localhost leaks on any docker_compose host"

@@ -1,0 +1,9 @@
+---
+# Default driver (managed: false): nothing to destroy.
+- name: Destroy
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: No instance destruction needed (inventory-only scenario)
+      ansible.builtin.debug:
+        msg: "managed: false — skipping destroy"

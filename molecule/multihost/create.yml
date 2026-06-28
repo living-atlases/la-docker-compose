@@ -1,0 +1,9 @@
+---
+# Default driver (managed: false): nothing to create.
+- name: Create
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: No instance creation needed (inventory-only scenario)
+      ansible.builtin.debug:
+        msg: "managed: false — skipping create"

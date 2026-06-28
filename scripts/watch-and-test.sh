@@ -309,6 +309,22 @@ run_tests() {
         echo -e "${YELLOW}⚠ molecule not found — skipping unit tests (run scripts/setup-molecule.sh)${NC}"
     fi
 
+    # Step 1b: multi-host scope-leak check (additive, NON-FATAL). Renders nothing
+    # and deploys nothing — inspects resolved hostvars on the committed 3-host
+    # fixture for inter-service deps leaking to localhost (the CI-red bug class the
+    # single-host flow cannot see). A leak here WARNS but never blocks local deploy.
+    if [ -n "$molecule_bin" ]; then
+        echo ""
+        echo -e "${CYAN}── Step 1b: multi-host scope-leak check (non-fatal) ─────────${NC}"
+        ( cd "$ROOT_DIR" && "$molecule_bin" test -s multihost ) >> "$LAST_LOG" 2>&1
+        if [ $? -eq 0 ]; then
+            echo -e "${GREEN}✔ multi-host scope check passed (no localhost leaks)${NC}"
+        else
+            echo -e "${YELLOW}${BOLD}⚠ multi-host scope check found a leak (see $LAST_LOG) — not blocking${NC}"
+            send_notification "⚠ LA Docker — scope leak" "Multi-host scope check found an inter-service localhost leak" "normal" "dialog-warning"
+        fi
+    fi
+
     if [ "$exit_code" -eq 0 ]; then
         echo ""
         echo -e "${CYAN}── Step 2: ansiblew → /data/docker-compose ──────────────────${NC}"

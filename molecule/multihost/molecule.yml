@@ -1,0 +1,40 @@
+---
+# Molecule scenario: multi-host scope-leak check (no docker, no render).
+# Runs converge.yml against the committed 3-host fixture inventory and asserts no
+# inter-service dependency resolves to localhost/127.0.0.1 on any deploy host.
+#
+# Setup: scripts/setup-molecule.sh   Run: molecule test -s multihost  (from root)
+dependency:
+  name: galaxy
+
+driver:
+  name: default
+  options:
+    managed: false
+
+platforms:
+  - name: la-mh-cluster
+
+provisioner:
+  name: ansible
+  env:
+    # import_role la-compose (+ its normalize-hostnames.yml) must resolve.
+    ANSIBLE_ROLES_PATH: "${MOLECULE_PROJECT_DIRECTORY}/roles:${MOLECULE_PROJECT_DIRECTORY}/ala-install/ansible/roles"
+  inventory:
+    # The committed 3-host fixture (la-mh-1/2/3, distinct service split).
+    links:
+      hosts: "${MOLECULE_PROJECT_DIRECTORY}/inventories/testing/lademo-multihost/lademo-inventories/lademo-inventory.ini"
+
+verifier:
+  name: ansible
+
+scenario:
+  name: multihost
+  test_sequence:
+    - syntax
+    - converge
+    - verify
+  create_sequence:
+    - create
+  destroy_sequence:
+    - destroy
