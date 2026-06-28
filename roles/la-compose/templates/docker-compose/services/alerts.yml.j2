@@ -26,6 +26,9 @@ services:
       # reads /data/alerts/config (artifact name = alerts). config-dir-ensure recurse-chowns
       # it to the container uid so logback.xml / alerts-config.properties are readable.
       - {{ data_dir }}/alerts/config:/data/alerts/config
+      # logback.xml writes to /var/log/tomcat9/alerts.log; the image has no /var/log/tomcat9
+      # (not writable by uid 1000) so bind a host dir (created uid 1000 by config-dir-ensure).
+      - {{ data_dir }}/alerts/logs:/var/log/tomcat9
 {% include '_i18n_volumes.yml.j2' %}
     restart: unless-stopped
     expose:
@@ -33,14 +36,26 @@ services:
     environment:
       TZ: {{ server_tz | default('UTC') }}
       JAVA_OPTS: ${ALERTS_JAVA_OPTS}
+      # The 5.x image's baked application.yml resolves the Grails dataSource AND spring.liquibase
+      # connection from these env vars (${DB_URL}/${DB_USER}/${DB_PASSWORD}/${DB_DRIVER}). The
+      # external alerts-config.properties only overrides dataSource.* (not spring.liquibase.*), so
+      # without these the liquibase placeholder is unresolvable and the app fails to boot.
+      DB_URL: "jdbc:mysql://{{ alerts_db_hostname | default('la_mysql') }}/alerts?autoReconnect=true&connectTimeout=0&useUnicode=true&characterEncoding=UTF-8&useSSL=false"
+      DB_USER: "{{ alerts_db_username | default('alerts') }}"
+      DB_PASSWORD: "{{ alerts_db_password | default('') }}"
+      DB_DRIVER: "com.mysql.jdbc.Driver"
+    # The baked image CMD hardcodes spring.config.name=application,application-local-config and
+    # ignores $JAVA_OPTS, so the role-generated alerts-config.properties is never loaded. Override
+    # the command to honor JAVA_OPTS and add the alerts-config name (mirrors doi/logger/image).
+    command: ["/bin/sh", "-c", "exec java $$JAVA_OPTS -Xss512k -Djava.awt.headless=true -Dspring.config.additional-location=/data/alerts/config/ -Dspring.config.name=application,application-local-config,alerts-config -jar /opt/atlas/$$APP_ARTIFACT/app.war"]
     networks:
       default: {}
       {{ docker_network | default('internal') }}:
     healthcheck:
-      # Liveness: context root serves the alerts UI once Spring/Grails is up. Endpoint to
-      # confirm/tune against the running image in CI.
-      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:{{ alerts_port | default('8080') }}/alerts || exit 1"]
+      # Spring Boot WAR (WarLauncher) serves the alerts UI at the embedded context root (no
+      # server context-path). Accept 2xx/3xx/4xx (server up) and fail on refused/5xx.
+      test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' http://localhost:{{ alerts_port | default('8080') }}/ | grep -qvE '^(000|5)'"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 60s
+      start_period: 90s

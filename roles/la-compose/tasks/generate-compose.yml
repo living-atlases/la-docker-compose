@@ -1693,6 +1693,10 @@
     - "{{ data_dir }}/specieslist-webapp/logs"
     - "{{ data_dir }}/bie-index/logs"
     - "{{ data_dir }}/ala-bie-hub/logs"
+    - "{{ data_dir }}/alerts/logs"
+    - "{{ data_dir }}/regions/logs"
+    - "{{ data_dir }}/data-quality-filter-service/logs"
+    - "{{ data_dir }}/doi-service/logs"
   tags:
     - docker-compose
 

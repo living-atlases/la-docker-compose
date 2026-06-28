@@ -11,13 +11,16 @@ services:
     environment:
       TZ: {{ server_tz | default('UTC') }}
       JAVA_OPTS: ${DOI_JAVA_OPTS}
-    # Spring Boot exec jar. The baked image CMD/JAVA_OPTS does not load the role-generated
-    # doi-service-config.yml, so override the command to honor JAVA_OPTS and add the config
-    # location + name (mirrors logger-service / image-service). logback.xml (not .groovy:
-    # modern Logback rejects .groovy) for logging.
-    command: ["/bin/sh", "-c", "exec java $$JAVA_OPTS -Xss512k -Djava.awt.headless=true -Dlogging.config=/data/doi-service/config/logback.xml -Dspring.config.additional-location=/data/doi-service/config/ -Dspring.config.name=application,application-local-config,doi-service-config -jar /opt/atlas/$$APP_ARTIFACT/app.jar"]
+    # The baked image CMD ignores $JAVA_OPTS, points logging.config at logback.groovy (modern
+    # Logback rejects .groovy) and does not load the role-generated doi-service-config.yml, so
+    # override the command to honor JAVA_OPTS, force logback.xml and add the config name (mirrors
+    # logger-service / image-service). The image artifact is a WAR (WarLauncher), not a jar.
+    command: ["/bin/sh", "-c", "exec java $$JAVA_OPTS -Xss512k -Djava.awt.headless=true -Dlogging.config=/data/doi-service/config/logback.xml -Dspring.config.additional-location=/data/doi-service/config/ -Dspring.config.name=application,application-local-config,doi-service-config -jar /opt/atlas/$$APP_ARTIFACT/app.war"]
     volumes:
       - {{ data_dir }}/doi-service/config:/data/doi-service/config
+      # logback.xml writes to /var/log/tomcat9/...; image has no /var/log/tomcat9 (not writable
+      # by uid 1000) so bind a host dir (created uid 1000 by config-dir-ensure).
+      - {{ data_dir }}/doi-service/logs:/var/log/tomcat9
     networks:
       default: {}
       {{ docker_network | default('internal') }}:
@@ -28,8 +31,10 @@ services:
         condition: service_healthy
 {% endif %}
     healthcheck:
-      # /actuator/health if exposed, else context root. Tune in CI against the running image.
-      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:{{ doi_service_port | default('8080') }}/doi/actuator/health || exit 1"]
+      # Spring Boot WAR served at the embedded context root (doi_service_context_path is empty);
+      # actuator endpoints are Boot-1.x style/disabled, so probe the root. Accept 2xx/3xx/4xx
+      # (server up) and fail on refused/5xx.
+      test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' http://localhost:{{ doi_service_port | default('8080') }}/ | grep -qvE '^(000|5)'"]
       interval: 30s
       timeout: 10s
       retries: 5

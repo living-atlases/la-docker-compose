@@ -15,6 +15,9 @@ services:
       # Role (ala-install/regions) writes config to {{ data_dir }}/regions/config; the image
       # reads /data/regions/config (artifact name = regions). config-dir-ensure recurse-chowns it.
       - {{ data_dir }}/regions/config:/data/regions/config
+      # logback.xml writes to /var/log/tomcat9/regions.log; the image has no /var/log/tomcat9
+      # (not writable by uid 1000) so bind a host dir (created uid 1000 by config-dir-ensure).
+      - {{ data_dir }}/regions/logs:/var/log/tomcat9
 {% include '_i18n_volumes.yml.j2' %}
     restart: unless-stopped
     expose:
@@ -22,13 +25,18 @@ services:
     environment:
       TZ: {{ server_tz | default('UTC') }}
       JAVA_OPTS: ${REGIONS_JAVA_OPTS}
+    # The baked image CMD hardcodes spring.config.name=application,application-local-config and
+    # ignores $JAVA_OPTS, so the role-generated regions-config.properties is never loaded. Override
+    # the command to honor JAVA_OPTS and add the regions-config name (mirrors doi/logger/image).
+    command: ["/bin/sh", "-c", "exec java $$JAVA_OPTS -Xss512k -Djava.awt.headless=true -Dspring.config.additional-location=/data/regions/config/ -Dspring.config.name=application,application-local-config,regions-config -jar /opt/atlas/$$APP_ARTIFACT/app.war"]
     networks:
       default: {}
       {{ docker_network | default('internal') }}:
     healthcheck:
-      # Liveness: context root serves the regions UI once Grails is up. Tune endpoint in CI.
-      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:{{ regions_port | default('8080') }}/regions || exit 1"]
+      # Spring Boot WAR (WarLauncher) serves the regions UI at the embedded context root (no
+      # server context-path). Accept 2xx/3xx/4xx (server up) and fail on refused/5xx.
+      test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' http://localhost:{{ regions_port | default('8080') }}/ | grep -qvE '^(000|5)'"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 60s
+      start_period: 90s

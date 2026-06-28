@@ -15,19 +15,28 @@ services:
       # Role writes config to {{ data_dir }}/data-quality-filter-service/config; image reads
       # /data/data-quality-filter-service/config (artifact = data-quality-filter-service).
       - {{ data_dir }}/data-quality-filter-service/config:/data/data-quality-filter-service/config
+      # logback.xml writes to /var/log/tomcat9/...; image has no /var/log/tomcat9 (not writable
+      # by uid 1000) so bind a host dir (created uid 1000 by config-dir-ensure).
+      - {{ data_dir }}/data-quality-filter-service/logs:/var/log/tomcat9
+    # The baked image CMD hardcodes spring.config.name=application,application-local-config and
+    # ignores $JAVA_OPTS, so the role-generated ...-config.properties (which repoints the
+    # datasource from the baked H2 to postgres) is never loaded. Override the command to honor
+    # JAVA_OPTS and add the config name (mirrors doi/logger/image).
+    command: ["/bin/sh", "-c", "exec java $$JAVA_OPTS -Xss512k -Djava.awt.headless=true -Dspring.config.additional-location=/data/data-quality-filter-service/config/ -Dspring.config.name=application,application-local-config,data-quality-filter-service-config -jar /opt/atlas/$$APP_ARTIFACT/app.war"]
     networks:
       default: {}
       {{ docker_network | default('internal') }}:
-    # Uses PostgreSQL; gate only when postgres is co-located on this host.
+    # The role config repoints the datasource to PostgreSQL; gate only when postgres is co-located.
 {% if datastore_endpoints.get('postgres', {}).get('colocated', false) %}
     depends_on:
       postgres:
         condition: service_healthy
 {% endif %}
     healthcheck:
-      # Liveness on the service context root. Tune endpoint in CI.
-      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:{{ data_quality_filter_service_port | default('8080') }}/dataQualityFilter || exit 1"]
+      # Spring Boot WAR served at server.contextPath=/data-quality. Accept 2xx/3xx/4xx (server up)
+      # and fail on refused/5xx.
+      test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' http://localhost:{{ data_quality_filter_service_port | default('8080') }}/data-quality | grep -qvE '^(000|5)'"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 60s
+      start_period: 90s
