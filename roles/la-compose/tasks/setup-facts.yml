@@ -119,6 +119,8 @@
         'cas-servers', 'collectory', 'species-list', 'bie-hub', 'bie-index', 'biocache-hub',
         'biocache-service-clusterdb', 'logger-service', 'image-service', 'namematching-service',
         'sensitive-data-service', 'gatus',
+        'alerts-service', 'regions', 'doi-service', 'data_quality_filter_service',
+        'spatial', 'spatial-service',
       ] -%}
         {%- if service in groups -%}
           {%- set matching = groups[service] | select('match', '^' + ansible_host + '(\\..+)?$') | list -%}
