@@ -3,7 +3,12 @@ services:
   postgres:
     container_name: la_postgres
     profiles: [dbs, core-auth, app-core, full]
-    image: postgres:16-alpine
+    # PostGIS image (drop-in superset of postgres:16) so spatial-service/geoserver/geonetwork
+    # can CREATE EXTENSION postgis on their DBs (layersdb, geonetwork). Non-GIS consumers
+    # (cas, collectory, image-service, doi, data-quality) are unaffected. Extensions are
+    # created per-DB in init-databases.yml (not relied on from template_postgis), so this is
+    # safe on volumes first initialised by the plain postgres image.
+    image: postgis/postgis:16-3.4-alpine
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     volumes:
       - la_postgres-data:/var/lib/postgresql/data

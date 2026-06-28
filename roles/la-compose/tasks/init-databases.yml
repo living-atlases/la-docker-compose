@@ -487,12 +487,27 @@
 # dies with "password authentication failed for user images". Provision both
 # idempotently. PG15+ locks down the public schema (owned by pg_database_owner),
 # so the role must OWN the database to be able to create its schema/tables.
-- name: "DB Init: Start postgres container (for image-service provisioning)"
+# Postgres consumers needing in-container DB/role provisioning. image-service (images),
+# doi-service (doi), data-quality (data-quality), spatial-service (layersdb) and geonetwork
+# (geonetwork) all run against la_postgres; start it wherever any of them is co-located.
+- name: "DB Init: Define postgres-consumer presence fact"
+  set_fact:
+    postgres_consumer_here: >-
+      {{ ('image-service' in physical_server_groups)
+         or ('doi-service' in physical_server_groups)
+         or ('data_quality_filter_service' in physical_server_groups)
+         or ('spatial' in physical_server_groups)
+         or ('spatial-service' in physical_server_groups)
+         or ('geonetwork' in physical_server_groups) }}
+  tags:
+    - db-init
+
+- name: "DB Init: Start postgres container (for in-container DB provisioning)"
   command: docker compose up -d postgres
   args:
     chdir: "{{ docker_compose_data_dir }}"
   become: true
-  when: "'image-service' in physical_server_groups"
+  when: postgres_consumer_here | bool
   tags:
     - db-init
 
@@ -504,7 +519,7 @@
   retries: 30
   delay: 5
   become: true
-  when: "'image-service' in physical_server_groups"
+  when: postgres_consumer_here | bool
   tags:
     - db-init
 
@@ -564,6 +579,198 @@
   tags:
     - db-init
     - db-password-sync
+
+# --- doi-service PostgreSQL database + login role ---
+# doi uses jdbc:postgresql://{{doi_db_hostname}}/{{doi_db_name}} (normalize-hostnames maps
+# localhost -> postgres). Same aged-volume gap as image-service: provision role + DB idempotently.
+- name: "DB Init: Create/sync doi-service postgres login role (idempotent)"
+  command: >
+    docker exec -u postgres la_postgres psql -v ON_ERROR_STOP=1 -c
+    "DO $$ BEGIN
+       IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='{{ doi_db_user | default('doi') }}') THEN
+         CREATE ROLE {{ doi_db_user | default('doi') }} LOGIN PASSWORD '{{ doi_db_password }}';
+       END IF;
+     END $$;
+     ALTER ROLE {{ doi_db_user | default('doi') }} WITH LOGIN PASSWORD '{{ doi_db_password }}';"
+  become: true
+  when: "'doi-service' in physical_server_groups"
+  changed_when: false
+  no_log: true
+  tags: [db-init, db-password-sync]
+
+- name: "DB Init: Check if doi postgres database exists"
+  command: >
+    docker exec -u postgres la_postgres psql -tAc
+    "SELECT 1 FROM pg_database WHERE datname='{{ doi_db_name | default('doi') }}'"
+  register: doi_db_exists
+  become: true
+  changed_when: false
+  when: "'doi-service' in physical_server_groups"
+  tags: [db-init]
+
+- name: "DB Init: Create doi postgres database owned by its role"
+  command: >
+    docker exec -u postgres la_postgres psql -v ON_ERROR_STOP=1 -c
+    "CREATE DATABASE {{ doi_db_name | default('doi') }} OWNER {{ doi_db_user | default('doi') }}"
+  become: true
+  when:
+    - "'doi-service' in physical_server_groups"
+    - (doi_db_exists.stdout | default('') | trim) != "1"
+  tags: [db-init]
+
+# --- data-quality PostgreSQL database + login role ---
+# Role config (config.properties) defaults to jdbc:postgresql (dq_db_url). The inventory's
+# data_quality_db_host=la_mysql is an unused var (the role reads dq_db_*). dq_db_url points at
+# localhost; the role invocation in generate-compose overrides the host to postgres for docker.
+- name: "DB Init: Create/sync data-quality postgres login role (idempotent)"
+  command: >
+    docker exec -u postgres la_postgres psql -v ON_ERROR_STOP=1 -c
+    "DO $$ BEGIN
+       IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='{{ dq_db_user | default('data-quality') }}') THEN
+         CREATE ROLE \"{{ dq_db_user | default('data-quality') }}\" LOGIN PASSWORD '{{ dq_db_password }}';
+       END IF;
+     END $$;
+     ALTER ROLE \"{{ dq_db_user | default('data-quality') }}\" WITH LOGIN PASSWORD '{{ dq_db_password }}';"
+  become: true
+  when: "'data_quality_filter_service' in physical_server_groups"
+  changed_when: false
+  no_log: true
+  tags: [db-init, db-password-sync]
+
+- name: "DB Init: Check if data-quality postgres database exists"
+  command: >
+    docker exec -u postgres la_postgres psql -tAc
+    "SELECT 1 FROM pg_database WHERE datname='{{ dq_db_name | default('data-quality') }}'"
+  register: dq_db_exists
+  become: true
+  changed_when: false
+  when: "'data_quality_filter_service' in physical_server_groups"
+  tags: [db-init]
+
+- name: "DB Init: Create data-quality postgres database owned by its role"
+  command: >
+    docker exec -u postgres la_postgres psql -v ON_ERROR_STOP=1 -c
+    "CREATE DATABASE \"{{ dq_db_name | default('data-quality') }}\" OWNER \"{{ dq_db_user | default('data-quality') }}\""
+  become: true
+  when:
+    - "'data_quality_filter_service' in physical_server_groups"
+    - (dq_db_exists.stdout | default('') | trim) != "1"
+  tags: [db-init]
+
+# --- layersdb (spatial-service) PostGIS database + login role + schema ---
+# The ala-install layers-db role assumes a local postgres (createdb/psql as the postgres
+# system user); in container mode provision via docker exec against la_postgres. Needs PostGIS.
+- name: "DB Init: Create/sync layers postgres login role (idempotent)"
+  command: >
+    docker exec -u postgres la_postgres psql -v ON_ERROR_STOP=1 -c
+    "DO $$ BEGIN
+       IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='{{ layers_db_username | default('layers') }}') THEN
+         CREATE ROLE {{ layers_db_username | default('layers') }} LOGIN PASSWORD '{{ layers_db_password }}';
+       END IF;
+     END $$;
+     ALTER ROLE {{ layers_db_username | default('layers') }} WITH LOGIN PASSWORD '{{ layers_db_password }}';"
+  become: true
+  when: "'spatial-service' in physical_server_groups"
+  changed_when: false
+  no_log: true
+  tags: [db-init, db-password-sync]
+
+- name: "DB Init: Check if layersdb postgres database exists"
+  command: >
+    docker exec -u postgres la_postgres psql -tAc
+    "SELECT 1 FROM pg_database WHERE datname='{{ layers_db_name | default('layersdb') }}'"
+  register: layersdb_exists
+  become: true
+  changed_when: false
+  when: "'spatial-service' in physical_server_groups"
+  tags: [db-init]
+
+- name: "DB Init: Create layersdb database owned by layers + enable PostGIS"
+  command: >
+    docker exec -u postgres la_postgres psql -v ON_ERROR_STOP=1 -c
+    "CREATE DATABASE {{ layers_db_name | default('layersdb') }} OWNER {{ layers_db_username | default('layers') }}"
+  become: true
+  when:
+    - "'spatial-service' in physical_server_groups"
+    - (layersdb_exists.stdout | default('') | trim) != "1"
+  tags: [db-init]
+
+- name: "DB Init: Enable PostGIS extensions on layersdb"
+  command: >
+    docker exec -u postgres la_postgres psql -v ON_ERROR_STOP=1
+    -d {{ layers_db_name | default('layersdb') }} -c
+    "CREATE EXTENSION IF NOT EXISTS postgis; CREATE EXTENSION IF NOT EXISTS postgis_topology;"
+  become: true
+  when: "'spatial-service' in physical_server_groups"
+  changed_when: false
+  tags: [db-init]
+
+- name: "DB Init: Download layersdb schema (first run only)"
+  get_url:
+    url: "{{ layersdb_schema_url | default('https://github.com/AtlasOfLivingAustralia/spatial-database/raw/master/layersdb.sql') }}"
+    dest: "{{ docker_compose_data_dir }}/layersdb.sql"
+    mode: '0644'
+  become: true
+  when:
+    - "'spatial-service' in physical_server_groups"
+    - (layersdb_exists.stdout | default('') | trim) != "1"
+  tags: [db-init]
+
+- name: "DB Init: Load layersdb schema (first run only)"
+  shell: >
+    docker exec -i la_postgres psql -v ON_ERROR_STOP=1 -U postgres
+    -d {{ layers_db_name | default('layersdb') }} < {{ docker_compose_data_dir }}/layersdb.sql
+  become: true
+  when:
+    - "'spatial-service' in physical_server_groups"
+    - (layersdb_exists.stdout | default('') | trim) != "1"
+  tags: [db-init]
+
+# --- geonetwork PostGIS database + login role ---
+- name: "DB Init: Create/sync geonetwork postgres login role (idempotent)"
+  command: >
+    docker exec -u postgres la_postgres psql -v ON_ERROR_STOP=1 -c
+    "DO $$ BEGIN
+       IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='{{ geonetwork_db_username | default('geonetwork') }}') THEN
+         CREATE ROLE {{ geonetwork_db_username | default('geonetwork') }} LOGIN PASSWORD '{{ geonetwork_db_password }}';
+       END IF;
+     END $$;
+     ALTER ROLE {{ geonetwork_db_username | default('geonetwork') }} WITH LOGIN PASSWORD '{{ geonetwork_db_password }}';"
+  become: true
+  when: "'geonetwork' in physical_server_groups"
+  changed_when: false
+  no_log: true
+  tags: [db-init, db-password-sync]
+
+- name: "DB Init: Check if geonetwork postgres database exists"
+  command: >
+    docker exec -u postgres la_postgres psql -tAc
+    "SELECT 1 FROM pg_database WHERE datname='{{ geonetwork_database | default('geonetwork') }}'"
+  register: geonetwork_db_exists
+  become: true
+  changed_when: false
+  when: "'geonetwork' in physical_server_groups"
+  tags: [db-init]
+
+- name: "DB Init: Create geonetwork database owned by its role"
+  command: >
+    docker exec -u postgres la_postgres psql -v ON_ERROR_STOP=1 -c
+    "CREATE DATABASE {{ geonetwork_database | default('geonetwork') }} OWNER {{ geonetwork_db_username | default('geonetwork') }}"
+  become: true
+  when:
+    - "'geonetwork' in physical_server_groups"
+    - (geonetwork_db_exists.stdout | default('') | trim) != "1"
+  tags: [db-init]
+
+- name: "DB Init: Enable PostGIS extensions on geonetwork db"
+  command: >
+    docker exec -u postgres la_postgres psql -v ON_ERROR_STOP=1
+    -d {{ geonetwork_database | default('geonetwork') }} -c
+    "CREATE EXTENSION IF NOT EXISTS postgis; CREATE EXTENSION IF NOT EXISTS postgis_topology;"
+  become: true
+  when: "'geonetwork' in physical_server_groups"
+  changed_when: false
+  tags: [db-init]
 
 - name: "DB Init: Verify database initialization completed successfully"
   include_tasks: validate-db-init.yml

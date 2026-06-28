@@ -1399,6 +1399,9 @@
     # container mode: chown config dirs to the container runtime user (1000), not the
     # app-named system user 'doi-service' (which doesn't exist on the generation host).
     doi_user: "{{ docker_default_user }}"
+    # doi uses jdbc:postgresql, but the inventory mis-sets doi_db_hostname=la_mysql; point it
+    # at the postgres container (scoped here; VM deploys keep the inventory value).
+    doi_db_hostname: "postgres"
   when:
     - "'doi' in services_enabled"
     - "service_aliases.get('doi-service') is defined"
@@ -1449,6 +1452,10 @@
     # container mode: chown config dirs to the container runtime user (1000), not the
     # app-named system user (which doesn't exist on the generation host).
     data_quality_filter_service_user: "{{ docker_default_user }}"
+    # dq_db_url is a full JDBC URL (normalize-hostnames only rewrites *_host vars), so the
+    # inventory's localhost would point at the container itself. Repoint at the postgres
+    # container for docker-local. VM deploys keep the inventory value (this is scoped here).
+    dq_db_url: "jdbc:postgresql://postgres/{{ dq_db_name | default('data-quality') }}"
   when:
     - "'dataQuality' in services_enabled"
     - "service_aliases.get('data_quality_filter_service') is defined"
