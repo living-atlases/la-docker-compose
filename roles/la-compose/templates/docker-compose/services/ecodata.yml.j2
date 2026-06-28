@@ -21,8 +21,10 @@ services:
     networks:
       default: {}
       {{ docker_network | default('internal') }}:
-    # ecodata uses MongoDB; gate only when mongodb is co-located on this host (ES is a runtime
-    # dependency, converge by retry — not a boot gate).
+    # ecodata uses MongoDB (boot dependency); gate only when mongodb is co-located on this host.
+    # ES and ClamAV (clamav.host:3310, on-demand upload scanning) are runtime deps that converge by
+    # retry — not boot gates. clamav.host must point at the la_clamav container: parametrized in the
+    # ala-install ecodata role as clamav_host (default localhost, VM-safe) -> set clamav_host=clamav.
 {% if datastore_endpoints.get('mongodb', {}).get('colocated', false) %}
     depends_on:
       mongodb:

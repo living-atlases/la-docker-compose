@@ -1,0 +1,30 @@
+# ClamAV - antivirus daemon for ecodata file-upload scanning (ecodata connects to clamav:3310).
+# On-demand (per upload), so consumers converge by retry — no boot gate. Included when ecodata is
+# present. The official image runs as the clamav user and initialises the named volume itself.
+services:
+  clamav:
+    container_name: {{ clamav_docker_host | default('la_clamav') }}
+    profiles: [dbs, app-core, full]
+    image: clamav/clamav:{{ clamav_image_tag | default('stable') }}
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    volumes:
+      # Persist the virus signature DB so freshclam doesn't re-download (~300MB) on every restart.
+      - la_clamav-data:/var/lib/clamav
+    environment:
+      TZ: {{ server_tz | default('UTC') }}
+    expose:
+      - 3310
+    networks:
+      default: {}
+      {{ docker_network | default('internal') }}:
+        aliases:
+          - clamav
+          - la_clamav
+    healthcheck:
+      # Bundled in the official image; verifies clamd is up and the DB loaded.
+      test: ["CMD", "clamdcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+    restart: unless-stopped

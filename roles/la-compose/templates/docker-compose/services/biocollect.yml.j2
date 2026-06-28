@@ -21,13 +21,10 @@ services:
     networks:
       default: {}
       {{ docker_network | default('internal') }}:
-    # biocollect uses MongoDB; gate only when mongodb is co-located on this host. ecodata is an
-    # HTTP runtime dependency (converge by retry), not a boot gate.
-{% if datastore_endpoints.get('mongodb', {}).get('colocated', false) %}
-    depends_on:
-      mongodb:
-        condition: service_healthy
-{% endif %}
+    # biocollect does NOT use a datastore directly (its playbook pulls no mongodb-org role): it
+    # talks to ecodata (ecodata.baseURL) and pdfgen (pdfgen.baseURL) over HTTP, both converge by
+    # retry — no boot gate (cross-host safe). pdfgen_base_url must point at the self-hosted pdfgen
+    # container (NOT the public pdfgen.ala.org.au), set in the biocollect role invocation/inventory.
     healthcheck:
       test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:{{ biocollect_port | default('8080') }}/ || exit 1"]
       interval: 30s

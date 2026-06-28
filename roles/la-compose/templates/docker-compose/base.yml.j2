@@ -36,6 +36,10 @@ include:
 {% if 'cas-servers' in all_groups or 'ecodata' in all_groups or 'biocollect' in all_groups %}
   - ./infrastructure/mongodb.yml
 {% endif %}
+{% if 'ecodata' in all_groups %}
+  # ClamAV antivirus daemon — ecodata scans file uploads against it (clamav:3310).
+  - ./infrastructure/clamav.yml
+{% endif %}
 {% if 'solrcloud' in all_groups or 'solr' in all_groups %}
   - ./infrastructure/zookeeper.yml
   - ./infrastructure/solr.yml
@@ -118,6 +122,10 @@ include:
 {% if 'biocollect' in services_enabled %}
   - ./services/biocollect.yml
 {% endif %}
+{% if 'biocollect' in services_enabled or 'pdfgen' in services_enabled %}
+  # Self-hosted pdfgen (biocollect's PDF backend); replaces the public pdfgen.ala.org.au.
+  - ./services/pdfgen.yml
+{% endif %}
 {% if 'sds-static-home' in all_groups %}
   - ./services/sds-static-home.yml
 {% endif %}
@@ -152,6 +160,10 @@ volumes:
 {% endif %}
 {% if 'cas-servers' in all_groups or 'ecodata' in all_groups or 'biocollect' in all_groups %}
   la_mongodb-data:
+    external: true
+{% endif %}
+{% if 'ecodata' in all_groups %}
+  la_clamav-data:
     external: true
 {% endif %}
 {% if 'solrcloud' in all_groups or 'solr' in all_groups %}

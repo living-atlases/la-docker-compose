@@ -1,0 +1,30 @@
+# pdfgen - self-hosted PDF generation service for biocollect (livingatlases/pdfgen, Dropwizard).
+# Replaces the public https://pdfgen.ala.org.au — biocollect's pdfgen.baseURL must point here
+# (set pdfgen_base_url=http://pdfgen:{{ pdfgen_port | default('8080') }} in the biocollect role
+# invocation/inventory). Included when biocollect (its only consumer) or the pdfgen group is enabled.
+services:
+  pdfgen:
+    image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}pdfgen:{{ pdf_service_version | default('latest') }}
+    container_name: {{ pdfgen_docker_host | default('la_pdfgen') }}
+    profiles: [app-core, full]
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    restart: unless-stopped
+    expose:
+      - {{ pdfgen_port | default('8080') }}
+    environment:
+      TZ: {{ server_tz | default('UTC') }}
+    volumes:
+      # Dropwizard storageDir for generated PDFs (image default mount /storage; role uses pdf_path).
+      - {{ data_dir }}/pdfgen/storage:/storage
+      # Role-generated pdfgen-config.yml, when config generation is wired at enablement.
+      - {{ data_dir }}/pdfgen/config:/data/pdfgen/config
+    networks:
+      default: {}
+      {{ docker_network | default('internal') }}:
+    # pdfgen has no datastore; no depends_on. biocollect reaches it over HTTP (converge by retry).
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:{{ pdfgen_port | default('8080') }}/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s

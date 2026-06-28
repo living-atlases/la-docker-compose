@@ -201,6 +201,9 @@
         # ecodata/biocollect — inert until use_*=true populates their groups (no-op meanwhile).
         - { svc: 'ecodata',              path: "{{ data_dir }}/ecodata/config" }
         - { svc: 'biocollect',           path: "{{ data_dir }}/biocollect/config" }
+        # pdfgen (self-hosted PDF backend for biocollect): livingatlases image runs as uid 1000.
+        - { svc: 'pdfgen',               path: "{{ data_dir }}/pdfgen/config" }
+        - { svc: 'pdfgen',               path: "{{ data_dir }}/pdfgen/storage" }
         - { svc: 'sds',                  path: "{{ data_dir }}/sds/config" }
       when: item.svc in services_enabled
       loop_control:

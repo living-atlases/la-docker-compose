@@ -317,6 +317,8 @@
     geonetwork_docker_host: "{{ geonetwork_docker_host | default('la_geonetwork', true) }}"
     ecodata_docker_host: "{{ ecodata_docker_host | default('la_ecodata', true) }}"
     biocollect_docker_host: "{{ biocollect_docker_host | default('la_biocollect', true) }}"
+    pdfgen_docker_host: "{{ pdfgen_docker_host | default('la_pdfgen', true) }}"
+    clamav_docker_host: "{{ clamav_docker_host | default('la_clamav', true) }}"
     gatus_docker_host: "{{ gatus_docker_host | default('la_gatus', true) }}"
   tags:
     - always
@@ -2886,6 +2888,34 @@
   when: "'biocollect' in services_enabled"
   tags:
     - biocollect
+    - docker-compose
+
+# Self-hosted pdfgen (biocollect's PDF backend) + clamav (ecodata's AV scanner). Inert until
+# biocollect/ecodata are enabled. clamav is infra (rendered alongside mongodb when ecodata present).
+- name: Generate pdfgen.yml
+  template:
+    src: docker-compose/services/pdfgen.yml.j2
+    dest: "{{ docker_compose_data_dir }}/services/pdfgen.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'biocollect' in services_enabled or 'pdfgen' in services_enabled"
+  tags:
+    - pdfgen
+    - biocollect
+    - docker-compose
+
+- name: Generate clamav.yml
+  template:
+    src: docker-compose/infrastructure/clamav.yml.j2
+    dest: "{{ docker_compose_data_dir }}/infrastructure/clamav.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'ecodata' in (physical_server_groups | default([]))"
+  tags:
+    - clamav
+    - ecodata
     - docker-compose
 
 # SDS static home page (sds.<domain>). Image-only service (built in la-docker-images),
