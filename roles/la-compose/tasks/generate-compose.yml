@@ -311,6 +311,8 @@
     alerts_docker_host: "{{ alerts_docker_host | default('la_alerts', true) }}"
     regions_docker_host: "{{ regions_docker_host | default('la_regions', true) }}"
     data_quality_filter_service_docker_host: "{{ data_quality_filter_service_docker_host | default('la_data-quality-filter-service', true) }}"
+    spatial_docker_host: "{{ spatial_docker_host | default('la_spatial-hub', true) }}"
+    spatial_service_docker_host: "{{ spatial_service_docker_host | default('la_spatial-service', true) }}"
     gatus_docker_host: "{{ gatus_docker_host | default('la_gatus', true) }}"
   tags:
     - always
@@ -1461,6 +1463,103 @@
     - "service_aliases.get('data_quality_filter_service') is defined"
   tags:
     - data-quality
+    - config
+    - nginx_vhost
+    - docker-compose
+
+# Bulk load all SPATIAL-HUB variables from service alias context
+- name: "Bulk load SPATIAL-HUB variables from service alias context"
+  set_fact:
+    "{{ item.key }}": "{{ item.value }}"
+  loop: >-
+    {{ hostvars[service_aliases.get('spatial', '')] | default({})
+       | dict2items
+       | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
+       | rejectattr('key', 'match', '^ansible_.*')
+       | rejectattr('key', 'in', system_vars_blacklist)
+       | list }}
+  loop_control:
+    label: "{{ item.key }}"
+  when: service_aliases.get('spatial') is defined
+  tags:
+    - spatial-hub
+    - config
+    - bulk-load
+
+- name: Re-normalize database hostnames after SPATIAL-HUB bulk load
+  include_tasks: normalize-hostnames.yml
+  when: service_aliases.get('spatial') is defined
+  tags:
+    - spatial-hub
+    - config
+    - normalize
+
+- name: Run spatial-hub configuration generation
+  include_role:
+    name: spatial-hub
+    apply:
+      become: true
+      tags:
+        - docker-compose
+  vars:
+    nginx_vhost_fast_mode: true
+    # docker-local: nginx proxies to the app container via the compose service-name alias.
+    nginx_upstream_host: "spatial-hub"
+    spatial_hub_upstream_host: "spatial-hub"
+  when:
+    - "'spatial' in services_enabled"
+    - "service_aliases.get('spatial') is defined"
+  tags:
+    - spatial-hub
+    - config
+    - nginx_vhost
+    - docker-compose
+
+# Bulk load all SPATIAL-SERVICE variables from service alias context
+- name: "Bulk load SPATIAL-SERVICE variables from service alias context"
+  set_fact:
+    "{{ item.key }}": "{{ item.value }}"
+  loop: >-
+    {{ hostvars[service_aliases.get('spatial-service', '')] | default({})
+       | dict2items
+       | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
+       | rejectattr('key', 'match', '^ansible_.*')
+       | rejectattr('key', 'in', system_vars_blacklist)
+       | list }}
+  loop_control:
+    label: "{{ item.key }}"
+  when: service_aliases.get('spatial-service') is defined
+  tags:
+    - spatial-service
+    - config
+    - bulk-load
+
+- name: Re-normalize database hostnames after SPATIAL-SERVICE bulk load
+  include_tasks: normalize-hostnames.yml
+  when: service_aliases.get('spatial-service') is defined
+  tags:
+    - spatial-service
+    - config
+    - normalize
+
+- name: Run spatial-service configuration generation
+  include_role:
+    name: spatial-service
+    apply:
+      become: true
+      tags:
+        - docker-compose
+  vars:
+    nginx_vhost_fast_mode: true
+    # docker-local: the spatial-service role hardcoded proxy_pass to 127.0.0.1; it now reads
+    # spatial_service_upstream_host (default 127.0.0.1, so VM/bare-metal is untouched).
+    nginx_upstream_host: "spatial-service"
+    spatial_service_upstream_host: "spatial-service"
+  when:
+    - "'spatial_service' in services_enabled"
+    - "service_aliases.get('spatial-service') is defined"
+  tags:
+    - spatial-service
     - config
     - nginx_vhost
     - docker-compose
@@ -2655,6 +2754,30 @@
   when: "'dataQuality' in services_enabled"
   tags:
     - data-quality
+    - docker-compose
+
+- name: Generate spatial-hub.yml
+  template:
+    src: docker-compose/services/spatial-hub.yml.j2
+    dest: "{{ docker_compose_data_dir }}/services/spatial-hub.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'spatial' in services_enabled"
+  tags:
+    - spatial-hub
+    - docker-compose
+
+- name: Generate spatial-service.yml
+  template:
+    src: docker-compose/services/spatial-service.yml.j2
+    dest: "{{ docker_compose_data_dir }}/services/spatial-service.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'spatial_service' in services_enabled"
+  tags:
+    - spatial-service
     - docker-compose
 
 # SDS static home page (sds.<domain>). Image-only service (built in la-docker-images),

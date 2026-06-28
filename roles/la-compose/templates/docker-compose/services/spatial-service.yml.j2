@@ -1,0 +1,39 @@
+# Spatial Service - spatial webservice (layers/WMS via geoserver, PostGIS layersdb)
+services:
+  spatial-service:
+    image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}spatial-service:{{ spatial_service_version | default('latest') }}
+    container_name: {{ spatial_service_docker_host | default('la_spatial-service') }}
+    profiles: [app-core, full]
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    volumes:
+      - {{ data_dir }}/spatial-service/config:/data/spatial-service/config
+      # Shared with the geoserver container (same host paths) so layer files written by
+      # spatial-service are served by geoserver without re-upload (mirrors the ALA/vlaams setup).
+      - {{ data_dir }}/geoserver_data_dir:/data/geoserver_data_dir
+      - {{ data_dir }}/spatial-data:/data/spatial-data
+      # Static layer/result files; also exposed by nginx (alias /files -> this dir).
+      - {{ data_dir }}/ala/runtime/files:/data/ala/runtime/files
+    restart: unless-stopped
+    expose:
+      - {{ spatial_service_port | default('8080') }}
+    environment:
+      TZ: {{ server_tz | default('UTC') }}
+      JAVA_OPTS: ${SPATIAL_SERVICE_JAVA_OPTS}
+    networks:
+      default: {}
+      {{ docker_network | default('internal') }}:
+    # spatial-service uses the PostGIS layersdb; gate only when postgres is co-located on this
+    # host (a remote postgres is not in this compose file). geoserver dependency is runtime
+    # (WMS), not a boot gate — converge by retry.
+{% if datastore_endpoints.get('postgres', {}).get('colocated', false) %}
+    depends_on:
+      postgres:
+        condition: service_healthy
+{% endif %}
+    healthcheck:
+      # Liveness at the service context path (spatial_service_context_path=/ws). Tune in CI.
+      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:{{ spatial_service_port | default('8080') }}/ws || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s

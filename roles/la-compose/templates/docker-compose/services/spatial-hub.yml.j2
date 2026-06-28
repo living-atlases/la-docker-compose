@@ -1,0 +1,31 @@
+# Spatial Hub - spatial portal frontend (consumes spatial-service)
+services:
+  spatial-hub:
+    image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}spatial-hub:{{ spatial_hub_version | default('latest') }}
+    container_name: {{ spatial_docker_host | default('la_spatial-hub') }}
+    profiles: [app-core, full]
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    volumes:
+      # Role (ala-install/spatial-hub) writes config to {{ data_dir }}/spatial-hub/config
+      # (spatial-hub-config.yml, menu/view-config.json, system-message.json); the image reads
+      # /data/spatial-hub/config. config-dir-ensure recurse-chowns it to the container uid.
+      - {{ data_dir }}/spatial-hub/config:/data/spatial-hub/config
+{% include '_i18n_volumes.yml.j2' %}
+    restart: unless-stopped
+    expose:
+      - {{ spatial_hub_port | default('8080') }}
+    environment:
+      TZ: {{ server_tz | default('UTC') }}
+      JAVA_OPTS: ${SPATIAL_JAVA_OPTS}
+    networks:
+      default: {}
+      {{ docker_network | default('internal') }}:
+    # spatial-hub talks to spatial-service over HTTP; no depends_on (cross-host safe, converge
+    # by retry — spatial-service may live on another host and lazy-connects anyway).
+    healthcheck:
+      # Liveness: spatial-hub is deployed at ROOT (spatial_hub_context_path=/). Tune in CI.
+      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:{{ spatial_hub_port | default('8080') }}/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s

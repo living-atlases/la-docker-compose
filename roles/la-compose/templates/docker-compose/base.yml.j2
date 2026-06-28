@@ -100,6 +100,12 @@ include:
 {% if 'dataQuality' in services_enabled %}
   - ./services/data-quality-filter-service.yml
 {% endif %}
+{% if 'spatial' in services_enabled %}
+  - ./services/spatial-hub.yml
+{% endif %}
+{% if 'spatial_service' in services_enabled %}
+  - ./services/spatial-service.yml
+{% endif %}
 {% if 'sds-static-home' in all_groups %}
   - ./services/sds-static-home.yml
 {% endif %}
