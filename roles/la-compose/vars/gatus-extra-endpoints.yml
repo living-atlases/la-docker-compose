@@ -79,99 +79,119 @@ gatus_extra_endpoints:
 
   # ---------------------------------------------------------------------------
   # Certs — caducidad TLS (336h = 14 días). Uno por FQDN público con vhost.
-  # Resuelven a nginx vía aliases internos; validan el wildcard l-a.site.
+  # Usan https:// + dns-resolver público para bypassar Docker internal aliases
+  # y comprobar el cert real que ve el usuario (gestionado por certbot en el proxy
+  # externo), no el cert del volumen Docker interno.
   # Si deshabilitas un servicio, comenta su línea (no resolvería).
   # ---------------------------------------------------------------------------
   - name: "Cert expiry - root"
     group: "Certs"
-    url: "tls://{{ gatus_base_domain }}:443"
+    url: "https://{{ gatus_base_domain }}/"
     interval: "1h"
-    conditions: ["[CONNECTED] == true", "[CERTIFICATE_EXPIRATION] > 336h"]
+    client: { dns-resolver: "tcp://1.1.1.1:53" }
+    conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
   - name: "Cert expiry - records"
     group: "Certs"
-    url: "tls://records.{{ gatus_base_domain }}:443"
+    url: "https://records.{{ gatus_base_domain }}/"
     interval: "1h"
-    conditions: ["[CONNECTED] == true", "[CERTIFICATE_EXPIRATION] > 336h"]
+    client: { dns-resolver: "tcp://1.1.1.1:53" }
+    conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
   - name: "Cert expiry - records-ws"
     group: "Certs"
-    url: "tls://records-ws.{{ gatus_base_domain }}:443"
+    url: "https://records-ws.{{ gatus_base_domain }}/"
     interval: "1h"
-    conditions: ["[CONNECTED] == true", "[CERTIFICATE_EXPIRATION] > 336h"]
+    client: { dns-resolver: "tcp://1.1.1.1:53" }
+    conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
   - name: "Cert expiry - species"
     group: "Certs"
-    url: "tls://species.{{ gatus_base_domain }}:443"
+    url: "https://species.{{ gatus_base_domain }}/"
     interval: "1h"
-    conditions: ["[CONNECTED] == true", "[CERTIFICATE_EXPIRATION] > 336h"]
+    client: { dns-resolver: "tcp://1.1.1.1:53" }
+    conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
   - name: "Cert expiry - species-ws"
     group: "Certs"
-    url: "tls://species-ws.{{ gatus_base_domain }}:443"
+    url: "https://species-ws.{{ gatus_base_domain }}/"
     interval: "1h"
-    conditions: ["[CONNECTED] == true", "[CERTIFICATE_EXPIRATION] > 336h"]
+    client: { dns-resolver: "tcp://1.1.1.1:53" }
+    conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
   - name: "Cert expiry - collections"
     group: "Certs"
-    url: "tls://collections.{{ gatus_base_domain }}:443"
+    url: "https://collections.{{ gatus_base_domain }}/"
     interval: "1h"
-    conditions: ["[CONNECTED] == true", "[CERTIFICATE_EXPIRATION] > 336h"]
+    client: { dns-resolver: "tcp://1.1.1.1:53" }
+    conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
   - name: "Cert expiry - images"
     group: "Certs"
-    url: "tls://images.{{ gatus_base_domain }}:443"
+    url: "https://images.{{ gatus_base_domain }}/"
     interval: "1h"
-    conditions: ["[CONNECTED] == true", "[CERTIFICATE_EXPIRATION] > 336h"]
+    client: { dns-resolver: "tcp://1.1.1.1:53" }
+    conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
   - name: "Cert expiry - lists"
     group: "Certs"
-    url: "tls://lists.{{ gatus_base_domain }}:443"
+    url: "https://lists.{{ gatus_base_domain }}/"
     interval: "1h"
-    conditions: ["[CONNECTED] == true", "[CERTIFICATE_EXPIRATION] > 336h"]
+    client: { dns-resolver: "tcp://1.1.1.1:53" }
+    conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
   - name: "Cert expiry - spatial"
     group: "Certs"
-    url: "tls://spatial.{{ gatus_base_domain }}:443"
+    url: "https://spatial.{{ gatus_base_domain }}/"
     interval: "1h"
-    conditions: ["[CONNECTED] == true", "[CERTIFICATE_EXPIRATION] > 336h"]
+    client: { dns-resolver: "tcp://1.1.1.1:53" }
+    conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
   - name: "Cert expiry - logger"
     group: "Certs"
-    url: "tls://logger.{{ gatus_base_domain }}:443"
+    url: "https://logger.{{ gatus_base_domain }}/"
     interval: "1h"
-    conditions: ["[CONNECTED] == true", "[CERTIFICATE_EXPIRATION] > 336h"]
+    client: { dns-resolver: "tcp://1.1.1.1:53" }
+    conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
   - name: "Cert expiry - regions"
     group: "Certs"
-    url: "tls://regions.{{ gatus_base_domain }}:443"
+    url: "https://regions.{{ gatus_base_domain }}/"
     interval: "1h"
-    conditions: ["[CONNECTED] == true", "[CERTIFICATE_EXPIRATION] > 336h"]
+    client: { dns-resolver: "tcp://1.1.1.1:53" }
+    conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
   - name: "Cert expiry - alerts"
     group: "Certs"
-    url: "tls://alerts.{{ gatus_base_domain }}:443"
+    url: "https://alerts.{{ gatus_base_domain }}/"
     interval: "1h"
-    conditions: ["[CONNECTED] == true", "[CERTIFICATE_EXPIRATION] > 336h"]
+    client: { dns-resolver: "tcp://1.1.1.1:53" }
+    conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
   - name: "Cert expiry - doi"
     group: "Certs"
-    url: "tls://doi.{{ gatus_base_domain }}:443"
+    url: "https://doi.{{ gatus_base_domain }}/"
     interval: "1h"
-    conditions: ["[CONNECTED] == true", "[CERTIFICATE_EXPIRATION] > 336h"]
+    client: { dns-resolver: "tcp://1.1.1.1:53" }
+    conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
   - name: "Cert expiry - data-quality"
     group: "Certs"
-    url: "tls://data-quality.{{ gatus_base_domain }}:443"
+    url: "https://data-quality.{{ gatus_base_domain }}/"
     interval: "1h"
-    conditions: ["[CONNECTED] == true", "[CERTIFICATE_EXPIRATION] > 336h"]
+    client: { dns-resolver: "tcp://1.1.1.1:53" }
+    conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
   - name: "Cert expiry - namematching"
     group: "Certs"
-    url: "tls://namematching.{{ gatus_base_domain }}:443"
+    url: "https://namematching.{{ gatus_base_domain }}/"
     interval: "1h"
-    conditions: ["[CONNECTED] == true", "[CERTIFICATE_EXPIRATION] > 336h"]
+    client: { dns-resolver: "tcp://1.1.1.1:53" }
+    conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
   - name: "Cert expiry - sds"
     group: "Certs"
-    url: "tls://sds.{{ gatus_base_domain }}:443"
+    url: "https://sds.{{ gatus_base_domain }}/"
     interval: "1h"
-    conditions: ["[CONNECTED] == true", "[CERTIFICATE_EXPIRATION] > 336h"]
+    client: { dns-resolver: "tcp://1.1.1.1:53" }
+    conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
   - name: "Cert expiry - auth"
     group: "Certs"
-    url: "tls://auth.{{ gatus_base_domain }}:443"
+    url: "https://auth.{{ gatus_base_domain }}/"
     interval: "1h"
-    conditions: ["[CONNECTED] == true", "[CERTIFICATE_EXPIRATION] > 336h"]
+    client: { dns-resolver: "tcp://1.1.1.1:53" }
+    conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
   - name: "Cert expiry - gatus"
     group: "Certs"
-    url: "tls://gatus.{{ gatus_base_domain }}:443"
+    url: "https://gatus.{{ gatus_base_domain }}/"
     interval: "1h"
-    conditions: ["[CONNECTED] == true", "[CERTIFICATE_EXPIRATION] > 336h"]
+    client: { dns-resolver: "tcp://1.1.1.1:53" }
+    conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
 
   # ---------------------------------------------------------------------------
   # DNS — registro A vía resolver público 1.1.1.1 (salida pública del contenedor).
