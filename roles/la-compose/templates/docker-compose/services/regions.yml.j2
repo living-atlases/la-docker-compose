@@ -1,7 +1,7 @@
 # Regions - regional data frontend
 services:
   regions:
-    image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}regions:{{ regions_version | default('latest') }}
+    image: {% set svc_reg = regions_registry | default(docker_registry | default('')) %}{{ svc_reg }}{% if svc_reg %}/{% endif %}regions:{{ regions_version | default('latest') }}
     container_name: {{ regions_docker_host | default('la_regions') }}
     profiles: [app-core, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}

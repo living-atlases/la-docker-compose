@@ -4,7 +4,7 @@ services:
     container_name: la_apikey
     profiles: [core-auth, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
-    image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}apikey:{{ apikey_version | default('latest') }}
+    image: {% set svc_reg = apikey_registry | default(docker_registry | default('')) %}{{ svc_reg }}{% if svc_reg %}/{% endif %}apikey:{{ apikey_version | default('latest') }}
     volumes:
       - {{ data_dir }}/apikey:/data/apikey
       # - {{ docker_compose_data_dir }}/var-log-atlas/apikey:/var/log/atlas/apikey

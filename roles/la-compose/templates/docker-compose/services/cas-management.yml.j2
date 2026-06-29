@@ -4,7 +4,7 @@ services:
     container_name: la_cas-management
     profiles: [core-auth, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
-    image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}cas-management:{{ cas_management_version | default('latest') }}
+    image: {% set svc_reg = cas_management_registry | default(docker_registry | default('')) %}{{ svc_reg }}{% if svc_reg %}/{% endif %}cas-management:{{ cas_management_version | default('latest') }}
     volumes:
       - {{ data_dir }}/cas-management:/data/cas-management
       # - {{ docker_compose_data_dir }}/var-log-atlas/cas-management:/var/log/atlas/cas-management

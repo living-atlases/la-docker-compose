@@ -1788,6 +1788,21 @@
   tags:
     - docker-compose
 
+# Operator-owned persistent overrides. Created ONCE and never overwritten
+# (force: no), so hand edits survive every ansiblew run — unlike .env above,
+# which is regenerated each time. Compose loads both via COMPOSE_ENV_FILES
+# (.env,.env-custom; last wins), wired at the deploy block in main.yml.
+- name: Create .env-custom override file (once, never overwritten)
+  template:
+    src: docker-compose.env-custom.j2
+    dest: "{{ docker_compose_data_dir }}/.env-custom"
+    force: no
+    mode: '0600'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  tags:
+    - docker-compose
+
 - name: Generate docker-compose.yml
   template:
     src: docker-compose/base.yml.j2

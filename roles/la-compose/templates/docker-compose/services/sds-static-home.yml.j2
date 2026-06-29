@@ -2,7 +2,7 @@ services:
    sds-static-home:
      container_name: la_sds_static_home
      profiles: [app-core, full]
-     image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}sds-static-home:{{ sds_static_home_docker_tag | default('latest') }}
+     image: {% set svc_reg = sds_static_home_registry | default(docker_registry | default('')) %}{{ svc_reg }}{% if svc_reg %}/{% endif %}sds-static-home:{{ sds_static_home_docker_tag | default('latest') }}
      environment:
        # The SPA bakes placeholder tokens; the image substitutes these at container
        # start. Defaults are RELATIVE so the sds.<domain> nginx vhost routes them

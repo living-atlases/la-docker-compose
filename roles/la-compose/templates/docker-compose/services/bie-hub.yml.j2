@@ -1,7 +1,7 @@
   # BIE Hub - Species search frontend
 services:
   bie-hub:
-    image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}ala-bie-hub:{{ bie_hub_version | default('latest') }}
+    image: {% set svc_reg = bie_hub_registry | default(docker_registry | default('')) %}{{ svc_reg }}{% if svc_reg %}/{% endif %}ala-bie-hub:{{ bie_hub_version | default('latest') }}
     container_name: la_bie-hub
     profiles: [app-core, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}

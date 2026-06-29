@@ -2,7 +2,7 @@ services:
    sensitive-data-service:
      container_name: la_sensitive_data_service
      profiles: [app-core, full]
-     image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}ala-sensitive-data-server:{{ sensitive_data_docker_tag | default('latest') }}
+     image: {% set svc_reg = sensitive_data_registry | default(docker_registry | default('')) %}{{ svc_reg }}{% if svc_reg %}/{% endif %}ala-sensitive-data-server:{{ sensitive_data_docker_tag | default('latest') }}
      ports:
        - "{{ sensitive_data_service_port }}:9189"
        - "{{ sensitive_data_admin_port }}:9190"

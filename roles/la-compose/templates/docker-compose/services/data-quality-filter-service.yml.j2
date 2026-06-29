@@ -1,7 +1,7 @@
 # Data Quality Filter Service
 services:
   data-quality-filter-service:
-    image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}data-quality-filter-service:{{ data_quality_filter_service_version | default('latest') }}
+    image: {% set svc_reg = data_quality_filter_service_registry | default(docker_registry | default('')) %}{{ svc_reg }}{% if svc_reg %}/{% endif %}data-quality-filter-service:{{ data_quality_filter_service_version | default('latest') }}
     container_name: {{ data_quality_filter_service_docker_host | default('la_data-quality-filter-service') }}
     profiles: [app-core, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}

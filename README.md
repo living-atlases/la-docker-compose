@@ -39,6 +39,11 @@ secrets). Like every other artifact under `/data/docker-compose/`, `.env` is
 regenerated on each run and should not be hand-edited — see the
 [Testing & local development](#testing--local-development) automation-only rule.
 
+For how to reconfigure a deployment — selecting image registries/tags, JVM
+tuning, and **persistent overrides that survive `ansiblew`** (`.env-custom`,
+per-service `application-local-config.yml`, `*-local-extras.ini`) — see
+[Configuration & customization](#configuration--customization).
+
 ### Key benefits
 
 - **Reuses `ala-install`** — the canonical ALA deployment tooling, with years of
@@ -164,6 +169,95 @@ yo living-atlas --replay-dont-ask --force
 This produces the inventory under
 [`inventories/testing/lademo-inventories/`](inventories/testing/lademo-inventories/)
 (`lademo-inventory.ini`).
+
+---
+
+## Configuration & customization
+
+How to reconfigure a deployment: which knobs exist, where to set them, and which
+overrides **survive** a re-run of `ansiblew`.
+
+### Configuration layers (precedence, low → high)
+
+1. **Role defaults** — `roles/la-compose/defaults/main.yml`.
+2. **ala-install group_vars** — `ala-install/ansible/group_vars/all/`.
+3. **Generated inventory** — `<deployment>-inventory.ini`, produced by
+   `generator-living-atlas`. Regenerated; **do not hand-edit**.
+4. **`<deployment>-local-extras.ini`** — operator override layer that **survives**
+   inventory regeneration (git-ignored). A **la-toolkit convention**: each
+   deployment/inventory has its own `*-local-extras.ini` for overriding any
+   inventory variable.
+5. **Per-service bulk-load** (`generate-compose.yml`) — highest precedence.
+
+To change a generated value permanently, set the Ansible variable in
+`*-local-extras.ini` (or inventory) and regenerate. To override runtime env or
+per-service app config *without* inventory, use `.env-custom` or
+`application-local-config.yml` (below).
+
+### Selecting images
+
+Each ALA service image resolves to `{{ registry }}/{{ image }}:{{ tag }}`.
+
+- **Registry — global**: `docker_registry` (empty = Docker Hub).
+- **Registry — per-service**: `<service>_registry` overrides the global registry
+  for a single service (falls back to `docker_registry`). The variable name uses
+  the service's version-variable prefix, e.g. `collectory_registry`,
+  `biocache_hub_registry`, `cas_registry`. Third-party images expose
+  `geoserver_registry` (default `kartoza`) and `geonetwork_registry` (default
+  Docker Hub).
+- **Tag / version**: `<service>_version` (or `<service>_image_tag` /
+  `<service>_docker_tag` for some), set in inventory / `*-local-extras.ini`, or
+  one-off via `-e cas_version=6.6.0`.
+
+```ini
+[all:vars]
+docker_registry=livingatlases
+# pull only collectory from a private registry:
+collectory_registry=registry.example.org/atlas
+collectory_version=1.6.4
+```
+
+Version-variable per service lives in
+`roles/la-compose/vars/docker-services-desc.yaml` (`version_variable`); the image
+name and tag var are in each `services/*.yml.j2`. **Not configurable without
+rebuilding the image** (in
+[`la-docker-images`](https://github.com/living-atlases/la-docker-images)): the
+container UID/GID (1000) and bundled Java version.
+
+### JVM tuning
+
+Per-service options are emitted to `.env` as `<SERVICE>_JAVA_OPTS`. Tune via
+inventory / `*-local-extras.ini`: `<service>_max_memory` (default `2g` → `-Xmx`),
+`<service>_min_memory` (default `1g` → `-Xms`), `java_security_opts`.
+
+### Persistent overrides (survive `ansiblew`)
+
+- **Environment / `.env` → `.env-custom`.** `.env` is regenerated each run. For
+  persistent env overrides (passwords, `<SERVICE>_JAVA_OPTS`, `COMPOSE_PROFILES`),
+  edit `/data/docker-compose/.env-custom`: Ansible creates it **once**
+  (`force: no`) and never overwrites it. Compose loads `.env` then `.env-custom`
+  (`COMPOSE_ENV_FILES=.env,.env-custom`, wired by the role), so `.env-custom`
+  wins. For manual runs, `export COMPOSE_ENV_FILES=.env,.env-custom` first.
+  Requires Docker Compose ≥ v2.24.
+- **Per-service app config (Spring Boot).** Services logger, alerts,
+  image-service, doi, regions, data-quality, spatial-service, spatial-hub,
+  ecodata, biocollect start with
+  `-Dspring.config.name=application,application-local-config,...`, so editing
+  `/data/<service>/config/application-local-config.yml` overrides the generated
+  config. Ansible seeds an explanatory placeholder once (`force: no`).
+- **Grails services (limitation).** collectory, biocache-hub, bie-hub, bie-index
+  and species-list load a single generated external config and have **no**
+  second-level local-override file. Change them via `*-local-extras.ini` /
+  inventory and regenerate.
+
+### Selecting which services run
+
+- **Per-host**: from inventory groups (`services_enabled`) — a service is
+  generated only on the host whose inventory declares it.
+- **Compose profiles** (`COMPOSE_PROFILES`, from `compose_profiles`): `infra`,
+  `dbs`, `core-auth`, `app-core`, `monitoring`, `full`.
+- **`skip_services`**: list of service keys to omit from generation/build even if
+  their group is present.
 
 ---
 

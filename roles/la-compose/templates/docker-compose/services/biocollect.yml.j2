@@ -3,7 +3,7 @@
 # exact command/config-loading should be tuned in CI when first enabled (mirrors doi-service).
 services:
   biocollect:
-    image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}biocollect:{{ biocollect_version | default('latest') }}
+    image: {% set svc_reg = biocollect_registry | default(docker_registry | default('')) %}{{ svc_reg }}{% if svc_reg %}/{% endif %}biocollect:{{ biocollect_version | default('latest') }}
     container_name: {{ biocollect_docker_host | default('la_biocollect') }}
     profiles: [app-core, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}

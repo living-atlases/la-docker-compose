@@ -14,6 +14,14 @@
 
 - name: Generate and Deploy Docker Compose
   when: "inventory_hostname in groups['docker_compose']"
+  # Make every `docker compose` invocation in this block (and its included task
+  # files: generate-compose, init-databases, validate-post-deploy) load the
+  # generated .env AND the operator's persistent .env-custom. Last file wins on
+  # key collisions, so .env-custom overrides .env. This is what makes operator
+  # overrides take effect on Ansible-driven deploys, not only on manual runs.
+  # Requires Docker Compose >= v2.24.
+  environment:
+    COMPOSE_ENV_FILES: "{{ compose_env_files | default('.env,.env-custom') }}"
   block:
     - name: Ensure Docker is installed
       import_role:
@@ -205,6 +213,40 @@
         - { svc: 'pdfgen',               path: "{{ data_dir }}/pdfgen/config" }
         - { svc: 'pdfgen',               path: "{{ data_dir }}/pdfgen/storage" }
         - { svc: 'sds',                  path: "{{ data_dir }}/sds/config" }
+      when: item.svc in services_enabled
+      loop_control:
+        label: "{{ item.path }}"
+      tags:
+        - docker-compose
+
+    # Per-service persistent overrides for Spring Boot services. These containers
+    # start with `-Dspring.config.name=application,application-local-config,...` and
+    # `-Dspring.config.additional-location=/data/<svc>/config/`, so a local
+    # `application-local-config.yml` is loaded AFTER (and overrides) the generated
+    # config. We seed an explanatory placeholder ONCE (force: no) so the capability
+    # is discoverable and the operator's edits survive every run. Grails services
+    # (collectory, biocache-hub, bie-hub, bie-index, species-list) have no analogous
+    # second-level external-config hook — see docs/configuration.md.
+    - name: "Seed application-local-config.yml placeholder for Spring services (once, never overwritten)"
+      template:
+        src: application-local-config.yml.j2
+        dest: "{{ item.path }}/application-local-config.yml"
+        force: no
+        owner: "{{ docker_container_uid }}"
+        group: "{{ docker_container_gid }}"
+        mode: '0644'
+      become: true
+      loop:
+        - { svc: 'logger',          path: "{{ data_dir }}/logger/config" }
+        - { svc: 'alerts',          path: "{{ data_dir }}/alerts/config" }
+        - { svc: 'images',          path: "{{ data_dir }}/image-service/config" }
+        - { svc: 'doi',             path: "{{ data_dir }}/doi-service/config" }
+        - { svc: 'regions',         path: "{{ data_dir }}/regions/config" }
+        - { svc: 'dataQuality',     path: "{{ data_dir }}/data-quality-filter-service/config" }
+        - { svc: 'spatial_service', path: "{{ data_dir }}/spatial-service/config" }
+        - { svc: 'spatial',         path: "{{ data_dir }}/spatial-hub/config" }
+        - { svc: 'ecodata',         path: "{{ data_dir }}/ecodata/config" }
+        - { svc: 'biocollect',      path: "{{ data_dir }}/biocollect/config" }
       when: item.svc in services_enabled
       loop_control:
         label: "{{ item.path }}"

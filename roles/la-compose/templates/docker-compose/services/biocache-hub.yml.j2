@@ -1,7 +1,7 @@
 # Biocache Hub - Records search frontend
 services:
   biocache-hub:
-    image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}ala-hub:{{ biocache_hub_version | default('latest') }}
+    image: {% set svc_reg = biocache_hub_registry | default(docker_registry | default('')) %}{{ svc_reg }}{% if svc_reg %}/{% endif %}ala-hub:{{ biocache_hub_version | default('latest') }}
     container_name: la_biocache-hub
     profiles: [app-core, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}

@@ -1,7 +1,7 @@
 # Spatial Hub - spatial portal frontend (consumes spatial-service)
 services:
   spatial-hub:
-    image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}spatial-hub:{{ spatial_hub_version | default('latest') }}
+    image: {% set svc_reg = spatial_hub_registry | default(docker_registry | default('')) %}{{ svc_reg }}{% if svc_reg %}/{% endif %}spatial-hub:{{ spatial_hub_version | default('latest') }}
     container_name: {{ spatial_docker_host | default('la_spatial-hub') }}
     profiles: [app-core, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}

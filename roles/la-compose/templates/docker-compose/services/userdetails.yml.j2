@@ -4,7 +4,7 @@ services:
     container_name: la_userdetails
     profiles: [core-auth, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
-    image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}userdetails:{{ user_details_version | default('3.2.1') }}
+    image: {% set svc_reg = user_details_registry | default(docker_registry | default('')) %}{{ svc_reg }}{% if svc_reg %}/{% endif %}userdetails:{{ user_details_version | default('3.2.1') }}
     volumes:
       - {{ data_dir }}/userdetails:/data/userdetails
       # - {{ docker_compose_data_dir }}/var-log-atlas/userdetails:/var/log/atlas/userdetails

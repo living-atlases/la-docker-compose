@@ -5,7 +5,7 @@
 # init-databases.yml; the role needs CREATEDB so the entrypoint can create the `admin` db.
 services:
   geonetwork:
-    image: geonetwork:{{ geonetwork_image_tag | default('3.4.4-postgres') }}
+    image: {% set svc_reg = geonetwork_registry | default('') %}{{ svc_reg }}{% if svc_reg %}/{% endif %}geonetwork:{{ geonetwork_image_tag | default('3.4.4-postgres') }}
     container_name: {{ geonetwork_docker_host | default('la_geonetwork') }}
     profiles: [app-core, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}

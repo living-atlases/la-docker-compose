@@ -4,7 +4,7 @@
 # data dir (set up at ingestion time) — no DB env needed here; PostGIS stores are configured in-dir.
 services:
   geoserver:
-    image: kartoza/geoserver:{{ geoserver_image_tag | default('2.23.2') }}
+    image: {% set svc_reg = geoserver_registry | default('kartoza') %}{{ svc_reg }}/geoserver:{{ geoserver_image_tag | default('2.23.2') }}
     container_name: {{ geoserver_docker_host | default('la_geoserver') }}
     profiles: [app-core, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}

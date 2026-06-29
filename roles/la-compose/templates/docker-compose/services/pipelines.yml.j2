@@ -1,6 +1,6 @@
 services:
   la_pipelines:
-    image: {{ docker_registry | default('') }}{% if docker_registry %}/{% endif %}la-pipelines:${TAG:-latest}
+    image: {% set svc_reg = la_pipelines_registry | default(docker_registry | default('')) %}{{ svc_reg }}{% if svc_reg %}/{% endif %}la-pipelines:${TAG:-latest}
     container_name: la_pipelines
     profiles: [app-core, full]
     user: "1000:1000"

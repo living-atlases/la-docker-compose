@@ -1,0 +1,28 @@
+# =============================================================================
+# application-local-config.yml — PERSISTENT PER-SERVICE OVERRIDES (edit by hand)
+# =============================================================================
+#
+# WHAT THIS FILE IS FOR
+#   Service-local configuration that must SURVIVE every `ansiblew` run. The other
+#   config files in this directory (e.g. application.yml, *-config.properties) are
+#   REGENERATED on each run from inventory and MUST NOT be hand-edited — your
+#   changes there are lost. This file is the opposite: Ansible creates it ONCE and
+#   NEVER overwrites it (`force: no`), so anything you set here persists.
+#
+# HOW THE OVERRIDE WORKS
+#   This service's container starts Spring Boot with:
+#       -Dspring.config.additional-location=/data/<service>/config/
+#       -Dspring.config.name=application,application-local-config,...
+#   Spring loads `application-local-config` AFTER the generated config, so any
+#   property you set here OVERRIDES the generated value. Use standard Spring YAML.
+#
+# NOTES
+#   - Keep this file out of version control if it holds secrets.
+#   - For environment-level overrides (passwords, JVM heap) use .env-custom in the
+#     docker-compose dir instead. See docs/configuration.md.
+#
+# EXAMPLES (uncomment and adjust to the service):
+#   # logging:
+#   #   level:
+#   #     au.org.ala: DEBUG
+# =============================================================================
