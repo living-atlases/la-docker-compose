@@ -60,3 +60,4 @@ SERVICIOS-STATUS.md
 
 # Nested git repos (branding assets, not tracked)
 inventories/testing/lademo-branding/commonui-bs3-2019/
+.cursor/ .opencode/
