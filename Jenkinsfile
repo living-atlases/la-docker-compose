@@ -55,13 +55,16 @@ pipeline {
         string(
             name: 'SKIP_SERVICES',
             // Temporarily deferred (immature / not yet container-ready), same policy as SDS:
-            //  - spatial, spatial-service, geoserver, geonetwork: crash-loop (exit 1 / health never green)
-            //    on the datastore host; need per-container `docker logs` diagnosis (see wait-for-health
-            //    diagnostic — only dumps `compose ps`, not container logs yet).
+            //  - geonetwork: postgres SCRAM/libpq auth; md5 DB prep has landed (postgres.yml.j2 +
+            //    init-databases pg_hba rewrite), service re-enable is the next tanda.
             //  - doi-service: regressed to STARTING/INITIALIZING (restart loop) under multi-host; revisit.
-            // Removing any token re-enables that service. Goal: keep CI green on the proven core stack
-            // (core LA + datastores + alerts/regions/data-quality, all healthy) while these are fixed.
-            defaultValue: 'sds-static-home,sensitive-data-service,spatial,spatial-service,geoserver,geonetwork,doi-service',
+            // Re-enabled (tanda 1): spatial, spatial-service, geoserver. The crash-loop was Logback
+            // rejecting the role's log4j.properties on the 3.x images — now ship spatial-logback.xml
+            // and point -Dlogging.config at it. Plus geoserver functional init (ALA workspace +
+            // LayersDB datastore + styles + feature types), layersdb uuid-ossp, and a co-located
+            // geoserver health gate for spatial-service.
+            // Removing any token re-enables that service. Goal: keep CI green while these are fixed.
+            defaultValue: 'sds-static-home,sensitive-data-service,geonetwork,doi-service',
             description: 'Comma-separated inventory groups to skip (temporary: immature/crash-looping services). Empty to deploy everything.'
         )
     }

@@ -523,6 +523,22 @@
   tags:
     - db-init
 
+# The geonetwork:3.4.4-postgres image bundles an old libpq (<10) that cannot do SCRAM, which
+# postgres 16 uses by default. The `la_postgres-data` named volume persists the scram-sha-256
+# pg_hba across builds, so POSTGRES_HOST_AUTH_METHOD (initdb-only) does not help on an aged
+# cluster. Rewrite pg_hba to md5 in place + reload (idempotent; no-op once md5). Combined with
+# `password_encryption=md5` (postgres command), the role-password tasks below store md5, which
+# both modern JDBC drivers and the old libpq authenticate. Verified locally: geonetwork connects.
+- name: "DB Init: Switch postgres host auth to md5 (geonetwork old libpq can't do SCRAM)"
+  shell: |
+    docker exec -u postgres la_postgres sh -c 'sed -i "s/scram-sha-256/md5/g" "${PGDATA:-/var/lib/postgresql/data}/pg_hba.conf"'
+    docker exec -u postgres la_postgres psql -tAc "SELECT pg_reload_conf();"
+  become: true
+  when: postgres_consumer_here | bool
+  changed_when: false
+  tags:
+    - db-init
+
 - name: "DB Init: Create/sync image-service postgres login role (idempotent)"
   command: >
     docker exec -u postgres la_postgres psql -v ON_ERROR_STOP=1 -c
@@ -695,11 +711,14 @@
     - (layersdb_exists.stdout | default('') | trim) != "1"
   tags: [db-init]
 
-- name: "DB Init: Enable PostGIS extensions on layersdb"
+- name: "DB Init: Enable PostGIS + uuid-ossp extensions on layersdb"
+  # Match ala-install pg_instance (extensions: postgis, postgis_topology, uuid-ossp). uuid-ossp
+  # needs double-quoting (the hyphen is not a bare identifier); single-quote the whole -c arg so
+  # the inner "uuid-ossp" needs no shell escaping. All ship with the postgis/postgis:16 image.
   command: >
     docker exec -u postgres la_postgres psql -v ON_ERROR_STOP=1
     -d {{ layers_db_name | default('layersdb') }} -c
-    "CREATE EXTENSION IF NOT EXISTS postgis; CREATE EXTENSION IF NOT EXISTS postgis_topology;"
+    'CREATE EXTENSION IF NOT EXISTS postgis; CREATE EXTENSION IF NOT EXISTS postgis_topology; CREATE EXTENSION IF NOT EXISTS "uuid-ossp";'
   become: true
   when: "'spatial-service' in physical_server_groups"
   changed_when: false

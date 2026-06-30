@@ -29,6 +29,11 @@ services:
       GEOSERVER_CSRF_WHITELIST: "{{ geoserver_hostname | default('localhost') }}"
       GEOSERVER_LOG_PROFILE: PRODUCTION_LOGGING
       RELINQUISH_LOG4J_CONTROL: "true"
+      # kartoza populates the (mounted) data dir as root but drops tomcat to geoserveruser
+      # (uid 1000), which then can't write the root-owned GeoWebCache config -> the /geoserver
+      # context fails to start (java.io.IOException: Permission denied) and only ROOT/ serves,
+      # so /geoserver/web/ is 404 forever. Run tomcat as root so it can write its own data dir.
+      RUN_AS_ROOT: "true"
     networks:
       default: {}
       {{ docker_network | default('internal') }}:
@@ -39,8 +44,10 @@ services:
         condition: service_healthy
 {% endif %}
     healthcheck:
-      test: ["CMD", "sh", "-c", "curl --fail --head --silent http://localhost:{{ geoserver_port | default('8080') }}/geoserver/web/ || exit 1"]
+      # /geoserver/web/ redirects (302) to the login page once the context is up. Accept
+      # 2xx/3xx/4xx (server up) and fail on refused/5xx; 404 while still deploying the war.
+      test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' http://localhost:{{ geoserver_port | default('8080') }}/geoserver/web/ | grep -qvE '^(000|404|5)'"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 120s
+      start_period: 150s

@@ -10,6 +10,12 @@ services:
     # safe on volumes first initialised by the plain postgres image.
     image: postgis/postgis:16-3.4-alpine
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    # password_encryption=md5: the geonetwork:3.4.4-postgres image bundles an old libpq (<10)
+    # that cannot do SCRAM, which postgres 16 uses by default -> its createdb step fails with
+    # "SCRAM authentication requires libpq version 10 or above" and it crash-loops. md5 is
+    # understood by every consumer (modern JDBC drivers and the old libpq). pg_hba is also
+    # switched to md5 in init-databases.yml (the named volume persists scram across builds).
+    command: ["postgres", "-c", "password_encryption=md5"]
     volumes:
       - la_postgres-data:/var/lib/postgresql/data
     environment:

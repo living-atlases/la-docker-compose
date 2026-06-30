@@ -19,21 +19,42 @@ services:
     environment:
       TZ: {{ server_tz | default('UTC') }}
       JAVA_OPTS: ${SPATIAL_SERVICE_JAVA_OPTS}
+    # The baked image CMD hardcodes spring.config.name=application,application-local-config and
+    # ignores $JAVA_OPTS, so the role-generated spatial-service-config.yml is never loaded and the
+    # app falls back to the baked dataSource (jdbc:postgresql://localhost:5432/layersdb -> no DB in
+    # the container). Override the command to add the spatial-service-config name (which repoints
+    # dataSource to postgres/layersdb); mirrors logger/image/alerts. -Dlogging.config points at the
+    # shipped Logback xml: the 3.x image is Spring Boot + Logback, but the role only ships a legacy
+    # log4j.properties, and Logback aborts boot on it ("Unexpected filename extension") — the crash
+    # loop reason. (see spatial-logback.xml, deployed by main.yml.)
+    command: ["/bin/sh", "-c", "exec java $$JAVA_OPTS -Xss512k -Djava.awt.headless=true -Dlogging.config=/data/spatial-service/config/spatial-logback.xml -Dspring.config.additional-location=/data/spatial-service/config/ -Dspring.config.name=application,application-local-config,spatial-service-config -jar /opt/atlas/$$APP_ARTIFACT/app.war"]
     networks:
       default: {}
       {{ docker_network | default('internal') }}:
-    # spatial-service uses the PostGIS layersdb; gate only when postgres is co-located on this
-    # host (a remote postgres is not in this compose file). geoserver dependency is runtime
-    # (WMS), not a boot gate — converge by retry.
-{% if datastore_endpoints.get('postgres', {}).get('colocated', false) %}
+    # depends_on only resolves services in THIS host's compose. Gate each dep by co-location:
+    # postgres (PostGIS layersdb) by datastore co-location; geoserver when it runs on this host,
+    # so spatial-service starts after geoserver is healthy and its data dir is initialised
+    # (init-geoserver: ALA workspace + LayersDB datastore). A remote postgres/geoserver is NOT in
+    # this compose file — converge by retry instead (never a cross-host depends_on). Wrap the
+    # whole block so it is never emitted empty.
+{% set _pg_local = datastore_endpoints.get('postgres', {}).get('colocated', false) %}
+{% set _gs_local = ('geoserver' in services_enabled) %}
+{% if _pg_local or _gs_local %}
     depends_on:
+{% if _pg_local %}
       postgres:
         condition: service_healthy
 {% endif %}
+{% if _gs_local %}
+      geoserver:
+        condition: service_healthy
+{% endif %}
+{% endif %}
     healthcheck:
-      # Liveness at the service context path (spatial_service_context_path=/ws). Tune in CI.
-      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:{{ spatial_service_port | default('8080') }}/ws || exit 1"]
+      # Liveness at the service context path (spatial_service_context_path=/ws). Accept 2xx/3xx/4xx
+      # (server up) and fail on refused/5xx.
+      test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' http://localhost:{{ spatial_service_port | default('8080') }}/ws | grep -qvE '^(000|5)'"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 120s
+      start_period: 150s

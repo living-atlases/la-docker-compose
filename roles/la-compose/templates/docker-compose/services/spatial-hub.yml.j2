@@ -17,15 +17,23 @@ services:
     environment:
       TZ: {{ server_tz | default('UTC') }}
       JAVA_OPTS: ${SPATIAL_JAVA_OPTS}
+    # The baked image CMD hardcodes spring.config.name=application,application-local-config and
+    # ignores $JAVA_OPTS, so the role-generated spatial-hub-config.yml is never loaded. Override
+    # the command to add the spatial-hub-config name (mirrors logger/image/alerts). -Dlogging.config
+    # points at the shipped Logback xml: the 3.x image is Spring Boot + Logback, but the role only
+    # ships a legacy log4j.properties, and Logback aborts boot on it ("Unexpected filename
+    # extension") — the crash loop reason. (see spatial-logback.xml, deployed by main.yml.)
+    command: ["/bin/sh", "-c", "exec java $$JAVA_OPTS -Xss512k -Djava.awt.headless=true -Dlogging.config=/data/spatial-hub/config/spatial-logback.xml -Dspring.config.additional-location=/data/spatial-hub/config/ -Dspring.config.name=application,application-local-config,spatial-hub-config -jar /opt/atlas/$$APP_ARTIFACT/app.war"]
     networks:
       default: {}
       {{ docker_network | default('internal') }}:
     # spatial-hub talks to spatial-service over HTTP; no depends_on (cross-host safe, converge
     # by retry — spatial-service may live on another host and lazy-connects anyway).
     healthcheck:
-      # Liveness: spatial-hub is deployed at ROOT (spatial_hub_context_path=/). Tune in CI.
-      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:{{ spatial_hub_port | default('8080') }}/ || exit 1"]
+      # Liveness: spatial-hub is deployed at ROOT (spatial_hub_context_path=/). Accept 2xx/3xx/4xx
+      # (server up) and fail on refused/5xx.
+      test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' http://localhost:{{ spatial_hub_port | default('8080') }}/ | grep -qvE '^(000|5)'"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 90s
+      start_period: 120s
