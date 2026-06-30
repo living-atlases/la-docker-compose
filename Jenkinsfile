@@ -55,17 +55,22 @@ pipeline {
         string(
             name: 'SKIP_SERVICES',
             // Deferred (out of scope for now): sds-static-home, sensitive-data-service.
+            //  - doi-service: STILL STARTING/INITIALIZING (CI #234/#235). Root cause known: it is a
+            //    GRAILS app using the grails-elasticsearch plugin, which on boot
+            //    (SearchableClassMappingConfigurator.installMappings -> ElasticSearchAdminService
+            //    .indexExists) connects to ES and, with no elasticSearch.client.hosts config,
+            //    defaults to localhost:9200 -> Connection refused -> never healthy. (SPRING_
+            //    ELASTICSEARCH_URIS does NOT help — that is Spring Boot config, not Grails.) Fix is
+            //    to set the grails-elasticsearch host (-> elasticsearch:9200) in doi-service-config
+            //    .yml; deferred until validated locally to avoid burning 47-min CI cycles.
             // Re-enabled (tanda 1, CI #232 green): spatial, spatial-service, geoserver — healthy;
             // geoserver has the ALA workspace + LayersDB datastore (functional init). Fixes: ship
             // spatial-logback.xml + -Dlogging.config (Logback rejected the role's log4j.properties),
             // spatial-service security.cas.appServerName (CAS filter init), layersdb uuid-ossp.
             // Re-enabled (tanda 2, CI #233 green): geonetwork — postgres md5 (password_encryption=md5
             // + pg_hba rewrite) for the image's old libpq that can't do SCRAM; healthy end-to-end.
-            // Re-enabled (tanda 3): doi-service — template already complete (-Dlogging.config +
-            // doi-service-config + logs mount); its earlier STARTING/INITIALIZING loop predated the
-            // service_aliases and COMPOSE_ENV_FILES (#229) fixes, so re-test now.
             // Removing any token re-enables that service. Goal: keep CI green while these are fixed.
-            defaultValue: 'sds-static-home,sensitive-data-service',
+            defaultValue: 'sds-static-home,sensitive-data-service,doi-service',
             description: 'Comma-separated inventory groups to skip (temporary: immature/crash-looping services). Empty to deploy everything.'
         )
     }
