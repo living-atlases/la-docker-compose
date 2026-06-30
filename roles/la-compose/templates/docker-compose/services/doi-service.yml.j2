@@ -11,6 +11,11 @@ services:
     environment:
       TZ: {{ server_tz | default('UTC') }}
       JAVA_OPTS: ${DOI_JAVA_OPTS}
+      # Spring Boot's ElasticsearchRestClientHealthIndicator / ES client default to localhost:9200
+      # without spring.elasticsearch.uris -> ConnectException at context refresh in Docker (ES is a
+      # separate container), so doi-service stayed STARTING/INITIALIZING and never went healthy
+      # (CI #234). Point it at the real ES — same fix as image-service.
+      SPRING_ELASTICSEARCH_URIS: "{{ doi_service_elasticsearch_uri | default('http://elasticsearch:9200') }}"
     # The baked image CMD ignores $JAVA_OPTS, points logging.config at logback.groovy (modern
     # Logback rejects .groovy) and does not load the role-generated doi-service-config.yml, so
     # override the command to honor JAVA_OPTS, force logback.xml and add the config name (mirrors
