@@ -5,8 +5,8 @@ set -euo pipefail
 echo "==> airflow db migrate"
 airflow db migrate
 
-echo "==> create admin user (admin/admin)"
-airflow users create --username admin --password admin \
+echo "==> create admin user (override password via AIRFLOW_ADMIN_PASSWORD)"
+airflow users create --username admin --password "${AIRFLOW_ADMIN_PASSWORD:-admin}" \
   --firstname a --lastname a --role Admin --email admin@example.org || true
 
 echo "==> import Airflow Variables"

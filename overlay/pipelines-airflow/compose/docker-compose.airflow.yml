@@ -26,6 +26,9 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db/airflow
+    # Admin UI password (seed.sh creates user `admin`). Override the default via
+    # AIRFLOW_ADMIN_PASSWORD in .env-custom (COMPOSE_ENV_FILES) — never commit it.
+    AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:-admin}
     # --- overlay switches ---
     PYTHONPATH: /opt/overlay
     PIPELINES_COMPUTE_BACKEND: local
