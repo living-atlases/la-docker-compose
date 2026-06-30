@@ -472,6 +472,11 @@
       when:
         - auto_deploy | default(true) | bool
         - use_airflow | default(false) | bool
+        # Co-locate with la_pipelines: the shim runs `docker exec la_pipelines` over the
+        # LOCAL docker socket, so Airflow must run on the SAME host as the pipelines
+        # service (cross-host docker exec does not work). services_enabled is per-host,
+        # so this pins the overlay to the pipelines node in a multi-host deploy.
+        - "'pipelines' in services_enabled"
       tags:
         - airflow
         - docker-compose
