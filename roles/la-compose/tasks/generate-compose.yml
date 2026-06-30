@@ -1238,11 +1238,10 @@
         is_proxy: true
         proxy_pass: "http://{{ airflow_docker_host | default('la_airflow') }}:{{ airflow_port | default('8080') }}"
   when:
-    - "'pipelines' in services_enabled or 'airflow' in services_enabled"
+    - use_airflow | default(false) | bool
     - "airflow_hostname is defined"
   tags:
     - airflow
-    - pipelines
     - nginx_vhost
     - config
     - docker-compose

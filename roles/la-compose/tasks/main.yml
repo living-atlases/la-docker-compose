@@ -363,6 +363,28 @@
               First root-cause line(s):
               {{ deploy_failure_diag.stdout | default('(no root-cause line matched — read full log)') }}
 
+    # NO-AWS overlay (opt-in via use_airflow). Brought up as its OWN compose project
+    # joined to the stack network (la_internal), AFTER the stack so la_pipelines + the
+    # network exist (the shim runs `docker exec la_pipelines`). Needs the pipelines-airflow
+    # submodule checked out. nginx vhost + gatus for it are generated separately when
+    # airflow_hostname is set.
+    - name: "Airflow: start the pipelines-airflow NO-AWS overlay (opt-in: use_airflow)"
+      command: >
+        docker compose -f docker-compose.airflow.yml up -d --build
+      args:
+        chdir: "{{ playbook_dir }}/../overlay/pipelines-airflow/compose"
+      environment:
+        PIPELINES_AIRFLOW_REPO: "{{ playbook_dir }}/../pipelines-airflow"
+        LA_NETWORK: "la_{{ docker_network | default('internal') }}"
+      become: true
+      when:
+        - auto_deploy | default(true) | bool
+        - use_airflow | default(false) | bool
+      tags:
+        - airflow
+        - docker-compose
+        - deploy
+
     - name: "Solr: Initialize collections (idempotent: LIST then CREATE if missing)"
       include_tasks: init-solr.yml
       when:

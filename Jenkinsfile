@@ -202,7 +202,14 @@ EOF
                     git -C ala-install config core.sparseCheckout false 2>/dev/null || true
                     git -C ala-install read-tree -mu HEAD 2>/dev/null || true
                     echo "ala-install SQL files present: \$(ls ala-install/ansible/roles/logger-service/files/db/*.sql 2>/dev/null | wc -l || echo 0)"
-                    
+
+                    # pipelines-airflow submodule: pinned SHA (NO --remote) — only needed
+                    # when use_airflow=true (NO-AWS overlay). Soft-fail so it never blocks
+                    # the stack build when Airflow is disabled.
+                    echo "Initializing pipelines-airflow submodule (pinned SHA)..."
+                    git submodule update --init pipelines-airflow || true
+                    echo "pipelines-airflow submodule SHA: \$(git -C pipelines-airflow rev-parse HEAD 2>/dev/null || echo MISSING)"
+
                     echo "Setting up Python virtual environment for Ansible..."
                     if [ ! -d "${VENV_DIR}" ]; then
                         python3 -m venv "${VENV_DIR}"

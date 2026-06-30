@@ -178,9 +178,11 @@ doi_service_docker_host: la_doi-service
 sensitive_data_service_docker_host: la_sensitive-data-service
 species_list_docker_host: la_species-list
 
-# Airflow (NO-AWS pipelines-airflow overlay): runs in the overlay compose project,
-# reachable on the `la` network as `la_airflow`. Define `airflow_hostname` per-inventory
-# (e.g. airflow.l-a.site) to expose the Airflow UI via nginx + monitor it with gatus.
+# Airflow (NO-AWS pipelines-airflow overlay): OPT-IN. Set use_airflow=true to deploy
+# the overlay (Airflow + MinIO, separate compose project) joined to the `la` network as
+# `la_airflow`. Define airflow_hostname (e.g. airflow.l-a.site) to also expose it via
+# nginx + gatus. Follows the use_* pattern; promotable to the generator/la-toolkit toggles.
+use_airflow: false
 airflow_docker_host: la_airflow
 airflow_port: 8080
 
