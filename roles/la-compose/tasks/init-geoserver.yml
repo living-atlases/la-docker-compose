@@ -1,0 +1,117 @@
+---
+# Geoserver functional initialization for the ALA spatial stack.
+# Called from main.yml AFTER all Docker Compose services are running (alongside init-solr /
+# init-cas-admin). Container adaptation of the ala-install `geoserver.sh` role script: instead of
+# running against a tomcat on the VM, it stages the assets on the host and runs an idempotent REST
+# script INSIDE the la_geoserver container (`docker exec`), so it works on multi-host where the
+# container only `expose`s 8080 (no published host port).
+#
+# Pure docker-exec / docker-cp flow: no host port, no geoserver client on the host required.
+# Best-effort by design — the script always exits 0 and geoserver liveness is gated separately
+# (healthcheck + spatial-service depends_on), so a transient REST/DB hiccup never fails the deploy.
+
+- name: "Geoserver init: Wait for geoserver to be healthy"
+  shell: |
+    docker inspect --format='{{ "{{" }}.State.Health.Status{{ "}}" }}' {{ geoserver_docker_host | default('la_geoserver') }}
+  register: geoserver_health
+  until: 'geoserver_health.stdout == "healthy"'
+  retries: 45
+  delay: 10
+  become: true
+  changed_when: false
+  failed_when: false
+  tags:
+    - geoserver-init
+
+- name: "Geoserver init: Configure ALA workspace, LayersDB datastore, styles, feature types"
+  # Skip (don't fail) if geoserver never came up — validate-post-deploy surfaces the unhealthy
+  # container with full diagnostics; there is nothing to initialise against a dead REST API.
+  when: geoserver_health.stdout == "healthy"
+  block:
+
+    - name: "Geoserver init: Ensure host staging dir exists"
+      file:
+        path: "{{ docker_compose_data_dir }}/geoserver-init"
+        state: directory
+        mode: "0755"
+        owner: "{{ docker_compose_userid }}"
+        group: "{{ docker_compose_usergid }}"
+      become: true
+      tags:
+        - geoserver-init
+
+    # SLD styles + marker icon + WMS scale layout, from the same GitHub repo the layersdb schema
+    # comes from. Downloaded on the host (proven to reach GitHub for layersdb.sql) and docker-cp'd
+    # in, so the container needs no outbound internet. Best-effort: a missing asset just means the
+    # init script skips its PUT (the workspace/datastore still get created).
+    - name: "Geoserver init: Stage SLD / icon / layout assets (best-effort)"
+      get_url:
+        url: "{{ spatial_database_raw_base | default('https://github.com/AtlasOfLivingAustralia/spatial-database/raw/master') }}/{{ item }}"
+        dest: "{{ docker_compose_data_dir }}/geoserver-init/{{ item }}"
+        mode: "0644"
+      loop:
+        - distributions_style.sld
+        - envelope_style.sld
+        - alastyles.sld
+        - points_style.sld
+        - marker.png
+        - scale.xml
+      become: true
+      failed_when: false
+      tags:
+        - geoserver-init
+
+    # Feature type definitions (Objects / Distributions / Points) are rendered straight from the
+    # ala-install geoserver role templates (single source of truth — same pattern as init-cas-admin
+    # reading cas5 SQL templates). geoserver_url is only used for the informational namespace href.
+    - name: "Geoserver init: Render feature type definitions from ala-install"
+      template:
+        src: "{{ playbook_dir }}/../ala-install/ansible/roles/geoserver/templates/{{ item }}"
+        dest: "{{ docker_compose_data_dir }}/geoserver-init/{{ item }}"
+        mode: "0644"
+      loop:
+        - geoserver.objects.xml
+        - geoserver.distributions.xml
+        - geoserver.points.xml
+      vars:
+        geoserver_url: "http://localhost:{{ geoserver_port | default('8080') }}/geoserver"
+      become: true
+      loop_control:
+        label: "{{ item }}"
+      tags:
+        - geoserver-init
+
+    - name: "Geoserver init: Render init script"
+      template:
+        src: geoserver-init.sh.j2
+        dest: "{{ docker_compose_data_dir }}/geoserver-init/geoserver-init.sh"
+        mode: "0755"
+      become: true
+      no_log: true
+      tags:
+        - geoserver-init
+
+    - name: "Geoserver init: Stage assets inside the geoserver container"
+      shell: |
+        docker exec {{ geoserver_docker_host | default('la_geoserver') }} mkdir -p /tmp/geoserver-init
+        docker cp {{ docker_compose_data_dir }}/geoserver-init/. {{ geoserver_docker_host | default('la_geoserver') }}:/tmp/geoserver-init/
+      become: true
+      changed_when: false
+      tags:
+        - geoserver-init
+
+    - name: "Geoserver init: Run REST init script inside the container"
+      shell: |
+        docker exec {{ geoserver_docker_host | default('la_geoserver') }} sh /tmp/geoserver-init/geoserver-init.sh
+      become: true
+      register: geoserver_init_run
+      changed_when: false
+      failed_when: false
+      tags:
+        - geoserver-init
+
+    - name: "Geoserver init: Report result"
+      debug:
+        msg: "{{ geoserver_init_run.stdout_lines | default(['(no output)']) | select('match', '^(==|RESULT)') | list }}"
+      tags:
+        - geoserver-init

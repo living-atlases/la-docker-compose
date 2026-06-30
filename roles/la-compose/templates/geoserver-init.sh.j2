@@ -1,0 +1,97 @@
+#!/bin/sh
+# Geoserver functional init for the ALA spatial stack — container adaptation of the ala-install
+# `geoserver.sh`. Runs INSIDE the la_geoserver container via `docker exec` (the GeoServer REST API
+# is reached at localhost), so no host port publication is required (works on multi-host where the
+# container only `expose`s 8080).
+#
+# Properties:
+#  - Idempotent: every create is guarded by a prior GET; PUTs are naturally idempotent. Safe to
+#    re-run on every `ansiblew`.
+#  - Best-effort: no `set -e`, every curl `|| true`, always `exit 0`. A transient REST/DB hiccup
+#    must never fail the deploy — geoserver liveness is gated separately (healthcheck + depends_on).
+#  - Self-contained: assets (SLDs, marker.png, scale.xml, featuretype XMLs) are staged on the host
+#    and docker-cp'd into {{ '${DIR}' }}, so the container needs no outbound internet.
+#
+# The admin password is already set by the kartoza image (GEOSERVER_ADMIN_PASSWORD), so unlike the
+# upstream script we do NOT change it here — we just authenticate with it.
+set -u
+
+GS="http://localhost:{{ geoserver_port | default('8080') }}/geoserver"
+GSUSER="{{ geoserver_username | default('admin') }}"
+GSPASS="{{ geoserver_password | default('geoserver') }}"
+DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# HTTP status of an authenticated GET (used as an existence guard).
+code() { curl -s -o /dev/null -w '%{http_code}' -u "${GSUSER}:${GSPASS}" "$1"; }
+# Authenticated curl wrapper (best-effort).
+gs() { curl -s -u "${GSUSER}:${GSPASS}" "$@" || true; }
+
+echo "== geoserver-init: workspace ALA =="
+# Drop GeoServer's stock sample workspaces (harmless if already absent).
+for ws in nurc cite it.geosolutions.html sde sf tiger topp; do
+  gs -XDELETE "${GS}/rest/workspaces/${ws}?recurse=true" -o /dev/null
+done
+if [ "$(code "${GS}/rest/workspaces/ALA")" != "200" ]; then
+  gs -XPOST -H "Content-type: text/xml" \
+    -d "<workspace><name>ALA</name></workspace>" "${GS}/rest/workspaces"
+fi
+
+echo "== geoserver-init: datastore LayersDB (PostGIS -> layersdb) =="
+if [ "$(code "${GS}/rest/workspaces/ALA/datastores/LayersDB")" != "200" ]; then
+  gs -XPOST -H "Content-type: text/xml" -d \
+"<dataStore><name>LayersDB</name><connectionParameters>\
+<host>{{ layers_db_hostname | default('postgres') }}</host>\
+<port>{{ layers_db_port | default('5432') }}</port>\
+<database>{{ layers_db_name | default('layersdb') }}</database>\
+<schema>public</schema>\
+<user>{{ layers_db_username | default('layers') }}</user>\
+<passwd>{{ layers_db_password }}</passwd>\
+<dbtype>postgis</dbtype>\
+</connectionParameters></dataStore>" \
+    "${GS}/rest/workspaces/ALA/datastores"
+fi
+
+echo "== geoserver-init: styles =="
+for s in distributions_style envelope_style alastyles points_style; do
+  if [ "$(code "${GS}/rest/styles/${s}")" != "200" ]; then
+    gs -XPOST -H "Content-type: text/xml" \
+      -d "<style><name>${s}</name><filename>${s}.sld</filename></style>" "${GS}/rest/styles"
+  fi
+  if [ -f "${DIR}/${s}.sld" ]; then
+    gs -XPUT -H "Content-type: application/vnd.ogc.sld+xml" \
+      -d @"${DIR}/${s}.sld" "${GS}/rest/styles/${s}"
+  fi
+done
+
+echo "== geoserver-init: feature types (Objects / Distributions / Points) =="
+for ft in Objects:geoserver.objects.xml Distributions:geoserver.distributions.xml Points:geoserver.points.xml; do
+  name="${ft%%:*}"; file="${ft##*:}"
+  if [ "$(code "${GS}/rest/workspaces/ALA/datastores/LayersDB/featuretypes/${name}")" != "200" ] \
+     && [ -f "${DIR}/${file}" ]; then
+    gs -XPOST -H "Content-type: text/xml" \
+      -T "${DIR}/${file}" "${GS}/rest/workspaces/ALA/datastores/LayersDB/featuretypes"
+  fi
+done
+
+echo "== geoserver-init: assign default styles to layers =="
+gs -XPUT -H 'Content-type: text/xml' -d '<layer><defaultStyle><name>distributions_style</name><workspace>ALA</workspace></defaultStyle></layer>' "${GS}/rest/layers/ALA:Objects"
+gs -XPUT -H 'Content-type: text/xml' -d '<layer><defaultStyle><name>distributions_style</name><workspace>ALA</workspace></defaultStyle></layer>' "${GS}/rest/layers/ALA:Distributions"
+gs -XPUT -H 'Content-type: text/xml' -d '<layer><defaultStyle><name>points_style</name><workspace>ALA</workspace></defaultStyle></layer>' "${GS}/rest/layers/ALA:Points"
+
+if [ -f "${DIR}/marker.png" ]; then
+  echo "== geoserver-init: marker icon =="
+  gs -XPUT -H 'Content-type: image/png' -d @"${DIR}/marker.png" "${GS}/rest/resource/styles/marker.png"
+fi
+
+if [ -f "${DIR}/scale.xml" ]; then
+  echo "== geoserver-init: WMS scale layout =="
+  mkdir -p "${GEOSERVER_DATA_DIR:-/data/geoserver_data_dir}/layout"
+  cp "${DIR}/scale.xml" "${GEOSERVER_DATA_DIR:-/data/geoserver_data_dir}/layout/scale.xml" || true
+fi
+
+echo "== geoserver-init: done — result codes =="
+echo "RESULT workspace ALA:        $(code "${GS}/rest/workspaces/ALA")"
+echo "RESULT datastore LayersDB:   $(code "${GS}/rest/workspaces/ALA/datastores/LayersDB")"
+echo "RESULT featuretype Objects:  $(code "${GS}/rest/workspaces/ALA/datastores/LayersDB/featuretypes/Objects")"
+echo "RESULT featuretype Points:   $(code "${GS}/rest/workspaces/ALA/datastores/LayersDB/featuretypes/Points")"
+exit 0

@@ -21,7 +21,13 @@
   # overrides take effect on Ansible-driven deploys, not only on manual runs.
   # Requires Docker Compose >= v2.24.
   environment:
-    COMPOSE_ENV_FILES: "{{ compose_env_files | default('.env,.env-custom') }}"
+    # Absolute paths (not bare '.env,.env-custom'): docker compose resolves relative
+    # COMPOSE_ENV_FILES against the CWD, and not every `docker compose` invocation in this
+    # block chdir's into docker_compose_data_dir — notably `config -q` in validate-pre-deploy,
+    # which ran from the remote user's home and failed with "couldn't find env file:
+    # /home/ubuntu/.env" (CI #229), aborting the whole deploy. Absolute paths work regardless
+    # of CWD. The `up -d`/`down` commands chdir anyway, so they're unaffected either way.
+    COMPOSE_ENV_FILES: "{{ compose_env_files | default(docker_compose_data_dir ~ '/.env,' ~ docker_compose_data_dir ~ '/.env-custom') }}"
   block:
     - name: Ensure Docker is installed
       import_role:
@@ -253,6 +259,29 @@
       tags:
         - docker-compose
 
+    # spatial-hub / spatial-service run 3.x Spring Boot images that use Logback, but the
+    # ala-install roles only ship a legacy log4j.properties; Logback aborts boot on a non-.xml
+    # logging.config ("Unexpected filename extension") — the crash-loop reason. Ship a minimal
+    # Logback xml into their config dirs; the compose command override points -Dlogging.config at
+    # it (see spatial-{hub,service}.yml.j2). doi-service has an equivalent logback.xml from its own
+    # ala-install role, so it is not in this list. Idempotent; ala-install untouched.
+    - name: "Deploy spatial Logback config (spatial-hub / spatial-service)"
+      template:
+        src: docker-compose/spatial-logback.xml
+        dest: "{{ item.path }}/spatial-logback.xml"
+        owner: "{{ docker_container_uid }}"
+        group: "{{ docker_container_gid }}"
+        mode: '0644'
+      become: true
+      loop:
+        - { svc: 'spatial',         path: "{{ data_dir }}/spatial-hub/config" }
+        - { svc: 'spatial_service', path: "{{ data_dir }}/spatial-service/config" }
+      when: item.svc in services_enabled
+      loop_control:
+        label: "{{ item.path }}"
+      tags:
+        - docker-compose
+
     - name: "LAYER 2: Pre-deployment validation"
       include_tasks: validate-pre-deploy.yml
       when: auto_deploy | default(true) | bool
@@ -444,6 +473,16 @@
         - docker-compose
         - deploy
         - cas-admin
+
+    - name: "Geoserver: Initialize ALA workspace, LayersDB datastore, styles, feature types"
+      include_tasks: init-geoserver.yml
+      when:
+        - auto_deploy | default(true) | bool
+        - "'geoserver' in services_enabled"
+      tags:
+        - docker-compose
+        - deploy
+        - geoserver-init
 
     - name: "LAYER 3 & 4: Post-deployment validation and health check"
       include_tasks: validate-post-deploy.yml
