@@ -102,7 +102,123 @@
 
     # --- OIDC services (Mongo via docker exec) -------------------------------
     # Single combined script for all services with non-empty client_id+url.
-    # The IIFE per service is idempotent: deleteMany({name}) then insertOne.
+    # The IIFE per service is idempotent: deleteMany({name}) then insertOne with
+    # a deterministic _id. The list below is the single source of truth, shared
+    # by the render template and the pre-apply validation.
+
+    - name: "CAS Admin: Build OIDC service list (single source of truth)"
+      set_fact:
+        cas_oidc_services:
+          - name: collectory
+            client_id: "{{ collectory_client_id | default('') }}"
+            client_secret: "{{ collectory_client_secret | default('') }}"
+            url: "{{ (collectory_base_url | default('')) ~ (collectory_context_path | default('')) }}"
+          - name: ala_hub
+            client_id: "{{ ala_hub_client_id | default('') }}"
+            client_secret: "{{ ala_hub_client_secret | default('') }}"
+            url: "{{ (biocache_hub_base_url | default('')) ~ (biocache_hub_context_path | default('')) }}"
+          - name: biocache_service
+            client_id: "{{ biocache_service_client_id | default('') }}"
+            client_secret: "{{ biocache_service_client_secret | default('') }}"
+            url: "{{ (biocache_service_base_url | default('')) ~ (biocache_service_context_path | default('')) }}"
+          - name: ala_bie
+            client_id: "{{ ala_bie_client_id | default('') }}"
+            client_secret: "{{ ala_bie_client_secret | default('') }}"
+            url: "{{ (bie_hub_base_url | default('')) ~ (bie_hub_context_path | default('')) }}"
+          - name: bie_index
+            client_id: "{{ bie_index_client_id | default('') }}"
+            client_secret: "{{ bie_index_client_secret | default('') }}"
+            url: "{{ (bie_index_base_url | default('')) ~ (bie_index_context_path | default('')) }}"
+          - name: images
+            client_id: "{{ images_client_id | default('') }}"
+            client_secret: "{{ images_client_secret | default('') }}"
+            url: "{{ (image_service_base_url | default('')) ~ (image_service_context_path | default('')) }}"
+          - name: logger
+            client_id: "{{ logger_client_id | default('') }}"
+            client_secret: "{{ logger_client_secret | default('') }}"
+            url: "{{ (logger_base_url | default('')) ~ (logger_context_path | default('')) }}"
+          - name: lists
+            client_id: "{{ lists_client_id | default('') }}"
+            client_secret: "{{ lists_client_secret | default('') }}"
+            url: "{{ (lists_base_url | default('')) ~ (lists_context_path | default('')) }}"
+          - name: regions
+            client_id: "{{ regions_client_id | default('') }}"
+            client_secret: "{{ regions_client_secret | default('') }}"
+            url: "{{ (regions_base_url | default('')) ~ (regions_context_path | default('')) }}"
+          - name: alerts
+            client_id: "{{ alerts_client_id | default('') }}"
+            client_secret: "{{ alerts_client_secret | default('') }}"
+            url: "{{ (alerts_base_url | default('')) ~ (alerts_context_path | default('')) }}"
+          - name: doi
+            client_id: "{{ doi_client_id | default('') }}"
+            client_secret: "{{ doi_client_secret | default('') }}"
+            url: "{{ (doi_service_url | default('')) ~ (doi_service_context_path | default('')) }}"
+          - name: dashboard
+            client_id: "{{ dashboard_client_id | default('') }}"
+            client_secret: "{{ dashboard_client_secret | default('') }}"
+            url: "{{ (dashboard_base_url | default('')) ~ (dashboard_context_path | default('')) }}"
+          - name: sds
+            client_id: "{{ sds_client_id | default('') }}"
+            client_secret: "{{ sds_client_secret | default('') }}"
+            url: "{{ (sds_url | default('')) ~ (sds_context_path | default('')) }}"
+          - name: spatial
+            client_id: "{{ spatial_client_id | default('') }}"
+            client_secret: "{{ spatial_client_secret | default('') }}"
+            url: "{{ (spatial_base_url | default('')) ~ (spatial_hub_context_path | default('')) }}"
+          - name: data_quality
+            client_id: "{{ data_quality_client_id | default('') }}"
+            client_secret: "{{ data_quality_client_secret | default('') }}"
+            url: "{{ (data_quality_url | default('')) ~ (data_quality_context_path | default('')) }}"
+          - name: biocollect
+            client_id: "{{ biocollect_client_id | default('') }}"
+            client_secret: "{{ biocollect_client_secret | default('') }}"
+            url: "{{ (biocollect_base_url | default('')) ~ (biocollect_context_path | default('')) }}"
+          - name: ecodata
+            client_id: "{{ ecodata_client_id | default('') }}"
+            client_secret: "{{ ecodata_client_secret | default('') }}"
+            url: "{{ (ecodata_base_url | default('')) ~ (ecodata_context_path | default('')) }}"
+          - name: userdetails
+            client_id: "{{ userdetails_client_id | default('') }}"
+            client_secret: "{{ userdetails_client_secret | default('') }}"
+            url: "{{ (userdetails_base_url | default('')) ~ '/' ~ (userdetails_context_path | default('')) }}"
+      no_log: true
+      tags:
+        - cas-admin
+        - oidc
+
+    # Fail loud (like ala-install's oidc-keys-add assert) instead of silently
+    # skipping malformed keys. Only active when OIDC is enabled, so the base
+    # inventory (oidc_enabled=false) is unaffected.
+    - name: "CAS Admin: Validate format of provided OIDC client credentials"
+      assert:
+        that:
+          - "svc.client_id is match('^[a-f0-9-]{36}$')"
+          - "svc.client_secret is match('^[a-f0-9-]{36}$')"
+          - "(svc.url | length) > 3"
+        fail_msg: "OIDC service '{{ item }}' has an invalid client_id/client_secret/url (url='{{ svc.url }}'). Fix the {{ item }}_client_id / _client_secret / base_url inventory vars."
+        quiet: true
+      vars:
+        svc: "{{ cas_oidc_services | selectattr('name', 'eq', item) | first }}"
+      loop: "{{ cas_oidc_services | selectattr('client_id', 'ne', '') | map(attribute='name') | list }}"
+      when: oidc_enabled | default(false) | bool
+      tags:
+        - cas-admin
+        - oidc
+
+    - name: "CAS Admin: Require core login services to be OIDC-registered when OIDC is enabled"
+      assert:
+        that:
+          - "svc.client_id is match('^[a-f0-9-]{36}$')"
+          - "(svc.url | length) > 3"
+        fail_msg: "OIDC is enabled but core service '{{ item }}' has no valid client_id/url — its portal login would fail with 'Application not authorized to use CAS'. Set {{ item }}_client_id / _client_secret and its base_url."
+        quiet: true
+      vars:
+        svc: "{{ cas_oidc_services | selectattr('name', 'eq', item) | first }}"
+      loop: ['collectory', 'ala_hub', 'biocache_service', 'ala_bie', 'bie_index']
+      when: oidc_enabled | default(false) | bool
+      tags:
+        - cas-admin
+        - oidc
 
     - name: "CAS Admin: Render OIDC services Mongo script"
       template:
@@ -113,6 +229,8 @@
         - cas-admin
         - oidc
 
+    # failed_when:false so a mongosh hiccup never produces a censored (no_log)
+    # failure; the read-back assert below is the visible, authoritative gate.
     - name: "CAS Admin: Apply OIDC services via docker exec mongosh"
       shell: >
         docker exec -i la_mongodb mongosh --quiet
@@ -123,14 +241,57 @@
         < {{ docker_compose_data_dir }}/cas-setup/oidc-services.js
       become: true
       register: oidc_apply
-      changed_when: "'oidc-service registered:' in oidc_apply.stdout"
+      changed_when: "'oidc-service registered:' in (oidc_apply.stdout | default(''))"
+      failed_when: false
       no_log: true
+      tags:
+        - cas-admin
+        - oidc
+
+    - name: "CAS Admin: Read back registered OIDC services from Mongo"
+      shell: >
+        docker exec -i la_mongodb mongosh --quiet
+        --username "{{ mongodb_root_username }}"
+        --password "{{ mongodb_root_password }}"
+        --authenticationDatabase admin
+        "{{ cas_services_db | default('cas-service-registry') }}"
+        --eval 'print("OIDC_DB_COUNT=" + db.services.countDocuments({_class:"org.apereo.cas.services.OidcRegisteredService"})); db.services.find({_class:"org.apereo.cas.services.OidcRegisteredService"},{name:1,_id:0}).forEach(function(s){print("  db-has: " + s.name)});'
+      become: true
+      register: oidc_registry
+      changed_when: false
+      failed_when: false
+      no_log: true
+      tags:
+        - cas-admin
+        - oidc
+
+    - name: "CAS Admin: Compute OIDC render/registry counts"
+      set_fact:
+        oidc_expected: "{{ (oidc_apply.stdout | default('') | regex_findall('OIDC_EXPECTED=([0-9]+)') | first | default('-1')) | int }}"
+        oidc_db_count: "{{ (oidc_registry.stdout | default('') | regex_findall('OIDC_DB_COUNT=([0-9]+)') | first | default('-1')) | int }}"
+      tags:
+        - cas-admin
+        - oidc
+
+    - name: "CAS Admin: Verify every intended OIDC service is registered (read-back)"
+      assert:
+        that:
+          - "oidc_expected | int >= 0"
+          - "oidc_db_count | int == oidc_expected | int"
+        fail_msg: |
+          OIDC registry mismatch: rendered/intended={{ oidc_expected }} but registered in Mongo={{ oidc_db_count }}.
+          Apply output:
+          {{ oidc_apply.stdout | default('<none>') }}
+          {{ oidc_apply.stderr | default('') }}
+          Registry read-back:
+          {{ oidc_registry.stdout | default('<none>') }}
+        success_msg: "OIDC registry verified: {{ oidc_db_count }} services registered (matches intended {{ oidc_expected }})."
       tags:
         - cas-admin
         - oidc
 
     - name: "CAS Admin: Initialization completed successfully"
       debug:
-        msg: "CAS admin account and OIDC services configured via docker exec."
+        msg: "CAS admin account and {{ oidc_db_count }} OIDC services configured and verified via docker exec."
       tags:
         - cas-admin

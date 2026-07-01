@@ -2,28 +2,12 @@
 // Mirrors ala-install/ansible/roles/oidc-keys-add/templates/sql/add-key.js
 // but bundles every service in one script executed via:
 //   docker exec -i la_mongodb mongosh ... < oidc-services.js
-{% set oidc_services = [
-  {'name': 'collectory',         'client_id': collectory_client_id        | default(''), 'client_secret': collectory_client_secret        | default(''), 'url': (collectory_base_url        | default('')) ~ (collectory_context_path        | default(''))},
-  {'name': 'ala_hub',            'client_id': ala_hub_client_id           | default(''), 'client_secret': ala_hub_client_secret           | default(''), 'url': (biocache_hub_base_url     | default('')) ~ (biocache_hub_context_path     | default(''))},
-  {'name': 'biocache_service',   'client_id': biocache_service_client_id  | default(''), 'client_secret': biocache_service_client_secret  | default(''), 'url': (biocache_service_base_url | default('')) ~ (biocache_service_context_path | default(''))},
-  {'name': 'ala_bie',            'client_id': ala_bie_client_id           | default(''), 'client_secret': ala_bie_client_secret           | default(''), 'url': (bie_hub_base_url          | default('')) ~ (bie_hub_context_path          | default(''))},
-  {'name': 'bie_index',          'client_id': bie_index_client_id         | default(''), 'client_secret': bie_index_client_secret         | default(''), 'url': (bie_index_base_url        | default('')) ~ (bie_index_context_path        | default(''))},
-  {'name': 'images',             'client_id': images_client_id            | default(''), 'client_secret': images_client_secret            | default(''), 'url': (image_service_base_url    | default('')) ~ (image_service_context_path    | default(''))},
-  {'name': 'logger',             'client_id': logger_client_id            | default(''), 'client_secret': logger_client_secret            | default(''), 'url': (logger_base_url           | default('')) ~ (logger_context_path           | default(''))},
-  {'name': 'lists',              'client_id': lists_client_id             | default(''), 'client_secret': lists_client_secret             | default(''), 'url': (lists_base_url            | default('')) ~ (lists_context_path            | default(''))},
-  {'name': 'regions',            'client_id': regions_client_id           | default(''), 'client_secret': regions_client_secret           | default(''), 'url': (regions_base_url          | default('')) ~ (regions_context_path          | default(''))},
-  {'name': 'alerts',             'client_id': alerts_client_id            | default(''), 'client_secret': alerts_client_secret            | default(''), 'url': (alerts_base_url           | default('')) ~ (alerts_context_path           | default(''))},
-  {'name': 'doi',                'client_id': doi_client_id               | default(''), 'client_secret': doi_client_secret               | default(''), 'url': (doi_service_url           | default('')) ~ (doi_service_context_path      | default(''))},
-  {'name': 'dashboard',          'client_id': dashboard_client_id         | default(''), 'client_secret': dashboard_client_secret         | default(''), 'url': (dashboard_base_url        | default('')) ~ (dashboard_context_path        | default(''))},
-  {'name': 'sds',                'client_id': sds_client_id               | default(''), 'client_secret': sds_client_secret               | default(''), 'url': (sds_url                   | default('')) ~ (sds_context_path              | default(''))},
-  {'name': 'spatial',            'client_id': spatial_client_id           | default(''), 'client_secret': spatial_client_secret           | default(''), 'url': (spatial_base_url          | default('')) ~ (spatial_hub_context_path      | default(''))},
-  {'name': 'data_quality',       'client_id': data_quality_client_id      | default(''), 'client_secret': data_quality_client_secret      | default(''), 'url': (data_quality_url          | default('')) ~ (data_quality_context_path     | default(''))},
-  {'name': 'biocollect',         'client_id': biocollect_client_id        | default(''), 'client_secret': biocollect_client_secret        | default(''), 'url': (biocollect_base_url       | default('')) ~ (biocollect_context_path       | default(''))},
-  {'name': 'ecodata',            'client_id': ecodata_client_id           | default(''), 'client_secret': ecodata_client_secret           | default(''), 'url': (ecodata_base_url          | default('')) ~ (ecodata_context_path          | default(''))},
-  {'name': 'userdetails',        'client_id': userdetails_client_id       | default(''), 'client_secret': userdetails_client_secret       | default(''), 'url': (userdetails_base_url      | default('')) ~ '/' ~ (userdetails_context_path | default(''))},
-] %}
-{% for s in oidc_services %}
+{# Service list is the `cas_oidc_services` fact (single source of truth, set in #}
+{# init-cas-admin.yml and shared with the pre-apply validation). #}
+{% set ns = namespace(count=0) %}
+{% for s in cas_oidc_services %}
 {% if (s.client_id | length) > 0 and (s.url | length) > 3 %}
+{% set ns.count = ns.count + 1 %}
 {# Match oidc-tasks.yml URL convention: trailing slash + ".*" regex #}
 {% set svc_url = (s.url if s.url.endswith('/') else s.url ~ '/') ~ '.*' %}
 (function () {
@@ -32,12 +16,13 @@
   var clientSecret = {{ s.client_secret | to_json }};
   var serviceId = {{ svc_url | to_json }};
   var desc = name + " OIDC Service";
-  // Remove any previous registration for this name (idempotent on rotation).
+  // Deterministic, stable _id per service position: never grows or overflows int64
+  // (the old `maxId + 1` concatenated as a string and eventually overflowed int64).
+  var newId = NumberLong("{{ 10000100 + loop.index }}");
+  // Idempotent on rotation: drop any prior doc for this name (incl. legacy giant _ids).
   db.services.deleteMany({ name: name });
-  var maxIdDoc = db.services.find().sort({ _id: -1 }).limit(1).toArray()[0];
-  var newId = maxIdDoc ? maxIdDoc._id + 1 : 1;
   db.services.insertOne({
-    "_id": NumberLong(newId),
+    "_id": newId,
     "jwks": "file:///data/cas/keystore.jwks",
     "jwksCacheDuration": 0,
     "tokenEndpointAuthenticationMethod": "client_secret_basic",
@@ -108,3 +93,5 @@
 })();
 {% endif %}
 {% endfor %}
+// Sentinel for the read-back verification in init-cas-admin.yml.
+print("OIDC_EXPECTED={{ ns.count }}");
