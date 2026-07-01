@@ -32,12 +32,12 @@ services:
       default: {}
       {{ docker_network | default('internal') }}:
     healthcheck:
-      # Liveness only: la home GSP (/) da 500 por un NPE de messageSource del war
-      # desplegado (PluginAwareResourceBundleMessageSource.getMergedProperties); el war
-      # upstream con ExtendedPluginAwareResourceBundleMessageSource lo arregla. Cuando se
-      # suba esa imagen, migrar a "/" u otra página real. /actuator (200, lista _links)
-      # prueba que el contexto Spring arrancó y sirve HTTP. No hay /actuator/health (404).
-      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:8080/actuator || exit 1"]
+      # Sondea la home branded (/): la salud debe reflejar si el servicio SIRVE páginas.
+      # bie-hub cachea el header de branding al arrancar; si branding no servía aún, cachea
+      # null y toda página da 500 (NPE <g:applyLayout> ala.gsp:17). Con / el hub sale
+      # `unhealthy` (no un falso `healthy`) y el converge de wait-for-health.sh lo reinicia
+      # -> re-fetch con branding up -> 200. Verificado: restart con branding up -> 200.
+      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:8080/ || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5

@@ -28,13 +28,16 @@ services:
     entrypoint: ["sh", "-c"]
     command:
       - |
-        url="$${BRANDING_URL%/}/"
-        echo "wait-for-branding: polling $$url until branding serves (<500)"
+        base="$${BRANDING_URL%/}"
+        asset="$$base/footer.html"
+        echo "wait-for-branding: polling $$asset until branding serves a real asset (HTTP 200)"
         n=0
         while true; do
-          code=$$(curl -sk -o /dev/null -w '%{http_code}' --max-time 5 "$$url" 2>/dev/null || echo 000)
-          if [ "$$code" -ge 200 ] 2>/dev/null && [ "$$code" -lt 500 ] 2>/dev/null; then
-            echo "wait-for-branding: branding serving (HTTP $$code) after $$n tries"
+          code=$$(curl -sk -o /dev/null -w '%{http_code}' --max-time 5 "$$asset" 2>/dev/null || echo 000)
+          # Exige 200 sobre un asset real: un 404 de volumen vacío ya NO pasa la puerta
+          # (el hub cachearía un header null -> NPE). Ver headercache race en collectory/bie-hub.
+          if [ "$$code" = "200" ]; then
+            echo "wait-for-branding: branding asset serving (HTTP 200) after $$n tries"
             exit 0
           fi
           n=$$((n + 1))
@@ -42,7 +45,7 @@ services:
             echo "wait-for-branding: giving up after $$n tries (last HTTP $$code); starting hubs anyway"
             exit 0
           fi
-          echo "wait-for-branding: not ready (HTTP $$code), retry $$n in 3s"
+          echo "wait-for-branding: not ready (HTTP $$code at footer.html), retry $$n in 3s"
           sleep 3
         done
     restart: "no"

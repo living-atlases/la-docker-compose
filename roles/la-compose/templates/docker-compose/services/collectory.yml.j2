@@ -51,11 +51,12 @@ services:
         condition: service_healthy
 {% endif %}
     healthcheck:
-      # No tiene /actuator/health activado. La home (/) da 500 por un NPE de messageSource
-      # del war desplegado (PluginAwareResourceBundleMessageSource.getMergedProperties);
-      # el war upstream con ExtendedPluginAwareResourceBundleMessageSource lo arregla.
-      # /ws/dataResource (200) prueba liveness + conectividad con MySQL.
-      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:8080/ws/dataResource || exit 1"]
+      # Sondea la home branded (/): la salud debe reflejar si el servicio SIRVE páginas.
+      # Los hubs ala-bootstrap3 cachean el header de branding al arrancar; si branding no
+      # servía aún, cachean null y toda página da 500 (NPE <g:message> _main.gsp:107). Con /
+      # el hub sale `unhealthy` (no un falso `healthy`) y el converge de wait-for-health.sh lo
+      # reinicia -> re-fetch con branding up -> 200. Verificado: restart con branding up -> 200.
+      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:8080/ || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
