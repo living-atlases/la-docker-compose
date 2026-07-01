@@ -187,8 +187,12 @@
         - oidc
 
     # Fail loud (like ala-install's oidc-keys-add assert) instead of silently
-    # skipping malformed keys. Only active when OIDC is enabled, so the base
-    # inventory (oidc_enabled=false) is unaffected.
+    # skipping malformed keys. Only validate services that will actually be
+    # rendered/registered: same filter as the template (non-empty client_id AND
+    # url). A service with a client_id but no base_url is simply not deployed
+    # here (e.g. dashboard/biocollect/ecodata) and must be skipped, not failed.
+    # Only active when OIDC is enabled, so the base inventory (oidc_enabled=false)
+    # is unaffected.
     - name: "CAS Admin: Validate format of provided OIDC client credentials"
       assert:
         that:
@@ -199,23 +203,28 @@
         quiet: true
       vars:
         svc: "{{ cas_oidc_services | selectattr('name', 'eq', item) | first }}"
-      loop: "{{ cas_oidc_services | selectattr('client_id', 'ne', '') | map(attribute='name') | list }}"
+      loop: "{{ cas_oidc_services | selectattr('client_id', 'ne', '') | selectattr('url', 'ne', '') | map(attribute='name') | list }}"
       when: oidc_enabled | default(false) | bool
       tags:
         - cas-admin
         - oidc
 
-    - name: "CAS Admin: Require core login services to be OIDC-registered when OIDC is enabled"
+    # Only require a core service to have a valid client_id when it is actually
+    # deployed here (has a base_url). This catches the real regression — a
+    # deployed core portal whose OIDC client_id is empty/malformed (login would
+    # break) — without failing when a core app simply isn't part of this demo.
+    - name: "CAS Admin: Require deployed core login services to have a valid OIDC client_id"
       assert:
         that:
           - "svc.client_id is match('^[a-f0-9-]{36}$')"
-          - "(svc.url | length) > 3"
-        fail_msg: "OIDC is enabled but core service '{{ item }}' has no valid client_id/url — its portal login would fail with 'Application not authorized to use CAS'. Set {{ item }}_client_id / _client_secret and its base_url."
+        fail_msg: "OIDC is enabled and core portal '{{ item }}' is deployed (url={{ svc.url }}) but its client_id is empty/invalid — login would fail with 'Application not authorized to use CAS'. Set {{ item }}_client_id / _client_secret."
         quiet: true
       vars:
         svc: "{{ cas_oidc_services | selectattr('name', 'eq', item) | first }}"
       loop: ['collectory', 'ala_hub', 'biocache_service', 'ala_bie', 'bie_index']
-      when: oidc_enabled | default(false) | bool
+      when:
+        - oidc_enabled | default(false) | bool
+        - (svc.url | length) > 3
       tags:
         - cas-admin
         - oidc
