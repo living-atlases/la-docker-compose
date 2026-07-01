@@ -10,13 +10,13 @@
 #
 # Usage: scripts/validate-config-gen.sh [INVENTORY] [OUTPUT_DIR]
 #   INVENTORY  defaults to inventories/testing/lademo-inventories (yo living-atlas generated)
-#   OUTPUT_DIR defaults to $HOME/la-docker-config-test
+#   OUTPUT_DIR defaults to /data/la-docker-config-test
 set -euo pipefail
 
 INVENTORY="${1:-inventories/testing/lademo-inventories}"
-# NOTE: Docker Desktop on Linux does not share /tmp by default.
-# Use $HOME to ensure the cert-validator container can mount the path.
-# If using Docker Desktop, also add this directory to Settings > Resources > File sharing.
+# NOTE: Docker Desktop on Linux does not share /tmp by default, so the default
+# output lives under /data (a shared path) to ensure the cert-validator container
+# can mount it. If using Docker Desktop, also add this dir to Settings > Resources > File sharing.
 OUTPUT_DIR="${2:-/data/la-docker-config-test}"
 VENV_MOLECULE="${VENV_MOLECULE:-.venv-molecule}"
 COMPOSE_DIR="${OUTPUT_DIR}"
