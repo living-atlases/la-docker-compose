@@ -905,6 +905,13 @@
     # nginx itself). The bie-hub role reads bie_hub_upstream_host (not _docker_host).
     bie_hub_upstream_host: la_bie-hub
     nginx_vhost_fast_mode: true
+    # Exclude param-less endpoints from the gatus auto-check (false reds): /species and
+    # /externalSite require a taxon guid; on the bare path bie-hub returns 500
+    # (IllegalArgumentException "Invalid action name: index"), not 404. Hub liveness stays
+    # covered by / and /search. Templated so the string matches entry.path in gatus http.j2.
+    nginx_paths_gatus_exclude:
+      - "{{ bie_hub_context_path }}/species"
+      - "{{ bie_hub_context_path }}/externalSite"
   when:
     - "'ala_bie' in services_enabled"
     - "service_aliases.get('bie-hub') is defined"
@@ -1072,6 +1079,15 @@
     biocache_service_upstream_host: la_biocache-service
     biocache_db_host: la_cassandra
     nginx_vhost_fast_mode: true
+    # Exclude param-less endpoints from the gatus auto-check (false reds): /chart, /density/*
+    # and /occurrences/static NPE (500) on a bare GET — they need a `facets` arg ("Cannot
+    # invoke String.contains because facets[0] is null"), so a param-less probe is meaningless.
+    # Biocache liveness stays covered by /index/fields, /, /occurrences/search, etc.
+    nginx_paths_gatus_exclude:
+      - "{{ biocache_service_context_path }}/chart"
+      - "{{ biocache_service_context_path }}/density/legend"
+      - "{{ biocache_service_context_path }}/density/map"
+      - "{{ biocache_service_context_path }}/occurrences/static"
   when:
     - "'biocache_service' in services_enabled"
     - "service_aliases.get('biocache-service-clusterdb') is defined"
@@ -1508,7 +1524,13 @@
       tags:
         - docker-compose
   vars:
-    nginx_vhost_fast_mode: true
+    # NO fast_mode: spatial.l-a.site is a SHARED domain — spatial-hub (/), spatial-service
+    # (/ws), geoserver (/geoserver) and geonetwork (/geonetwork) each register it in a separate
+    # nginx_vhost call. fast_mode renders the whole vhost in one pass and OVERWRITES the .conf
+    # per call, so only the last-registered location survives (symptom: only /geonetwork present,
+    # /ws + /geoserver -> nginx 404). Standard (fragment) mode MERGES all roles' paths into one
+    # vhost. Rule: several services on the same domain with different /paths => never fast_mode.
+    nginx_vhost_fast_mode: false
     # docker-local: nginx proxies to the app container via the compose service-name alias.
     nginx_upstream_host: "spatial-hub"
     spatial_hub_upstream_host: "spatial-hub"
@@ -1556,7 +1578,9 @@
       tags:
         - docker-compose
   vars:
-    nginx_vhost_fast_mode: true
+    # NO fast_mode: shares spatial.l-a.site with spatial-hub/geoserver/geonetwork (see spatial-hub
+    # above) — fast_mode overwrites the vhost per call and would drop this /ws location.
+    nginx_vhost_fast_mode: false
     # docker-local: the spatial-service role hardcoded proxy_pass to 127.0.0.1; it now reads
     # spatial_service_upstream_host (default 127.0.0.1, so VM/bare-metal is untouched).
     nginx_upstream_host: "spatial-service"
@@ -1572,10 +1596,12 @@
 
 # geoserver / geonetwork are UPSTREAM images (kartoza/geoserver, geonetwork:*-postgres), not ALA
 # builds, so their ala-install roles (tomcat WAR installers) don't apply. We only need their nginx
-# vhost: call nginx_vhost directly (airflow pattern) and proxy /geoserver|/geonetwork to the
-# container by name. geoserver_*/geonetwork_* vars live in [spatial:vars] -> already loaded as
-# facts by the SPATIAL-HUB bulk load above. Both share the spatial hostname (spatial.l-a.site);
-# nginx prefers the more-specific location over spatial-hub's catch-all "/".
+# vhost: call nginx_vhost directly and proxy /geoserver|/geonetwork to the container by name.
+# geoserver_*/geonetwork_* vars live in [spatial:vars] -> already loaded as facts by the
+# SPATIAL-HUB bulk load above. Both share spatial.l-a.site with spatial-hub/spatial-service, so
+# they MUST use standard (fragment) nginx_vhost mode, NOT fast_mode: fast_mode overwrites the
+# vhost per call so only the last location survives. Fragment mode merges all locations; nginx
+# then prefers the more-specific location over spatial-hub's catch-all "/".
 - name: Register geoserver nginx vhost (docker-local proxy to container)
   include_role:
     name: nginx_vhost
@@ -1584,7 +1610,8 @@
     hostname: "{{ geoserver_hostname }}"
     context_path: "{{ geoserver_context_path | default('/geoserver') }}"
     vhost_required: true
-    nginx_vhost_fast_mode: true
+    # NO fast_mode: shares spatial.l-a.site with spatial-hub/spatial-service/geonetwork.
+    nginx_vhost_fast_mode: false
     nginx_paths:
       - path: "{{ geoserver_context_path | default('/geoserver') }}"
         sort_label: "2"
@@ -1607,7 +1634,8 @@
     hostname: "{{ geonetwork_hostname }}"
     context_path: "{{ geonetwork_context_path | default('/geonetwork') }}"
     vhost_required: true
-    nginx_vhost_fast_mode: true
+    # NO fast_mode: shares spatial.l-a.site with spatial-hub/spatial-service/geoserver.
+    nginx_vhost_fast_mode: false
     nginx_paths:
       - path: "{{ geonetwork_context_path | default('/geonetwork') }}"
         sort_label: "2"
@@ -1633,7 +1661,11 @@
     name: nginx_vhost
   vars:
     appname: "airflow"
-    hostname: "{{ airflow_hostname }}"
+    # airflow_hostname may be set in [pipelines:vars] (the overlay's own scope), which does
+    # NOT reach the .docker_compose alias this play runs on. Resolve it from the pipelines
+    # host's hostvars — same fix as the gatus vhost below. Without a resolvable hostname the
+    # vhost is skipped and airflow.l-a.site falls through to the first server block (gatus).
+    hostname: "{{ airflow_hostname | default(hostvars[groups['pipelines'][0]].airflow_hostname | default('')) }}"
     context_path: "/"
     vhost_required: true
     nginx_vhost_fast_mode: true
@@ -1649,7 +1681,8 @@
         proxy_pass: "http://{{ airflow_docker_host | default('la_airflow') }}:{{ airflow_port | default('8080') }}"
   when:
     - use_airflow | default(false) | bool
-    - "airflow_hostname is defined"
+    - "groups['pipelines'] is defined and (groups['pipelines'] | length) > 0"
+    - "(airflow_hostname | default(hostvars[groups['pipelines'][0]].airflow_hostname | default(''))) | length > 0"
   tags:
     - airflow
     - nginx_vhost
