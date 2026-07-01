@@ -457,18 +457,16 @@
 
     # NO-AWS overlay (opt-in via use_airflow). Brought up as its OWN compose project
     # joined to the stack network (la_internal), AFTER the stack so la_pipelines + the
-    # network exist (the shim runs `docker exec la_pipelines`). Needs the pipelines-airflow
-    # submodule checked out. nginx vhost + gatus for it are generated separately when
-    # airflow_hostname is set.
-    - name: "Airflow: start the pipelines-airflow NO-AWS overlay (opt-in: use_airflow)"
-      command: >
-        docker compose -f docker-compose.airflow.yml up -d --build
-      args:
-        chdir: "{{ playbook_dir }}/../overlay/pipelines-airflow/compose"
-      environment:
-        PIPELINES_AIRFLOW_REPO: "{{ playbook_dir }}/../pipelines-airflow"
-        LA_NETWORK: "la_{{ docker_network | default('internal') }}"
-      become: true
+    # network exist (the shim runs `docker exec la_pipelines`). nginx vhost + gatus for it
+    # are generated separately when airflow_hostname is set.
+    #
+    # The overlay tree lives in the repo under the CONTROLLER's playbook_dir, but this runs
+    # ON the pipelines host (remote: own dockerd + filesystem). So STAGE the overlay tree +
+    # the submodule DAGs onto the host under docker_compose_data_dir (same pattern as the
+    # core stack at chdir "{{ docker_compose_data_dir }}" and the init-*.yml tasks), then
+    # chdir there — NEVER chdir into playbook_dir on a remote host (it does not exist there,
+    # which is exactly what red-lined build #240 with "Unable to change directory").
+    - name: "Airflow overlay (opt-in: use_airflow), co-located with la_pipelines"
       when:
         - auto_deploy | default(true) | bool
         - use_airflow | default(false) | bool
@@ -481,6 +479,65 @@
         - airflow
         - docker-compose
         - deploy
+      block:
+        - name: "Airflow: check the pipelines-airflow submodule (DAGs) is present on the controller"
+          stat:
+            path: "{{ playbook_dir }}/../pipelines-airflow/dags"
+          delegate_to: localhost
+          become: false
+          register: airflow_dags_src
+
+        - name: "Airflow: overlay skipped — pipelines-airflow submodule not initialized"
+          debug:
+            msg: >-
+              Airflow overlay skipped (best-effort): DAGs not found at
+              {{ playbook_dir }}/../pipelines-airflow/dags on the controller.
+              Run `git submodule update --init pipelines-airflow`.
+          when: not airflow_dags_src.stat.exists
+
+        # copy: src is controller-side, dest is on the remote host. mode: preserve keeps
+        # seed.sh executable (airflow-init runs `bash -c /opt/overlay/compose/seed.sh`).
+        - name: "Airflow: stage the overlay tree onto the pipelines host"
+          copy:
+            src: "{{ playbook_dir }}/../overlay/pipelines-airflow/"
+            dest: "{{ docker_compose_data_dir }}/overlay/pipelines-airflow/"
+            mode: preserve
+          become: true
+          when: airflow_dags_src.stat.exists
+
+        - name: "Airflow: stage the pipelines-airflow DAGs onto the pipelines host"
+          copy:
+            src: "{{ playbook_dir }}/../pipelines-airflow/dags/"
+            dest: "{{ docker_compose_data_dir }}/pipelines-airflow/dags/"
+          become: true
+          when: airflow_dags_src.stat.exists
+
+        - name: "Airflow: start the NO-AWS overlay on the pipelines host (best-effort)"
+          command: >
+            docker compose -f docker-compose.airflow.yml up -d --build
+          args:
+            chdir: "{{ docker_compose_data_dir }}/overlay/pipelines-airflow/compose"
+          environment:
+            # Absolute path ON THE HOST (never playbook_dir, which is controller-side).
+            PIPELINES_AIRFLOW_REPO: "{{ docker_compose_data_dir }}/pipelines-airflow"
+            LA_NETWORK: "la_{{ docker_network | default('internal') }}"
+          become: true
+          register: airflow_overlay_up
+          changed_when: airflow_overlay_up.rc == 0
+          # Best-effort: Airflow is heavy + opt-in; a build/boot failure must not red the core CI.
+          failed_when: false
+          when: airflow_dags_src.stat.exists
+
+        - name: "Airflow: report overlay start result (never blocks CI)"
+          debug:
+            msg: >-
+              {{ 'Airflow overlay started (docker compose up ok).'
+                 if airflow_overlay_up.rc == 0
+                 else 'Airflow overlay FAILED (best-effort, NOT blocking CI): '
+                      ~ (airflow_overlay_up.stderr | default('') | truncate(2000)) }}
+          when:
+            - airflow_dags_src.stat.exists
+            - airflow_overlay_up is defined
 
     - name: "Solr: Initialize collections (idempotent: LIST then CREATE if missing)"
       include_tasks: init-solr.yml
