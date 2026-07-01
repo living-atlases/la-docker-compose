@@ -72,10 +72,13 @@ gatus_extra_endpoints:
     url: "https://namematching.{{ gatus_base_domain }}/api/search?q=Acacia"
     conditions: ["[STATUS] < 400"]
 
-  - name: "sds isSensitive"
-    group: "Deep checks"
-    url: "https://sds.{{ gatus_base_domain }}/api/isSensitive?scientificName=Lynx%20pardinus"
-    conditions: ["[STATUS] < 400"]
+  # SDS deshabilitado por ahora: sds-static-home / sensitive-data-service no tienen grupo
+  # de inventario, así que no se genera contenedor y sds.l-a.site no resuelve → check siempre
+  # rojo. Descomentar cuando SDS se despliegue de verdad. Ver también "Cert expiry - sds".
+  # - name: "sds isSensitive"
+  #   group: "Deep checks"
+  #   url: "https://sds.{{ gatus_base_domain }}/api/isSensitive?scientificName=Lynx%20pardinus"
+  #   conditions: ["[STATUS] < 400"]
 
   # ---------------------------------------------------------------------------
   # TLS certs — caducidad (336h = 14 días). Uno por FQDN público con vhost.
@@ -177,12 +180,14 @@ gatus_extra_endpoints:
     interval: "1h"
     client: { dns-resolver: "tcp://1.1.1.1:53" }
     conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
-  - name: "Cert expiry - sds"
-    group: "TLS certs"
-    url: "https://sds.{{ gatus_base_domain }}/"
-    interval: "1h"
-    client: { dns-resolver: "tcp://1.1.1.1:53" }
-    conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
+  # SDS deshabilitado por ahora (sin grupo de inventario → sds.l-a.site no resuelve).
+  # Descomentar cuando SDS se despliegue. Ver "sds isSensitive" arriba.
+  # - name: "Cert expiry - sds"
+  #   group: "TLS certs"
+  #   url: "https://sds.{{ gatus_base_domain }}/"
+  #   interval: "1h"
+  #   client: { dns-resolver: "tcp://1.1.1.1:53" }
+  #   conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
   - name: "Cert expiry - auth"
     group: "TLS certs"
     url: "https://auth.{{ gatus_base_domain }}/"
