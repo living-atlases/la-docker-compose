@@ -380,6 +380,10 @@
       when:
         - auto_deploy | default(true) | bool
         - use_airflow | default(false) | bool
+        # Co-locate with la_pipelines: the shim runs `docker exec la_pipelines`, so Airflow
+        # must be on the pipelines host. services_enabled is per-host, so in multi-host this
+        # runs only on the pipelines node (not every docker_compose host).
+        - "'pipelines' in services_enabled"
       tags:
         - airflow
         - docker-compose

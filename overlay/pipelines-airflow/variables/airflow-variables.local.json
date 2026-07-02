@@ -45,7 +45,7 @@
   "no_of_dataset_batches": "1",
   "load_images": "false",
   "excluded_datasets": "",
-  "job_schedule_config": "{}",
+  "job_schedule_config": "",
   "spark_properties": "{\"spark.executor.memory\":\"4g\"}",
   "spark_submit_args": "--num-executors=8 --executor-cores=8 --executor-memory=18G --driver-memory=2G",
 
