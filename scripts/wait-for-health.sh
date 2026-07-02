@@ -398,7 +398,15 @@ collect_diagnostics() {
 # containers reporting 'unhealthy' (not 'starting'), so a genuinely-broken service
 # (e.g. SDS data error) just exhausts the rounds and the gate still fails — no masking.
 CONVERGE_ROUNDS="${CONVERGE_ROUNDS:-3}"
-CONVERGE_TIMEOUT="${CONVERGE_TIMEOUT:-180}"
+# 600s (not 180): the usual converge case is a slow hub, not just a connection kick.
+# bie-hub caches the cross-host branding header/footer ONCE at startup; on a cold
+# fresh-volume boot it caches null (branding host still booting) and serves HTTP 500
+# on '/', so it stays unhealthy until restarted. The converge restart re-fetches
+# branding (now up), but a Grails cold re-boot + branding fetch needs ~5-8 min — 180s
+# left it stuck 'starting' and round 2 gave up (it only restarts 'unhealthy', not
+# 'starting'). wait_for_all_healthy returns as soon as all are healthy, so this only
+# raises the ceiling; it does not slow the green path. Override via env if needed.
+CONVERGE_TIMEOUT="${CONVERGE_TIMEOUT:-600}"
 
 converge_unhealthy() {
     local services="$1"
