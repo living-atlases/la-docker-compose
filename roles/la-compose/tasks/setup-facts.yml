@@ -193,3 +193,33 @@
   tags:
     - always
     - docker-compose
+
+# Auto-detect SHARED-DOMAIN vhosts: several services on ONE subdomain (e.g. spatial-hub +
+# spatial-service + geoserver + geonetwork on spatial.<domain>; cas + userdetails + apikey on
+# auth.<domain>). docker_services_desc already clusters these via parentService/isSubService.
+# A domain is SHARED when >1 of its cluster members is enabled; those services MUST use standard
+# (fragment) nginx_vhost mode, NEVER fast_mode — fast_mode rewrites the whole .conf per role call,
+# so only the last-registered service would survive. generate-compose derives
+# nginx_vhost_fast_mode from this set, so no service needs a hand-set fast_mode:false.
+- name: Compute shared-domain vhost service keys (parentService clusters with >1 enabled member)
+  set_fact:
+    nginx_shared_vhost_service_keys: >-
+      {%- set members = {} -%}
+      {%- for item in docker_services_desc | dict2items -%}
+        {%- if item.key in services_enabled -%}
+          {%- set dkey = item.value.parentService if (item.value.isSubService | default(false)) else item.key -%}
+          {%- set _ = members.update({dkey: (members.get(dkey, []) + [item.key])}) -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {%- set result = [] -%}
+      {%- for dkey in members -%}
+        {%- if members[dkey] | length > 1 -%}
+          {%- for m in members[dkey] -%}
+            {%- set _ = result.append(m) -%}
+          {%- endfor -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ result | unique | list }}
+  tags:
+    - always
+    - docker-compose

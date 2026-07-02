@@ -233,6 +233,15 @@
       # *-docker.yml `tomcat_user: docker_default_user` contract — keep it out of
       # the bulk-load instead of patching perms afterwards.
       - tomcat_user
+      # Mail host is resolved to a container-reachable name (dev -> mailhog,
+      # prod -> postfix/external) in setup-facts and the mail block below. The
+      # alias hostvars may carry the raw inventory value (e.g. localhost), which
+      # a container cannot reach -> userdetails renders mail.host=localhost and
+      # password-reset / activation emails fail ("Failed to reset password").
+      # Same class as tomcat_user: keep the resolved value out of the per-service
+      # bulk-load so services rendered before the mail block keep mailhog/postfix.
+      - mail_host
+      - mail_smtp_host
   tags:
     - always
 
@@ -1530,13 +1539,13 @@
       tags:
         - docker-compose
   vars:
-    # NO fast_mode: spatial.l-a.site is a SHARED domain — spatial-hub (/), spatial-service
-    # (/ws), geoserver (/geoserver) and geonetwork (/geonetwork) each register it in a separate
-    # nginx_vhost call. fast_mode renders the whole vhost in one pass and OVERWRITES the .conf
-    # per call, so only the last-registered location survives (symptom: only /geonetwork present,
-    # /ws + /geoserver -> nginx 404). Standard (fragment) mode MERGES all roles' paths into one
-    # vhost. Rule: several services on the same domain with different /paths => never fast_mode.
-    nginx_vhost_fast_mode: false
+    # fast_mode AUTO-DERIVED: spatial.l-a.site is a SHARED domain — spatial-hub (/),
+    # spatial-service (/ws), geoserver (/geoserver) and geonetwork (/geonetwork) each register it
+    # in a separate nginx_vhost call. setup-facts flags the spatial cluster as shared (via
+    # parentService in docker_services_desc), so this resolves to false and standard (fragment)
+    # mode MERGES all roles' paths. (fast_mode rewrites the whole .conf per call, so only the
+    # last-registered service would survive → /ws + /geoserver 404.) No hand-set flag needed.
+    nginx_vhost_fast_mode: "{{ 'spatial' not in (nginx_shared_vhost_service_keys | default([])) }}"
     # docker-local: nginx proxies to the app container via the compose service-name alias.
     nginx_upstream_host: "spatial-hub"
     spatial_hub_upstream_host: "spatial-hub"
@@ -1584,9 +1593,8 @@
       tags:
         - docker-compose
   vars:
-    # NO fast_mode: shares spatial.l-a.site with spatial-hub/geoserver/geonetwork (see spatial-hub
-    # above) — fast_mode overwrites the vhost per call and would drop this /ws location.
-    nginx_vhost_fast_mode: false
+    # fast_mode AUTO-DERIVED (shared spatial.l-a.site, see spatial-hub above).
+    nginx_vhost_fast_mode: "{{ 'spatial_service' not in (nginx_shared_vhost_service_keys | default([])) }}"
     # docker-local: the spatial-service role hardcoded proxy_pass to 127.0.0.1; it now reads
     # spatial_service_upstream_host (default 127.0.0.1, so VM/bare-metal is untouched).
     nginx_upstream_host: "spatial-service"
@@ -1616,14 +1624,13 @@
     hostname: "{{ geoserver_hostname }}"
     context_path: "{{ geoserver_context_path | default('/geoserver') }}"
     vhost_required: true
-    # NO fast_mode: shares spatial.l-a.site with spatial-hub/spatial-service/geonetwork.
-    nginx_vhost_fast_mode: false
+    # fast_mode AUTO-DERIVED (shared spatial.l-a.site, see spatial-hub above).
+    nginx_vhost_fast_mode: "{{ 'geoserver' not in (nginx_shared_vhost_service_keys | default([])) }}"
     nginx_paths:
       - path: "{{ geoserver_context_path | default('/geoserver') }}"
-        # UNIQUE sort_label: on the SHARED spatial.l-a.site vhost the per-location fragment file
-        # is named by sort_label; "2" collided with geonetwork (also "2") and spatial-service,
-        # so /geoserver got overwritten and 404'd. Must be unique across all roles on the domain.
-        sort_label: "8_geoserver"
+        # No hand-tuned sort_label needed: the nginx_vhost fragment filename now includes the
+        # normalized path, so /geoserver stays unique on the shared vhost (previously "2" collided
+        # with geonetwork and /geoserver 404'd). The upstream fix removes the need for stopgap labels.
         is_proxy: true
         proxy_pass: "http://{{ geoserver_docker_host | default('la_geoserver') }}:{{ geoserver_port | default('8080') }}{{ geoserver_context_path | default('/geoserver') }}"
   when:
@@ -1643,11 +1650,11 @@
     hostname: "{{ geonetwork_hostname }}"
     context_path: "{{ geonetwork_context_path | default('/geonetwork') }}"
     vhost_required: true
-    # NO fast_mode: shares spatial.l-a.site with spatial-hub/spatial-service/geoserver.
-    nginx_vhost_fast_mode: false
+    # fast_mode AUTO-DERIVED (shared spatial.l-a.site, see spatial-hub above).
+    nginx_vhost_fast_mode: "{{ 'geonetwork' not in (nginx_shared_vhost_service_keys | default([])) }}"
     nginx_paths:
       - path: "{{ geonetwork_context_path | default('/geonetwork') }}"
-        sort_label: "9_geonetwork"  # UNIQUE on the shared spatial.l-a.site vhost (see geoserver)
+        # No hand-tuned sort_label needed (see geoserver): the fragment filename includes the path.
         is_proxy: true
         proxy_pass: "http://{{ geonetwork_docker_host | default('la_geonetwork') }}:{{ geonetwork_http_port | default('8080') }}{{ geonetwork_context_path | default('/geonetwork') }}"
   when:
