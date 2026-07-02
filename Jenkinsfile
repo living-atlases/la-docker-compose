@@ -123,7 +123,17 @@ pipeline {
                                     echo "  - Removing exited and created containers..."
                                     sudo docker ps -aq -f 'status=exited' | xargs -r sudo docker rm -f 2>/dev/null || true
                                     sudo docker ps -aq -f 'status=created' | xargs -r sudo docker rm -f 2>/dev/null || true
-                                    
+
+                                    # CLEAN_MACHINE must truly wipe the datastores: `docker compose down -v`
+                                    # does NOT remove external:true volumes, so la_mysql-data / la_mongodb-data /
+                                    # la_ala-i18n-data persisted across "clean" deploys (emmet stayed 0900 since
+                                    # 2026-02, masking schema/init changes). Force-remove them here. Scoped to
+                                    # these small auth/i18n datastores by name; solr/cassandra volumes (other
+                                    # names / hosts) are intentionally NOT wiped to avoid expensive re-index.
+                                    echo "  - Force-removing external datastore volumes (mysql/mongo/i18n)..."
+                                    sudo docker rm -f la_mysql la_mongodb la_ala-i18n 2>/dev/null || true
+                                    sudo docker volume rm -f la_mysql-data la_mongodb-data la_ala-i18n-data 2>/dev/null || true
+
                                     # Clean BuildKit cache and dangling resources
                                     echo "  - Pruning BuildKit cache..."
                                     sudo docker builder prune -af 2>/dev/null || true
