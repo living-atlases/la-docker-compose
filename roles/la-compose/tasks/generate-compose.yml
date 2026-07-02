@@ -2508,20 +2508,25 @@
     - docker-compose-docker
     - docker-compose
 
-# The biocache configset under files/ ships WITHOUT schema.xml — ala-install
-# generates it from biocache_schema_docvalues.xml (templates/, doc-values variant)
-# at deploy time. Without this, the biocache collection CREATE fails ("no schema")
-# while bie/bie-offline (which ship schema.xml in files/) succeed.
-- name: Generate biocache schema.xml from solrcloud_config template (doc values)
-  template:
-    src: "{{ playbook_dir }}/../ala-install/ansible/roles/solrcloud_config/templates/biocache_schema_docvalues.xml"
+# The biocache configset under solrcloud_config/files/ ships WITHOUT schema.xml, so we
+# install one here. It used to be templated from ala-install's biocache_schema_docvalues.xml,
+# but that is the LEGACY v2 snake_case schema (Trie types, no camelCase / nested-doc fields)
+# and no longer matches the deployed biocache-service 3.8.1 + la-pipelines 3.2.22 (which query
+# camelCase `firstLoadedDate` and nested `-_nest_parent_:*`) → SOLR 400 on occurrence search.
+# We now copy a schema.xml VENDORED from the current ALA pipelines branch
+# (AtlasOfLivingAustralia/pipelines @ feature/ala-upgrade, Solr 8 / luceneMatchVersion 8.4.1,
+# matches la_solr solr:8.9.0). solrconfig.xml + resources still come from the files/ copy above
+# ("Copy Solr configuration files"). Default ManagedIndexSchemaFactory seeds managed-schema from
+# this schema.xml on a FRESH collection CREATE → applying it needs the biocache collection
+# recreated + a REINDEX. STOPGAP — see TODO.org "[schema] biocache SOLR schema DESFASADO" and
+# roles/la-compose/files/solr/biocache/conf/README.md.
+- name: Install biocache schema.xml (vendored pipelines feature/ala-upgrade, Solr 8)
+  copy:
+    src: "solr/biocache/conf/schema.xml"
     dest: "{{ docker_compose_data_dir }}/solr/init/biocache/conf/schema.xml"
     mode: '0644'
     owner: "{{ docker_compose_userid }}"
     group: "{{ docker_compose_usergid }}"
-  vars:
-    dynamic_solr_schema_biocache: false
-    dynamic_solr_schema_biocache_el_cl: false
   tags:
     - solr
     - docker-compose-docker
