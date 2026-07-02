@@ -41,7 +41,7 @@
       "LA_variable_caches_auth_enabled": true,
       "LA_variable_caches_logs_enabled": true,
       "LA_variable_caches_layers_enabled": true,
-      "LA_variable_oidc_use": false,
+      "LA_variable_oidc_use": true,
       "LA_enable_data_quality": false,
       "LA_variable_jwt_in_use": true,
       "LA_variable_jwt_out_use": false,

@@ -16,7 +16,9 @@ services:
   # can never deadlock the converge.
   wait-for-branding:
     container_name: la_wait-for-branding
-    profiles: [app-core, full]
+    # core-auth included so CAS (profile core-auth) can depend on this gate even
+    # when brought up without the app-core profile.
+    profiles: [app-core, core-auth, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     image: curlimages/curl:8.11.1
     networks:
