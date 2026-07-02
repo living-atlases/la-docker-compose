@@ -86,7 +86,7 @@ pipeline {
         booleanParam(
             name: 'ENABLE_AUTH_TESTS',
             defaultValue: false,
-            description: 'Include the CAS/OIDC login smoke test (uses the seeded demo/demo user; requires e2e_demo_user_enabled=true in the deployment).'
+            description: 'Include the CAS/OIDC login smoke test. Single toggle: also seeds the demo/demo user in this deploy (demo-only, never on production).'
         )
     }
 
@@ -586,9 +586,17 @@ EOF
                         echo "Skipping services: ${skipList}"
                     }
 
+                    // One toggle: enabling the login smoke test also seeds the demo/demo user
+                    // in this deploy (init-e2e-user.yml). Demo-only; never set on production.
+                    def authArg = ''
+                    if (params.ENABLE_AUTH_TESTS) {
+                        authArg = " --extra-vars 'e2e_demo_user_enabled=true'"
+                        echo "ENABLE_AUTH_TESTS: seeding demo/demo login user"
+                    }
+
                     sh """
                         set -eu
-                        
+
                         export PATH="${VENV_DIR}/bin:\$PATH"
                         export ANSIBLE_ROLES_PATH="${WORKSPACE}/ala-install/ansible/roles:${WORKSPACE}/roles"
                         export ANSIBLE_FORCE_COLOR=true
@@ -599,7 +607,7 @@ EOF
                         ansible-playbook --version
                         
                         echo "Running playbook against docker_compose group (all hosts)..."
-                        ansible-playbook ${playbook} ${inventoryArg} --limit docker_compose --extra-vars "auto_deploy=${params.AUTO_DEPLOY}"${skipArg} -vv
+                        ansible-playbook ${playbook} ${inventoryArg} --limit docker_compose --extra-vars "auto_deploy=${params.AUTO_DEPLOY}"${skipArg}${authArg} -vv
                     """
                 }
             }

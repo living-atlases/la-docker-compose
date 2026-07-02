@@ -62,6 +62,11 @@ Both layers run as report-only post-deploy stages, gated behind the `RUN_E2E` bu
 (default off), so they can't destabilise the pipeline. Promote to blocking with `E2E_BLOCKING=true`
 once stable. See the `E2E Smoke Tests` stage in the repo `Jenkinsfile`.
 
+`ENABLE_AUTH_TESTS=true` is a **single toggle**: it seeds the demo/demo user during the deploy
+(`e2e_demo_user_enabled`) *and* runs the login spec — no extra inventory edit or Jenkins secret
+needed. (For a purely local run, set `e2e_demo_user_enabled: true` in your inventory/extras so the
+user exists.)
+
 ## Layout
 
 ```
