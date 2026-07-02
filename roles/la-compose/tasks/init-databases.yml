@@ -212,7 +212,7 @@
 - name: "DB Init: Create MySQL CAS databases via docker exec"
   command: >
     docker exec la_mysql mysql -u root -p{{ mysql_root_password }}
-    -e "CREATE DATABASE IF NOT EXISTS {{ cas_db_name | default('emmet') }} CHARACTER SET {{ cas_db_encoding | default('utf8mb4') }};
+    -e "CREATE DATABASE IF NOT EXISTS {{ cas_db_name | default('emmet') }} CHARACTER SET {{ cas_db_encoding | default('utf8mb4') }} COLLATE {{ cas_db_collation | default('utf8mb4_unicode_ci') }};
         CREATE DATABASE IF NOT EXISTS {{ apikey_db_name | default('apikey') }} CHARACTER SET {{ cas_db_encoding | default('utf8mb4') }};"
   become: true
   when:
