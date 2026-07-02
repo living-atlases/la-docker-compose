@@ -84,121 +84,107 @@ gatus_extra_endpoints:
   # TLS certs — caducidad (336h = 14 días). Uno por FQDN público con vhost.
   # Grupo nombrado "TLS certs" (no "Certs") para que ordene AL FINAL: gatus ordena
   # los grupos alfabéticamente y "Certs" caía arriba, dominando la cabecera en rojo.
-  # NOTA topología: el dns-resolver 1.1.1.1 pretendía ver el cert público (certbot/
-  # Apache), pero aquí gatus alcanza el cert del nginx interno (volumen la-site-certs,
-  # imagen livingatlases/l-a-site-certs, pull_policy: always). Ese cert interno se
-  # refresca en cada deploy con la nueva imagen; si sale rojo, refrescar esa imagen.
-  # Si deshabilitas un servicio, comenta su línea (no resolvería).
+  # NOTA topología: gatus alcanza el cert del nginx interno (volumen la-site-certs,
+  # imagen livingatlases/l-a-site-certs, pull_policy: always), que se refresca en cada
+  # deploy; un rojo REAL daría [CERTIFICATE_EXPIRATION] con horas > 0 pero < 336h →
+  # refrescar esa imagen.
+  # SIN dns-resolver externo: el 1.1.1.1:53 (DNS-over-TCP) que había aquí NO cambiaba el
+  # cert visto (seguía siendo el interno) y, al dispararse juntas las ~17 checks,
+  # provocaba timeouts transitorios → [CERTIFICATE_EXPIRATION] (0s) → rojo espurio. Con
+  # el resolver local del contenedor + interval 15m (gatus NO reintenta por sonda) el
+  # flapping desaparece. Si deshabilitas un servicio, comenta su línea (no resolvería).
   # ---------------------------------------------------------------------------
   - name: "Cert expiry - root"
     group: "TLS certs"
     url: "https://{{ gatus_base_domain }}/"
-    interval: "1h"
-    client: { dns-resolver: "tcp://1.1.1.1:53" }
+    interval: "15m"
     conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
   - name: "Cert expiry - records"
     group: "TLS certs"
     url: "https://records.{{ gatus_base_domain }}/"
-    interval: "1h"
-    client: { dns-resolver: "tcp://1.1.1.1:53" }
+    interval: "15m"
     conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
   - name: "Cert expiry - records-ws"
     group: "TLS certs"
     url: "https://records-ws.{{ gatus_base_domain }}/"
-    interval: "1h"
-    client: { dns-resolver: "tcp://1.1.1.1:53" }
+    interval: "15m"
     conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
   - name: "Cert expiry - species"
     group: "TLS certs"
     url: "https://species.{{ gatus_base_domain }}/"
-    interval: "1h"
-    client: { dns-resolver: "tcp://1.1.1.1:53" }
+    interval: "15m"
     conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
   - name: "Cert expiry - species-ws"
     group: "TLS certs"
     url: "https://species-ws.{{ gatus_base_domain }}/"
-    interval: "1h"
-    client: { dns-resolver: "tcp://1.1.1.1:53" }
+    interval: "15m"
     conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
   - name: "Cert expiry - collections"
     group: "TLS certs"
     url: "https://collections.{{ gatus_base_domain }}/"
-    interval: "1h"
-    client: { dns-resolver: "tcp://1.1.1.1:53" }
+    interval: "15m"
     conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
   - name: "Cert expiry - images"
     group: "TLS certs"
     url: "https://images.{{ gatus_base_domain }}/"
-    interval: "1h"
-    client: { dns-resolver: "tcp://1.1.1.1:53" }
+    interval: "15m"
     conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
   - name: "Cert expiry - lists"
     group: "TLS certs"
     url: "https://lists.{{ gatus_base_domain }}/"
-    interval: "1h"
-    client: { dns-resolver: "tcp://1.1.1.1:53" }
+    interval: "15m"
     conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
   - name: "Cert expiry - spatial"
     group: "TLS certs"
     url: "https://spatial.{{ gatus_base_domain }}/"
-    interval: "1h"
-    client: { dns-resolver: "tcp://1.1.1.1:53" }
+    interval: "15m"
     conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
   - name: "Cert expiry - logger"
     group: "TLS certs"
     url: "https://logger.{{ gatus_base_domain }}/"
-    interval: "1h"
-    client: { dns-resolver: "tcp://1.1.1.1:53" }
+    interval: "15m"
     conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
   - name: "Cert expiry - regions"
     group: "TLS certs"
     url: "https://regions.{{ gatus_base_domain }}/"
-    interval: "1h"
-    client: { dns-resolver: "tcp://1.1.1.1:53" }
+    interval: "15m"
     conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
   - name: "Cert expiry - alerts"
     group: "TLS certs"
     url: "https://alerts.{{ gatus_base_domain }}/"
-    interval: "1h"
-    client: { dns-resolver: "tcp://1.1.1.1:53" }
+    interval: "15m"
     conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
   - name: "Cert expiry - doi"
     group: "TLS certs"
     url: "https://doi.{{ gatus_base_domain }}/"
-    interval: "1h"
-    client: { dns-resolver: "tcp://1.1.1.1:53" }
+    interval: "15m"
     conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
   - name: "Cert expiry - data-quality"
     group: "TLS certs"
     url: "https://data-quality.{{ gatus_base_domain }}/"
-    interval: "1h"
-    client: { dns-resolver: "tcp://1.1.1.1:53" }
+    interval: "15m"
     conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
   - name: "Cert expiry - namematching"
     group: "TLS certs"
     url: "https://namematching.{{ gatus_base_domain }}/"
-    interval: "1h"
-    client: { dns-resolver: "tcp://1.1.1.1:53" }
+    interval: "15m"
     conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
   # SDS deshabilitado por ahora (sin grupo de inventario → sds.l-a.site no resuelve).
   # Descomentar cuando SDS se despliegue. Ver "sds isSensitive" arriba.
   # - name: "Cert expiry - sds"
   #   group: "TLS certs"
   #   url: "https://sds.{{ gatus_base_domain }}/"
-  #   interval: "1h"
-  #   client: { dns-resolver: "tcp://1.1.1.1:53" }
+  #   interval: "15m"
   #   conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
   - name: "Cert expiry - auth"
     group: "TLS certs"
     url: "https://auth.{{ gatus_base_domain }}/"
-    interval: "1h"
-    client: { dns-resolver: "tcp://1.1.1.1:53" }
+    interval: "15m"
     conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
   - name: "Cert expiry - gatus"
     group: "TLS certs"
     url: "https://gatus.{{ gatus_base_domain }}/"
-    interval: "1h"
-    client: { dns-resolver: "tcp://1.1.1.1:53" }
+    interval: "15m"
     conditions: ["[CERTIFICATE_EXPIRATION] > 336h"]
 
   # ---------------------------------------------------------------------------
