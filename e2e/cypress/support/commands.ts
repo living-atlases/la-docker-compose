@@ -31,12 +31,18 @@ function loggedInAssertion(): void {
 Cypress.Commands.add(
   "login",
   (
-    // Defaults to the seeded demo/demo account (roles/la-compose/tasks/init-e2e-user.yml).
-    // Override via CYPRESS_LADEMO_USERNAME / CYPRESS_LADEMO_PASSWORD if the deployment uses
-    // a different e2e user.
-    username: string = Cypress.env("LADEMO_USERNAME") || "demo@l-a.site",
-    password: string = Cypress.env("LADEMO_PASSWORD") || "demo",
+    // Credentials come from the environment. In CI they are the CAS admin, read from the
+    // inventory's local-passwords.ini (email var + the plaintext password the generator leaves
+    // in a comment) and injected by the Jenkins E2E stage. Locally, export them yourself.
+    username: string = Cypress.env("LADEMO_USERNAME"),
+    password: string = Cypress.env("LADEMO_PASSWORD"),
   ): void => {
+    if (!username || !password) {
+      throw new Error(
+        "login(): missing credentials. Set CYPRESS_LADEMO_USERNAME and " +
+          "CYPRESS_LADEMO_PASSWORD (CI extracts the CAS admin from local-passwords.ini).",
+      );
+    }
     const authOrigin = new URL(authUrl()).origin; // e.g. https://auth.l-a.site
 
     cy.session(

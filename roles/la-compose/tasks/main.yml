@@ -566,18 +566,6 @@
         - deploy
         - cas-admin
 
-    - name: "CAS: Seed e2e demo login user (opt-in, demo-only)"
-      include_tasks: init-e2e-user.yml
-      when:
-        - auto_deploy | default(true) | bool
-        - e2e_demo_user_enabled | default(false) | bool
-        - "'cas-servers' in hostvars[inventory_hostname].service_aliases"
-      tags:
-        - docker-compose
-        - deploy
-        - cas-admin
-        - e2e-user
-
     - name: "Geoserver: Initialize ALA workspace, LayersDB datastore, styles, feature types"
       include_tasks: init-geoserver.yml
       when:

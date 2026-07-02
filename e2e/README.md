@@ -40,21 +40,19 @@ host via `/etc/hosts` or a wildcard DNS entry.
 
 ### Authentication tests (gated)
 
-The CAS/OIDC login spec (`cypress/e2e/8-auth/`) is **off by default**. It logs in as a seeded
-**demo/demo** user (`demo@l-a.site` / `demo`) — a low-privilege, demo-only account the deployment
-creates when `e2e_demo_user_enabled: true` (see `roles/la-compose/tasks/init-e2e-user.yml`). No
-Jenkins secret required.
+The CAS/OIDC login spec (`cypress/e2e/8-auth/`) is **off by default**. It logs in as the **CAS admin**.
+In CI, enabling `ENABLE_AUTH_TESTS` reads the admin credentials straight from the inventory's
+`lademo-local-passwords.ini` — the `cas_first_admin_email` var plus the plaintext password the
+generator leaves in a comment (`# ... random password: ...`) — and injects them (by name, never
+echoed). No Jenkins secret required.
+
+Locally, export the credentials yourself:
 
 ```bash
-CYPRESS_ENABLE_AUTH_TESTS=true CYPRESS_TARGET_ENV=lademo npm run cypress:run
-# override if your deployment seeded a different account:
 CYPRESS_ENABLE_AUTH_TESTS=true \
-CYPRESS_LADEMO_USERNAME=demo@l-a.site CYPRESS_LADEMO_PASSWORD=demo \
+CYPRESS_LADEMO_USERNAME=support@l-a.site CYPRESS_LADEMO_PASSWORD='<from local-passwords.ini>' \
 CYPRESS_TARGET_ENV=lademo npm run cypress:run
 ```
-
-> ⚠️ Security: demo/demo is intentionally weak and demo-only. Never set `e2e_demo_user_enabled`
-> on a production deployment.
 
 ## In CI (Jenkins)
 
@@ -62,10 +60,8 @@ Both layers run as report-only post-deploy stages, gated behind the `RUN_E2E` bu
 (default off), so they can't destabilise the pipeline. Promote to blocking with `E2E_BLOCKING=true`
 once stable. See the `E2E Smoke Tests` stage in the repo `Jenkinsfile`.
 
-`ENABLE_AUTH_TESTS=true` is a **single toggle**: it seeds the demo/demo user during the deploy
-(`e2e_demo_user_enabled`) *and* runs the login spec — no extra inventory edit or Jenkins secret
-needed. (For a purely local run, set `e2e_demo_user_enabled: true` in your inventory/extras so the
-user exists.)
+Add `ENABLE_AUTH_TESTS=true` to also run the login spec; the stage extracts the CAS admin
+credentials from `lademo-local-passwords.ini` — no secret or inventory change needed.
 
 ## Layout
 

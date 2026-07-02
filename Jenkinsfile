@@ -86,7 +86,7 @@ pipeline {
         booleanParam(
             name: 'ENABLE_AUTH_TESTS',
             defaultValue: false,
-            description: 'Include the CAS/OIDC login smoke test. Single toggle: also seeds the demo/demo user in this deploy (demo-only, never on production).'
+            description: 'Include the CAS/OIDC login smoke test. Logs in as the CAS admin, with credentials read from the inventory local-passwords.ini (email var + the plaintext password left in a comment).'
         )
     }
 
@@ -586,14 +586,6 @@ EOF
                         echo "Skipping services: ${skipList}"
                     }
 
-                    // One toggle: enabling the login smoke test also seeds the demo/demo user
-                    // in this deploy (init-e2e-user.yml). Demo-only; never set on production.
-                    def authArg = ''
-                    if (params.ENABLE_AUTH_TESTS) {
-                        authArg = " --extra-vars 'e2e_demo_user_enabled=true'"
-                        echo "ENABLE_AUTH_TESTS: seeding demo/demo login user"
-                    }
-
                     sh """
                         set -eu
 
@@ -607,7 +599,7 @@ EOF
                         ansible-playbook --version
                         
                         echo "Running playbook against docker_compose group (all hosts)..."
-                        ansible-playbook ${playbook} ${inventoryArg} --limit docker_compose --extra-vars "auto_deploy=${params.AUTO_DEPLOY}"${skipArg}${authArg} -vv
+                        ansible-playbook ${playbook} ${inventoryArg} --limit docker_compose --extra-vars "auto_deploy=${params.AUTO_DEPLOY}"${skipArg} -vv
                     """
                 }
             }
@@ -680,8 +672,6 @@ EOF
                     def hosts = env.TARGET_HOSTS.trim().split(/\s+/)
                     def targetHost = hosts[0]
                     // Cypress consumes the inventory-generated manifest — build the docker cmd once.
-                    def dockerCmd = """set -eu
-                        docker run --rm -v "${WORKSPACE}/e2e:/e2e" -w /e2e -e CYPRESS_TARGET_ENV=lademo -e CYPRESS_TARGETS_FILE=/e2e/e2e-targets.json -e CYPRESS_LADEMO_USERNAME -e CYPRESS_LADEMO_PASSWORD -e CYPRESS_ENABLE_AUTH_TESTS=${params.ENABLE_AUTH_TESTS} cypress/browsers:latest sh -c 'npm ci && npx cypress run'"""
                     def body = {
                         // Fetch the manifest from a target host into the workspace for the container.
                         sh """
@@ -692,9 +682,25 @@ EOF
                                 ssh -o BatchMode=yes -o StrictHostKeyChecking=no ${targetHost} "cat /data/docker-compose/e2e-targets.json" > "${WORKSPACE}/e2e/e2e-targets.json"
                             fi
                         """
-                        // The login smoke (ENABLE_AUTH_TESTS) uses the seeded demo/demo user by
-                        // default — no Jenkins secret needed. Override with CYPRESS_LADEMO_* if wanted.
-                        sh dockerCmd
+                        // For the login smoke (ENABLE_AUTH_TESTS), read the CAS admin credentials from
+                        // the inventory's local-passwords.ini — the email var plus the plaintext password
+                        // the generator leaves in a comment ("random password: ..."). Passed by name and
+                        // never echoed (set +x); no Jenkins secret needed.
+                        sh """
+                            set -eu
+                            set +x
+                            if [ "${params.ENABLE_AUTH_TESTS}" = "true" ]; then
+                                PWFILE="${INVENTORY_DIR}/lademo-local-passwords.ini"
+                                if [ -f "\$PWFILE" ]; then
+                                    export CYPRESS_LADEMO_USERNAME="\$(sed -nE 's/^[[:space:]]*cas_first_admin_email[[:space:]]*=[[:space:]]*([^[:space:]]+).*/\\1/p' "\$PWFILE" | head -1)"
+                                    export CYPRESS_LADEMO_PASSWORD="\$(sed -nE 's/.*random password:[[:space:]]*([^[:space:]]+).*/\\1/p' "\$PWFILE" | head -1)"
+                                    [ -n "\$CYPRESS_LADEMO_PASSWORD" ] || echo "WARN: admin password not found in comments of \$PWFILE; login test will fail"
+                                else
+                                    echo "WARN: \$PWFILE not found; login test will fail"
+                                fi
+                            fi
+                            docker run --rm -v "${WORKSPACE}/e2e:/e2e" -w /e2e -e CYPRESS_TARGET_ENV=lademo -e CYPRESS_TARGETS_FILE=/e2e/e2e-targets.json -e CYPRESS_LADEMO_USERNAME -e CYPRESS_LADEMO_PASSWORD -e CYPRESS_ENABLE_AUTH_TESTS=${params.ENABLE_AUTH_TESTS} cypress/browsers:latest sh -c 'npm ci && npx cypress run'
+                        """
                     }
                     if (params.E2E_BLOCKING) {
                         body()
