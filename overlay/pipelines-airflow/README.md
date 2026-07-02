@@ -30,12 +30,44 @@ export LA_NETWORK=<la-docker-compose network name>   # e.g. la
 # merge with the la-docker-compose stack (so DAGs resolve solr/collectory/... by hostname):
 docker compose -f /data/docker-compose/docker-compose.yml \
                -f overlay/compose/docker-compose.airflow.yml up -d
-# Airflow UI: http://localhost:8088  (admin/admin)
+# Airflow UI: http://localhost:8088  (user "admin"; password = $AIRFLOW_ADMIN_PASSWORD, default "admin")
 ```
 
 Execution target: by default the shim does `docker exec la_pipelines bash -lc "<cmd>"`
 (needs the mounted docker socket). Alternatively set `PIPELINES_LOCAL_BIN=1` and give the
 Airflow worker the la-pipelines volume + binary to run without the socket.
+
+## Admin password & rotation
+
+The admin user is created by [`compose/seed.sh`](compose/seed.sh) with
+`airflow users create --username admin --password "${AIRFLOW_ADMIN_PASSWORD:-admin}" ... || true`.
+
+- **Where the password comes from.** Deployed as part of la-docker-compose with
+  `use_airflow: true`, Ansible passes `AIRFLOW_ADMIN_PASSWORD` from the inventory variable
+  `airflow_admin_password` — a random passphrase written to `<project>-local-passwords.ini`
+  (`[all:vars]`) by generator-living-atlas ≥ 1.8.28. It reaches the overlay both via the
+  launch task's `environment:` and via the stack `.env` (`COMPOSE_ENV_FILES`). Run
+  standalone, it falls back to `admin` unless you `export AIRFLOW_ADMIN_PASSWORD` yourself.
+- **Idempotency caveat — changing the value does NOT rotate an existing user.** `seed.sh`
+  runs only at `airflow-init` time and ends in `|| true`. On a redeploy the init container
+  is recreated (its env changed) and `seed.sh` re-runs, but `airflow users create` fails on
+  the already-existing `admin` and `|| true` swallows it, so the password stays as first
+  seeded.
+
+To actually rotate the password:
+
+```bash
+# surgical: delete + recreate the admin with the new password (after regenerating .env)
+docker exec la_airflow airflow users delete -u admin
+docker exec la_airflow airflow users create --username admin \
+  --password "$AIRFLOW_ADMIN_PASSWORD" --firstname a --lastname a \
+  --role Admin --email admin@example.org
+
+# or clean-slate: wipe the overlay's metadata DB so seed.sh reseeds admin
+#   (WARNING: -v also drops MinIO buckets + Airflow run history for the overlay)
+docker compose -f docker-compose.airflow.yml down -v
+docker compose -f docker-compose.airflow.yml up -d
+```
 
 ## Prerequisite in la-docker-compose (not part of this overlay)
 

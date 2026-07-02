@@ -529,6 +529,13 @@
             # Absolute path ON THE HOST (never playbook_dir, which is controller-side).
             PIPELINES_AIRFLOW_REPO: "{{ docker_compose_data_dir }}/pipelines-airflow"
             LA_NETWORK: "la_{{ docker_network | default('internal') }}"
+            # Admin password for the Airflow UI. Source of truth = inventory
+            # airflow_admin_password ([all:vars], written by generator-living-atlas
+            # >= 1.8.28 when use_airflow is on). Set explicitly here so the overlay uses it
+            # regardless of COMPOSE_ENV_FILES inheritance / docker compose version; a process
+            # env var wins interpolation of ${AIRFLOW_ADMIN_PASSWORD} in the compose file.
+            # default('admin') keeps back-compat with older generators/inventories.
+            AIRFLOW_ADMIN_PASSWORD: "{{ airflow_admin_password | default('admin') }}"
           become: true
           register: airflow_overlay_up
           changed_when: airflow_overlay_up.rc == 0
