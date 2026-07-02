@@ -22,12 +22,7 @@ services:
     # ignores $JAVA_OPTS, so the role-generated ...-config.properties (which repoints the
     # datasource from the baked H2 to postgres) is never loaded. Override the command to honor
     # JAVA_OPTS and add the config name (mirrors doi/logger/image).
-    # -Dserver.address=0.0.0.0: the role config sets server.address=127.0.0.1 (correct on a VM,
-    # where nginx proxies to localhost), but in containers nginx is a SEPARATE container, so the
-    # app must listen on all interfaces or nginx gets a connection refused -> 502. A -D system
-    # property outranks the additional-location properties file, so this wins without editing the
-    # shared role (VM/bare-metal keeps 127.0.0.1). Same class as *_upstream_host container fixes.
-    command: ["/bin/sh", "-c", "exec java $$JAVA_OPTS -Xss512k -Djava.awt.headless=true -Dserver.address=0.0.0.0 -Dspring.config.additional-location=/data/data-quality-filter-service/config/ -Dspring.config.name=application,application-local-config,data-quality-filter-service-config -jar /opt/atlas/$$APP_ARTIFACT/app.war"]
+    command: ["/bin/sh", "-c", "exec java $$JAVA_OPTS -Xss512k -Djava.awt.headless=true -Dspring.config.additional-location=/data/data-quality-filter-service/config/ -Dspring.config.name=application,application-local-config,data-quality-filter-service-config -jar /opt/atlas/$$APP_ARTIFACT/app.war"]
     networks:
       default: {}
       {{ docker_network | default('internal') }}:

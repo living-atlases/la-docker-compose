@@ -1473,6 +1473,12 @@
     nginx_vhost_fast_mode: true
     nginx_upstream_host: "data-quality-filter-service"
     data_quality_filter_service_upstream_host: "data-quality-filter-service"
+    # container mode: the app must listen on all interfaces because nginx is a SEPARATE
+    # container. The role's config.properties already parameterises this
+    # (server.address={{ data_quality_filter_service_tomcat_server_address | default('127.0.0.1') }});
+    # the VM default 127.0.0.1 is correct there (nginx proxies to localhost). Set it here so the
+    # generated config is right, no post-hoc substitution.
+    data_quality_filter_service_tomcat_server_address: "0.0.0.0"
     # container mode: chown config dirs to the container runtime user (1000), not the
     # app-named system user (which doesn't exist on the generation host).
     data_quality_filter_service_user: "{{ docker_default_user }}"
@@ -1614,7 +1620,10 @@
     nginx_vhost_fast_mode: false
     nginx_paths:
       - path: "{{ geoserver_context_path | default('/geoserver') }}"
-        sort_label: "2"
+        # UNIQUE sort_label: on the SHARED spatial.l-a.site vhost the per-location fragment file
+        # is named by sort_label; "2" collided with geonetwork (also "2") and spatial-service,
+        # so /geoserver got overwritten and 404'd. Must be unique across all roles on the domain.
+        sort_label: "8_geoserver"
         is_proxy: true
         proxy_pass: "http://{{ geoserver_docker_host | default('la_geoserver') }}:{{ geoserver_port | default('8080') }}{{ geoserver_context_path | default('/geoserver') }}"
   when:
@@ -1638,7 +1647,7 @@
     nginx_vhost_fast_mode: false
     nginx_paths:
       - path: "{{ geonetwork_context_path | default('/geonetwork') }}"
-        sort_label: "2"
+        sort_label: "9_geonetwork"  # UNIQUE on the shared spatial.l-a.site vhost (see geoserver)
         is_proxy: true
         proxy_pass: "http://{{ geonetwork_docker_host | default('la_geonetwork') }}:{{ geonetwork_http_port | default('8080') }}{{ geonetwork_context_path | default('/geonetwork') }}"
   when:
