@@ -26,4 +26,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 60s
+      # 180s (subido de 60s tras #249, consistencia con bie-hub): hub Grails de arranque
+      # lento; en cold-boot con volúmenes frescos evita el `unhealthy` prematuro y el
+      # converge-restart contraproducente. Sondea /actuator/health (no depende de branding).
+      start_period: 180s

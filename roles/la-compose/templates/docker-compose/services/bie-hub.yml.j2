@@ -41,4 +41,9 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 60s
+      # 180s (subido de 60s tras #249): en arranque con volúmenes frescos, la JVM Grails +
+      # espera de branding tarda >8 min. Un start_period corto marca bie-hub `unhealthy`
+      # antes de tiempo y el converge lo reinicia (tira su warmup -> nunca converge). Con
+      # 180s se mantiene `starting` (tolerado por el gate, no reiniciado) mientras arranca;
+      # tras el start_period un 500 por branding-null sigue saliendo unhealthy -> converge.
+      start_period: 180s

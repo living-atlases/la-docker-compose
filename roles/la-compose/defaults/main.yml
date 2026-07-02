@@ -256,7 +256,12 @@ gatus_interval: "1m"
 # to wait-for-health.sh --timeout. Raised from 300 to accommodate cassandra cold-start:
 # start_period 120s + schema load (la_cassandra_init cqlsh) + biocache-service retry
 # all need to fit within this window on a clean host.
-health_check_timeout: 480
+# Raised 480->720 after #249: with CLEAN_MACHINE wiping the external datastore volumes
+# (0d51fc1), the first fresh-volume boot is slower and bie-hub (slow Grails hub whose /
+# healthcheck also waits on branding) exceeded 480s -> gate timed out -> converge restarted
+# it (counter-productive: reset its warmup) -> build FAILURE. 720s lets bie-hub serve a
+# branded 200 without the restart.
+health_check_timeout: 720
 
 # ============================================
 # SSL / Certificates
