@@ -129,6 +129,14 @@
         - only
         - docker-compose
 
+    # Emit e2e-targets.json (inventory-driven public URL manifest) alongside the compose
+    # output. Consumed by the e2e suite (Cypress) and scripts/verify-deployment.sh.
+    - name: Generate e2e-targets.json manifest
+      include_tasks: generate-e2e-targets.yml
+      tags:
+        - docker-compose
+        - e2e-targets
+
     # The biocache-service role (ala-install) sets `mode: 644` unquoted, which
     # Ansible parses as decimal → octal 1204 (--w----r-T). On VMs the JVM runs
     # as a non-root user and reads via "others" perms; in docker the JVM runs
@@ -557,6 +565,18 @@
         - docker-compose
         - deploy
         - cas-admin
+
+    - name: "CAS: Seed e2e demo login user (opt-in, demo-only)"
+      include_tasks: init-e2e-user.yml
+      when:
+        - auto_deploy | default(true) | bool
+        - e2e_demo_user_enabled | default(false) | bool
+        - "'cas-servers' in hostvars[inventory_hostname].service_aliases"
+      tags:
+        - docker-compose
+        - deploy
+        - cas-admin
+        - e2e-user
 
     - name: "Geoserver: Initialize ALA workspace, LayersDB datastore, styles, feature types"
       include_tasks: init-geoserver.yml

@@ -1,0 +1,28 @@
+--
+-- e2e demo user for the Cypress login smoke test (roles/la-compose/tasks/init-e2e-user.yml).
+-- Seeded ONLY when e2e_demo_user_enabled is true — a demo/test-only, low-privilege account.
+-- Idempotent (INSERT ... WHERE NOT EXISTS). Mirrors cas5/templates/sql/admin-add.sql but
+-- grants NO roles (plain authenticated user) and sets a known password for automation.
+--
+-- Defaults: username demo@l-a.site / password "demo" (bcrypt $2a$ below). Override via
+-- e2e_demo_user_email / e2e_demo_user_bcrypt (keep e2e_demo_user_password in sync for Cypress).
+--
+INSERT INTO users (userid, username, firstname, lastname, email, activated, locked, temp_auth_key)
+    SELECT * FROM (SELECT 90001 as userid,
+                          '{{ e2e_demo_user_email | default('demo@l-a.site') }}' as username,
+                          'Demo' as firstname, 'User' as lastname,
+                          '{{ e2e_demo_user_email | default('demo@l-a.site') }}' as email,
+                          '1' as activated, '0' as locked, '' as temp_auth_key) t
+    WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.userid = 90001 OR u.username = t.username);
+
+INSERT INTO passwords (userid, password, type, status)
+    SELECT * FROM (SELECT 90001 as userid,
+                          '{{ e2e_demo_user_bcrypt | default('$2a$10$ug8dHBd7N0Nz6e.vBV.DOeWnQ3Wc8.0z8wCFrQMj7FQmNjToiKBOe') }}' as password,
+                          'bcrypt' as type, 'CURRENT' as status) t
+    WHERE EXISTS (SELECT 1 FROM users u WHERE u.userid = 90001)
+      AND NOT EXISTS (SELECT 1 FROM passwords p WHERE p.userid = 90001);
+
+INSERT INTO profiles (userid, property, value)
+    SELECT * FROM (SELECT 90001 as userid, 'city' as property, '' as value) t
+    WHERE EXISTS (SELECT 1 FROM users u WHERE u.userid = 90001)
+      AND NOT EXISTS (SELECT 1 FROM profiles pr WHERE pr.userid = 90001 AND pr.property = 'city');

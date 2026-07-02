@@ -1,0 +1,7 @@
+node_modules/
+cypress/videos/
+cypress/screenshots/
+cypress/downloads/
+results/
+# Fetched at runtime from the deployment (inventory-generated); never commit it.
+e2e-targets.json

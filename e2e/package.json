@@ -1,0 +1,20 @@
+{
+  "name": "la-docker-compose-e2e",
+  "version": "0.1.0",
+  "description": "Living Atlas deployment smoke/e2e suite (Cypress). Inspired by inbo/vlaams-biodiversiteitsportaal.",
+  "license": "MPL-2.0",
+  "private": true,
+  "scripts": {
+    "cypress:run": "cypress run",
+    "cypress:open": "cypress open",
+    "test:local": "CYPRESS_TARGET_ENV=local cypress run",
+    "test:lademo": "CYPRESS_TARGET_ENV=lademo cypress run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "cypress": "^14.3.3",
+    "cypress-multi-reporters": "^2.0.5",
+    "mocha-junit-reporter": "^2.2.1",
+    "typescript": "^5.4.0"
+  }
+}

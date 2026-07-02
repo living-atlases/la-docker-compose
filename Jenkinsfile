@@ -73,6 +73,21 @@ pipeline {
             defaultValue: 'sds-static-home,sensitive-data-service,doi-service',
             description: 'Comma-separated inventory groups to skip (temporary: immature/crash-looping services). Empty to deploy everything.'
         )
+        booleanParam(
+            name: 'RUN_E2E',
+            defaultValue: false,
+            description: 'Run post-deploy verification (Gatus health gate + Cypress smoke). Report-only.'
+        )
+        booleanParam(
+            name: 'E2E_BLOCKING',
+            defaultValue: false,
+            description: 'If true, a verification failure fails the build. If false, it only marks the stage UNSTABLE.'
+        )
+        booleanParam(
+            name: 'ENABLE_AUTH_TESTS',
+            defaultValue: false,
+            description: 'Include the CAS/OIDC login smoke test (uses the seeded demo/demo user; requires e2e_demo_user_enabled=true in the deployment).'
+        )
     }
 
     stages {
@@ -618,6 +633,72 @@ EOF
                         """
                     }
                     echo "✓ All docker-compose.yml files validated successfully"
+                }
+            }
+        }
+
+        // ----- Post-deploy verification (opt-in via RUN_E2E, report-only by default) -----
+        // Report-only: on failure the stage is marked UNSTABLE (visible) without failing the
+        // build, unless E2E_BLOCKING is set. Keeps the fragile multi-host CI green while the
+        // checks bed in. Needs `jq` on the agent for the Gatus gate.
+        stage('Verify Gatus Health') {
+            when { expression { params.RUN_E2E && env.DO_REDEPLOY == 'true' && params.AUTO_DEPLOY && !params.ONLY_CLEAN } }
+            steps {
+                script {
+                    def hosts = env.TARGET_HOSTS.trim().split(/\s+/)
+                    def gate = {
+                        for (h in hosts) {
+                            def targetHost = h
+                            echo "Gatus health gate on ${targetHost}..."
+                            sh """
+                                set -eu
+                                bash "${WORKSPACE}/scripts/verify-deployment.sh" --target ${targetHost} --blocking --timeout 300
+                            """
+                        }
+                    }
+                    if (params.E2E_BLOCKING) {
+                        gate()
+                    } else {
+                        catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') { gate() }
+                    }
+                }
+            }
+        }
+
+        stage('E2E Smoke Tests') {
+            when { expression { params.RUN_E2E && env.DO_REDEPLOY == 'true' && params.AUTO_DEPLOY && !params.ONLY_CLEAN } }
+            steps {
+                script {
+                    def hosts = env.TARGET_HOSTS.trim().split(/\s+/)
+                    def targetHost = hosts[0]
+                    // Cypress consumes the inventory-generated manifest — build the docker cmd once.
+                    def dockerCmd = """set -eu
+                        docker run --rm -v "${WORKSPACE}/e2e:/e2e" -w /e2e -e CYPRESS_TARGET_ENV=lademo -e CYPRESS_TARGETS_FILE=/e2e/e2e-targets.json -e CYPRESS_LADEMO_USERNAME -e CYPRESS_LADEMO_PASSWORD -e CYPRESS_ENABLE_AUTH_TESTS=${params.ENABLE_AUTH_TESTS} cypress/browsers:latest sh -c 'npm ci && npx cypress run'"""
+                    def body = {
+                        // Fetch the manifest from a target host into the workspace for the container.
+                        sh """
+                            set -eu
+                            if [ "${targetHost}" = "localhost" ] || [ "${targetHost}" = "127.0.0.1" ]; then
+                                cp /data/docker-compose/e2e-targets.json "${WORKSPACE}/e2e/e2e-targets.json"
+                            else
+                                ssh -o BatchMode=yes -o StrictHostKeyChecking=no ${targetHost} "cat /data/docker-compose/e2e-targets.json" > "${WORKSPACE}/e2e/e2e-targets.json"
+                            fi
+                        """
+                        // The login smoke (ENABLE_AUTH_TESTS) uses the seeded demo/demo user by
+                        // default — no Jenkins secret needed. Override with CYPRESS_LADEMO_* if wanted.
+                        sh dockerCmd
+                    }
+                    if (params.E2E_BLOCKING) {
+                        body()
+                    } else {
+                        catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') { body() }
+                    }
+                }
+            }
+            post {
+                always {
+                    junit allowEmptyResults: true, testResults: 'e2e/results/*.xml'
+                    archiveArtifacts artifacts: 'e2e/cypress/screenshots/**, e2e/cypress/videos/**', allowEmptyArchive: true
                 }
             }
         }
