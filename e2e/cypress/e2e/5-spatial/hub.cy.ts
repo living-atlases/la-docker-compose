@@ -13,7 +13,7 @@ describe("Spatial hub", () => {
     apiOk(serviceUrl("spatial", "/ws/fields"));
   });
 
-  it("spatial hub renders with a map container", function () {
+  it("spatial hub renders the Leaflet map", function () {
     const authOn = String(Cypress.env("ENABLE_AUTH_TESTS")) === "true";
     if (!authOn) {
       // '/' is CAS-gated: unauthenticated it 302s to the CAS login. Smoke = reachable, no 5xx.
@@ -26,9 +26,13 @@ describe("Spatial hub", () => {
     }
     cy.login();
     cy.visit(serviceUrl("spatial", "/"));
+    // Landed on the hub SPA shell (server-rendered <sp-app>), not bounced to the CAS login form.
+    cy.get("sp-app", { timeout: 30000 }).should("exist");
     pageRenders();
-    cy.get("#map, .leaflet-container, [class*='map'], [id*='map']", {
-      timeout: 20000,
-    }).should("exist");
+    // angular-leaflet initialises #map (class leaflet-container) and its .leaflet-map-pane
+    // synchronously on load — independent of external OSM tiles, so this stays robust in CI.
+    // (Tiles from openstreetmap.org are a bonus, not asserted: CI may lack outbound access.)
+    cy.get("#map.leaflet-container", { timeout: 30000 }).should("be.visible");
+    cy.get("#map .leaflet-map-pane", { timeout: 30000 }).should("exist");
   });
 });
