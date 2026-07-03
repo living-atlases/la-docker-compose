@@ -54,7 +54,10 @@ Cypress.Commands.add(
           'a[href*="/cas/login"], a[href*="login"], #loginButton, .loginBtn, [class*="login"]',
         )
           .first()
-          .click();
+          // The login link sits in a collapsed auth dropdown (ul#dropdown-auth-menu.signedOut,
+          // display:none) in the current hub UI, so Cypress sees it as not visible. It's a real
+          // <a href="/login…"> that navigates on click regardless, so force past the visibility check.
+          .click({ force: true });
 
         // On the CAS origin: fill the CAS 6.x login form and submit.
         cy.origin(
