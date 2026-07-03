@@ -2321,6 +2321,13 @@
             is_proxy: true
             is_proxy_rewrite: false
             proxy_pass: "http://{{ mail_host | default('mailhog') }}:{{ mail_http_port | default('8025') }}/"
+            # On hosts that reach the single cross-host mailhog via docker extra_hosts (every host
+            # except the cas host running it), force a static proxy_pass. The nginx 127.0.0.11 docker
+            # resolver only knows docker-network names and can't see /etc/hosts, so the dynamic
+            # variable proxy_pass NXDOMAINs -> 502 there; getaddrinfo (static) reads the extra_hosts
+            # entry (fixed IP). On the cas host mailhog is a docker-network alias, so keep the dynamic
+            # resolver (avoids nginx failing to load if mailhog is briefly down).
+            static_upstream: "{{ (mail_host | default('mailhog')) in (docker_extra_hosts_dict | default({})) }}"
   when:
     - docker_mail_development_mode | default(false) | bool
     - docker_mail_development_url is defined
