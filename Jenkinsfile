@@ -29,7 +29,7 @@ pipeline {
     parameters {
         booleanParam(
             name: 'FORCE_REDEPLOY',
-            defaultValue: false,
+            defaultValue: true,
             description: 'Run inventories + redeploy even if no changes are detected'
         )
         booleanParam(
@@ -75,7 +75,7 @@ pipeline {
         )
         booleanParam(
             name: 'RUN_E2E',
-            defaultValue: false,
+            defaultValue: true,
             description: 'Run post-deploy verification (Gatus health gate + Cypress smoke). Report-only.'
         )
         booleanParam(
@@ -85,7 +85,7 @@ pipeline {
         )
         booleanParam(
             name: 'ENABLE_AUTH_TESTS',
-            defaultValue: false,
+            defaultValue: true,
             description: 'Include the CAS/OIDC login smoke test. Logs in as the CAS admin, with credentials read from the inventory local-passwords.ini (email var + the plaintext password left in a comment).'
         )
     }
