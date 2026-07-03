@@ -36,6 +36,28 @@ warn() { echo -e "${YELLOW}⚠ WARN${RESET} $*"; }
 
 FAILURES=0
 
+# ── Check 0: biocache SOLR schema pin integrity (GH issue #2) ─────────────────
+# The committed cache (files/solr/biocache/conf/schema.xml) is the offline fallback
+# for the pinned upstream configset; its sha256 MUST equal the recorded pin in
+# vars/main.yml, else a clean deploy could ship a schema that silently drifted.
+section "Check 0: biocache SOLR schema pin integrity"
+
+SCHEMA_VARS="roles/la-compose/vars/main.yml"
+SCHEMA_CACHE="roles/la-compose/files/solr/biocache/conf/schema.xml"
+if [[ -f "$SCHEMA_VARS" && -f "$SCHEMA_CACHE" ]]; then
+  pin_sha="$(grep -oE 'biocache_solr_schema_sha256: *"[0-9a-f]{64}"' "$SCHEMA_VARS" | grep -oE '[0-9a-f]{64}' || true)"
+  got_sha="$(sha256sum "$SCHEMA_CACHE" | cut -d' ' -f1)"
+  if [[ -z "$pin_sha" ]]; then
+    fail "biocache_solr_schema_sha256 not found in $SCHEMA_VARS"
+  elif [[ "$pin_sha" == "$got_sha" ]]; then
+    pass "biocache schema cache matches pin ($pin_sha)"
+  else
+    fail "biocache schema cache != pin (cache $got_sha vs pin $pin_sha) — update both together"
+  fi
+else
+  warn "biocache schema pin files not found — skipping (run from repo root)"
+fi
+
 # ── Check 1: Molecule unit tests ──────────────────────────────────────────────
 section "Check 1: Molecule unit tests (normalize-hostnames.yml)"
 

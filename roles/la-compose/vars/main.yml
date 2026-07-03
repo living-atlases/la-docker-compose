@@ -14,3 +14,17 @@ gatus_config_dir: "{{ docker_compose_data_dir }}/gatus/config"
 # Default in ala-install nginx_vhost role: /etc/nginx
 # We need: {{ docker_compose_data_dir }}/nginx
 nginx_conf_dir: "{{ docker_compose_data_dir }}/nginx"
+
+# ── biocache SOLR configset pin (GH issue #2) ─────────────────────────────────
+# The biocache occurrence-index schema is pinned to an IMMUTABLE upstream commit
+# and sha256-verified at generate time, so it can no longer silently drift from
+# the ALA pipelines source. generate-compose.yml fetches it (get_url + checksum)
+# and falls back to the committed cache in files/solr/biocache/conf/schema.xml
+# (same sha256, guarded by scripts/validate-config-gen.sh) when offline.
+# To move the pin, follow the update procedure in
+# roles/la-compose/files/solr/biocache/conf/README.md.
+biocache_solr_schema_repo:   "AtlasOfLivingAustralia/pipelines"
+biocache_solr_schema_ref:    "ede867d7a0b46270c9821dd5b7ac864def9f1559"
+biocache_solr_schema_path:   "livingatlas/solr/conf/managed-schema"
+biocache_solr_schema_sha256: "251d68de329ed9c29c01f111f60034081d662c4b70e70d48451930b590eba2a6"
+biocache_solr_schema_url: "https://raw.githubusercontent.com/{{ biocache_solr_schema_repo }}/{{ biocache_solr_schema_ref }}/{{ biocache_solr_schema_path }}"

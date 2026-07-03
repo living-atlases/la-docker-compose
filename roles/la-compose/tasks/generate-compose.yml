@@ -2513,20 +2513,36 @@
 # but that is the LEGACY v2 snake_case schema (Trie types, no camelCase / nested-doc fields)
 # and no longer matches the deployed biocache-service 3.8.1 + la-pipelines 3.2.22 (which query
 # camelCase `firstLoadedDate` and nested `-_nest_parent_:*`) → SOLR 400 on occurrence search.
-# We now copy a schema.xml VENDORED from the current ALA pipelines branch
-# (AtlasOfLivingAustralia/pipelines @ feature/ala-upgrade, Solr 8 / luceneMatchVersion 8.4.1,
-# matches la_solr solr:8.9.0). solrconfig.xml + resources still come from the files/ copy above
-# ("Copy Solr configuration files"). Default ManagedIndexSchemaFactory seeds managed-schema from
-# this schema.xml on a FRESH collection CREATE → applying it needs the biocache collection
-# recreated + a REINDEX. STOPGAP — see TODO.org "[schema] biocache SOLR schema DESFASADO" and
-# roles/la-compose/files/solr/biocache/conf/README.md.
-- name: Install biocache schema.xml (vendored pipelines feature/ala-upgrade, Solr 8)
-  copy:
-    src: "solr/biocache/conf/schema.xml"
-    dest: "{{ docker_compose_data_dir }}/solr/init/biocache/conf/schema.xml"
-    mode: '0644'
-    owner: "{{ docker_compose_userid }}"
-    group: "{{ docker_compose_usergid }}"
+# We install a schema.xml PINNED to an immutable ALA pipelines commit
+# (biocache_solr_schema_ref in roles/la-compose/vars/main.yml — Solr 8 / luceneMatchVersion 8.4.1,
+# matches la_solr solr:8.9.0) and sha256-verified, so it cannot silently drift. The committed
+# copy in files/solr/biocache/conf/schema.xml is an offline cache with the same sha256 (guarded
+# by scripts/validate-config-gen.sh) used when there is no network egress. solrconfig.xml +
+# resources still come from the files/ copy above ("Copy Solr configuration files"). Default
+# ManagedIndexSchemaFactory seeds managed-schema from this schema.xml on a FRESH collection
+# CREATE → applying a CHANGED schema needs the biocache collection recreated + a REINDEX, which
+# is OUT OF SCOPE here (tracked by TODO.org "[hub bug]"). See GH issue #2, TODO.org
+# "[schema] biocache SOLR schema DESFASADO" and roles/la-compose/files/solr/biocache/conf/README.md.
+- name: Install biocache schema.xml (pinned pipelines configset, sha256-verified)
+  block:
+    - name: "Fetch pinned biocache schema.xml from {{ biocache_solr_schema_ref[:12] }}"
+      ansible.builtin.get_url:
+        url: "{{ biocache_solr_schema_url }}"
+        dest: "{{ docker_compose_data_dir }}/solr/init/biocache/conf/schema.xml"
+        checksum: "sha256:{{ biocache_solr_schema_sha256 }}"
+        mode: '0644'
+        owner: "{{ docker_compose_userid }}"
+        group: "{{ docker_compose_usergid }}"
+        timeout: 20
+  rescue:
+    - name: "Offline fallback — copy committed pinned cache (sha256 == pin)"
+      copy:
+        src: "solr/biocache/conf/schema.xml"
+        dest: "{{ docker_compose_data_dir }}/solr/init/biocache/conf/schema.xml"
+        checksum: "{{ biocache_solr_schema_sha256 }}"
+        mode: '0644'
+        owner: "{{ docker_compose_userid }}"
+        group: "{{ docker_compose_usergid }}"
   tags:
     - solr
     - docker-compose-docker
