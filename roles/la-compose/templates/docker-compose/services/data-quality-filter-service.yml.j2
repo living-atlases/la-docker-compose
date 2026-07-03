@@ -37,9 +37,11 @@ services:
         condition: service_healthy
 {% endif %}
     healthcheck:
-      # Spring Boot WAR served at server.contextPath=/data-quality. Accept 2xx/3xx/4xx (server up)
-      # and fail on refused/5xx.
-      test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' http://localhost:{{ data_quality_filter_service_port | default('8080') }}/data-quality | grep -qvE '^(000|5)'"]
+      # Hit the OIDC-protected /data-profiles: 302 (redirect to CAS/OIDC) = pac4j initialised; 500 =
+      # OIDC failed to init at boot (opMetadataResolver null, e.g. CAS not ready on a clean redeploy).
+      # Reporting unhealthy on 5xx lets wait-for-health.sh's converge_unhealthy restart us until OIDC
+      # comes up. The old /data-quality probe returned 404 and never exercised the pac4j filter.
+      test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' http://localhost:{{ data_quality_filter_service_port | default('8080') }}/data-profiles | grep -qvE '^(000|5)'"]
       interval: 30s
       timeout: 10s
       retries: 5

@@ -33,11 +33,12 @@ services:
       mysql:
         condition: service_healthy
 {% endif %}
-    # App serves at ROOT context (SERVER_CONTEXT_PATH is ignored by the image); nginx
-    # proxies /service/logger/* -> :8080/service/logger/*. /service/logger/reasons returns
-    # 200 only when the MySQL datasource is up, so it doubles as a DB-connectivity probe.
+    # /service/logger/reasons returns 200 only when the MySQL datasource is up (DB probe). We also
+    # hit the OIDC-protected /admin: 302 = pac4j initialised, 500 = OIDC failed to init at boot
+    # (opMetadataResolver null, CAS not ready on a clean redeploy). Failing on either reports
+    # unhealthy so wait-for-health.sh's converge_unhealthy restarts us until both DB and OIDC are up.
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:{{ logger_service_port | default('8080') }}/service/logger/reasons"]
+      test: ["CMD-SHELL", "curl -fsS -o /dev/null http://localhost:{{ logger_service_port | default('8080') }}/service/logger/reasons && curl -s -o /dev/null -w '%{http_code}' http://localhost:{{ logger_service_port | default('8080') }}/admin | grep -qvE '^(000|5)'"]
       interval: 30s
       timeout: 10s
       retries: 5
