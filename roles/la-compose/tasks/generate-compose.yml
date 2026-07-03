@@ -1870,6 +1870,34 @@
   tags:
     - docker-compose
 
+# Auto-detect the base-branding Spatial Portal skin BEFORE docker-compose.yml is generated below,
+# so the views mount in spatial-hub.yml.j2 and skin.layout in the config agree on the same value.
+# For a LOCAL branding source the path is known from the inventory without a checkout, so we can
+# stat it here; when the file is present the Spatial header switches on automatically (no manual
+# var). For a git-URL branding (materialised later in this play) availability stays false and you
+# opt in explicitly with spatial_hub_skin_layout=spatial-layout — the deploy-time guard further
+# down then verifies it. Explicit spatial_hub_skin_layout always wins over this auto-detection.
+- name: Detect the base-branding Spatial skin layout (local branding source)
+  stat:
+    path: >-
+      {{ (branding_source if branding_source is match('^/')
+          else inventory_dir ~ '/' ~ branding_source) }}/app/spatial/spatial-layout.gsp
+  register: spatial_skin_local_stat
+  when:
+    - use_branding | default(false) | bool
+    - branding_source is defined and branding_source is not none
+    - not (branding_source is match('^(https?://|git@)'))
+  tags:
+    - docker-compose
+    - spatial-hub
+
+- name: Record Spatial skin availability (drives skin.layout + the views mount)
+  set_fact:
+    spatial_branding_skin_available: "{{ spatial_skin_local_stat.stat.exists | default(false) }}"
+  tags:
+    - docker-compose
+    - spatial-hub
+
 - name: Generate docker-compose.yml
   template:
     src: docker-compose/base.yml.j2
@@ -2033,6 +2061,40 @@
   when: "'branding' in services_to_build"
   tags:
     - branding
+
+# Deploy-time guard for the Spatial Portal skin. `spatial_hub_skin_layout: spatial-layout` mounts
+# la_branding-assets:spatial/views into the container and sets skin.layout=spatial-layout; if the
+# branding being deployed doesn't actually generate dist/spatial/ (e.g. an older base-branding),
+# the subpath mount would refuse to start the container and the layout would 500. Local branding is
+# auto-detected earlier (before docker-compose.yml is generated), so this mainly backstops a git-URL
+# branding — only materialised here — or an explicit spatial_hub_skin_layout: if the skin is
+# requested but the branding source lacks it, fail early with an actionable message instead.
+- name: Check the branding provides the Spatial Portal skin layout (when requested)
+  stat:
+    path: "{{ branding_source_path }}/app/spatial/spatial-layout.gsp"
+  register: spatial_skin_gsp
+  when:
+    - "'branding' in services_to_build"
+    - (spatial_hub_skin_layout | default('portal')) == 'spatial-layout'
+  tags:
+    - branding
+    - spatial-hub
+
+- name: Fail clearly if the Spatial skin is requested but missing from the branding
+  fail:
+    msg: >-
+      spatial_hub_skin_layout is 'spatial-layout' but the branding at
+      '{{ branding_source_path }}' does not provide app/spatial/spatial-layout.gsp — it needs a
+      base-branding version that generates dist/spatial/. Update the branding, or set
+      spatial_hub_skin_layout to 'portal' (stock) or 'generic' (branding banner/footer via
+      header_and_footer_baseurl).
+  when:
+    - "'branding' in services_to_build"
+    - (spatial_hub_skin_layout | default('portal')) == 'spatial-layout'
+    - not (spatial_skin_gsp.stat.exists | default(false))
+  tags:
+    - branding
+    - spatial-hub
 
 # Derive branding_version from a content hash of the synced source so the image
 # tag changes only when the branding actually changes. This gives docker compose

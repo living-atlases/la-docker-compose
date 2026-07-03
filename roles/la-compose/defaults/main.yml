@@ -243,6 +243,15 @@ branding_dev_port: "3000"
 branding_git_watch: false
 branding_git_check_interval: "300"
 
+# Spatial Portal skin layout. Auto: use the header base-branding generates (dist/spatial/, mounted
+# read-only at /data/spatial-hub/views) when the branding actually ships it, else the stock 'portal'
+# layout — so enabling branding never breaks spatial-hub, old or new. Availability is detected in
+# generate-compose.yml (spatial_branding_skin_available): automatic for a LOCAL branding source;
+# for a git-URL branding set this to 'spatial-layout' explicitly (a deploy-time guard then verifies
+# it). An explicit value here always wins. 'generic' = in-WAR layout driven by header_and_footer_baseurl
+# (reuses the branding banner/footer, no mount needed).
+spatial_hub_skin_layout: "{{ 'spatial-layout' if (spatial_branding_skin_available | default(false) | bool) else 'portal' }}"
+
 # ============================================
 # Monitoring
 # ============================================
