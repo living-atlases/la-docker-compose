@@ -18,6 +18,10 @@ services:
       # logback.xml writes to /var/log/tomcat9/...; image has no /var/log/tomcat9 (not writable
       # by uid 1000) so bind a host dir (created uid 1000 by config-dir-ensure).
       - {{ data_dir }}/data-quality-filter-service/logs:/var/log/tomcat9
+      # i18n messages volume at /opt/atlas/i18n. Every ALA UI app mounts this; without it the
+      # alatag:message taglib gets a null messages map and authenticated GSPs (e.g.
+      # /data-profiles) 500 with an NPE. Mirrors spatial-hub/collectory/etc.
+{% include '_i18n_volumes.yml.j2' %}
     # The baked image CMD hardcodes spring.config.name=application,application-local-config and
     # ignores $JAVA_OPTS, so the role-generated ...-config.properties (which repoints the
     # datasource from the baked H2 to postgres) is never loaded. Override the command to honor
