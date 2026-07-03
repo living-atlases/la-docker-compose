@@ -1872,28 +1872,73 @@
 
 # Auto-detect the base-branding Spatial Portal skin BEFORE docker-compose.yml is generated below,
 # so the views mount in spatial-hub.yml.j2 and skin.layout in the config agree on the same value.
-# For a LOCAL branding source the path is known from the inventory without a checkout, so we can
-# stat it here; when the file is present the Spatial header switches on automatically (no manual
-# var). For a git-URL branding (materialised later in this play) availability stays false and you
-# opt in explicitly with spatial_hub_skin_layout=spatial-layout — the deploy-time guard further
-# down then verifies it. Explicit spatial_hub_skin_layout always wins over this auto-detection.
-- name: Detect the base-branding Spatial skin layout (local branding source)
-  stat:
-    path: >-
-      {{ (branding_source if branding_source is match('^/')
-          else inventory_dir ~ '/' ~ branding_source) }}/app/spatial/spatial-layout.gsp
-  register: spatial_skin_local_stat
+# We materialise the branding here (git clone for a URL source; a local source is already on disk)
+# and stat app/spatial/spatial-layout.gsp on the resolved path, so the skin auto-detects for BOTH
+# local AND git-URL branding (previously git-URL branding was materialised only later in the play,
+# so it never auto-detected and needed a manual spatial_hub_skin_layout=spatial-layout). Explicit
+# spatial_hub_skin_layout still wins; the deploy-time guard further down re-verifies. The git-URL
+# resolve/clone below is idempotent with the same tasks later in this file.
+- name: Resolve branding_source as a git URL (early, for skin detection)
+  set_fact:
+    branding_is_git_url: "{{ branding_source is defined and branding_source is match('^(https?://|git@).*') }}"
   when:
     - use_branding | default(false) | bool
     - branding_source is defined and branding_source is not none
-    - not (branding_source is match('^(https?://|git@)'))
+  tags:
+    - docker-compose
+    - branding
+    - spatial-hub
+
+- name: Resolve branding source path (early, for skin detection)
+  set_fact:
+    branding_source_path: >-
+      {%- if branding_is_git_url | default(false) -%}
+        /tmp/branding-git-checkout
+      {%- elif branding_source is match('^/') -%}
+        {{ branding_source }}
+      {%- else -%}
+        {{ inventory_dir }}/{{ branding_source }}
+      {%- endif -%}
+  when:
+    - use_branding | default(false) | bool
+    - branding_source is defined and branding_source is not none
+  tags:
+    - docker-compose
+    - branding
+    - spatial-hub
+
+- name: Clone branding from git repository early (if git URL, for skin detection)
+  git:
+    repo: "{{ branding_source }}"
+    dest: "{{ branding_source_path }}"
+    version: "{{ branding_git_ref | default('master') }}"
+    update: yes
+    force: yes
+    recursive: yes
+  become: false
+  when:
+    - use_branding | default(false) | bool
+    - branding_source is defined and branding_source is not none
+    - branding_is_git_url | default(false) | bool
+  tags:
+    - docker-compose
+    - branding
+    - spatial-hub
+
+- name: Detect the base-branding Spatial skin layout (local or git branding)
+  stat:
+    path: "{{ branding_source_path }}/app/spatial/spatial-layout.gsp"
+  register: spatial_skin_stat
+  when:
+    - use_branding | default(false) | bool
+    - branding_source_path is defined
   tags:
     - docker-compose
     - spatial-hub
 
 - name: Record Spatial skin availability (drives skin.layout + the views mount)
   set_fact:
-    spatial_branding_skin_available: "{{ spatial_skin_local_stat.stat.exists | default(false) }}"
+    spatial_branding_skin_available: "{{ spatial_skin_stat.stat.exists | default(false) }}"
   tags:
     - docker-compose
     - spatial-hub
