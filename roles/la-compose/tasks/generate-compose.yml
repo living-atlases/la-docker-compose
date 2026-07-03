@@ -114,6 +114,25 @@
     - always
     - docker-compose
 
+# MailHog is the DEV mail catcher (not a datastore), but it has the same
+# cross-host reachability need: a SINGLE instance runs on the cas/auth host
+# (co-located with userdetails, the account-registration mail producer) and is
+# consumed from every host — each service SMTPs to `mailhog:1025` and each host's
+# nginx proxies the mailhog.l-a.site vhost to `mailhog:8025`. Reusing the datastore
+# spec gives us, for free: alias `mailhog` -> owner private IP injected into
+# docker_extra_hosts_dict on non-owner hosts, and cross-host port validation. The
+# mailhog container publishes host_private_ip:1025/8025 itself (see mailhog.yml.j2),
+# exactly like solr/cassandra. Only added in dev mode (prod uses postfix).
+- name: Add mailhog to the cross-host cluster spec (dev mail catcher, single instance on cas host)
+  set_fact:
+    datastore_cluster_spec: >-
+      {{ datastore_cluster_spec | combine({'mailhog': {'groups': ['cas-servers'], 'port': 1025, 'aliases': ['mailhog']}}) }}
+  when: docker_mail_development_mode | default(false) | bool
+  tags:
+    - always
+    - docker-compose
+    - mail
+
 - name: Compute datastore endpoints (co-located vs remote) per consumed datastore
   set_fact:
     datastore_endpoints: >-
@@ -2591,7 +2610,12 @@
     mode: '0644'
     owner: "{{ docker_compose_userid }}"
     group: "{{ docker_compose_usergid }}"
-  when: docker_mail_development_mode | default(false) | bool
+  # Single cluster-wide mailhog: render only on the cas/auth host. Other hosts
+  # reach it via `mailhog` + docker_extra_hosts_dict + the published host port.
+  # Fallback: if no cas-servers group exists at all, keep the legacy per-host mailhog.
+  when:
+    - docker_mail_development_mode | default(false) | bool
+    - "'cas-servers' in physical_server_groups or 'cas-servers' not in groups or (groups['cas-servers'] | length == 0)"
   tags:
     - mail
     - docker-compose

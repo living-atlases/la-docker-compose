@@ -23,7 +23,13 @@ include:
   - ./infrastructure/wait-for-branding.yml
 {% endif %}
 {% if docker_mail_development_mode | default(false) %}
+{% if 'cas-servers' in all_groups or 'cas-servers' not in groups or (groups['cas-servers'] | length == 0) %}
+  # Single cluster-wide mailhog on the cas/auth host (co-located with userdetails,
+  # the account-registration mail producer). Other hosts reach it via `mailhog`
+  # + extra_hosts + the published host port (see datastore_cluster_spec / mailhog.yml.j2).
+  # Fallback: with no cas-servers group at all, keep the legacy per-host mailhog.
   - ./infrastructure/mailhog.yml
+{% endif %}
 {% else %}
   - ./infrastructure/postfix.yml
 {% endif %}

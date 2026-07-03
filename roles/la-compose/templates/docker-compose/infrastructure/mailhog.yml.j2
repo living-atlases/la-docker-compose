@@ -10,6 +10,16 @@ services:
     expose:
       - "1025"  # SMTP port
       - "8025"  # Web UI port
+{% if publish_db_ports_clusterwide | default(false) | bool %}
+    # Multi-host: publish SMTP (1025) + Web UI (8025) on the host private IP so
+    # remote consumers reach this single mailhog via `mailhog` + extra_hosts:
+    #   - services on other hosts (doi, alerts, ...) SMTP to mailhog:1025
+    #   - each host's nginx proxies the mailhog.l-a.site vhost to mailhog:8025
+    # Operator must firewall these to the private cluster subnet (like the DB ports).
+    ports:
+      - "{{ host_private_ip }}:1025:1025"
+      - "{{ host_private_ip }}:8025:8025"
+{% endif %}
     environment:
       TZ: {{ server_tz | default('UTC') }}
       MH_HOSTNAME: {{ docker_mail_development_url | default('mailhog.l-a.site') }}
@@ -17,7 +27,11 @@ services:
       default: {}
       {{ docker_network | default('internal') }}:
         aliases:
-          - {{ mail_host | default('mailhog') }}
+          # Fixed cluster-wide reference name. On the cas host this is the docker
+          # network alias; on other hosts `mailhog` resolves via extra_hosts to this
+          # host's published port (see datastore_cluster_spec). Literal, decoupled
+          # from mail_host.
+          - mailhog
     # Health check disabled - mailhog image defines its own healthcheck but it's unreliable
     # Disabling explicitly to prevent wait-for-health.sh from waiting indefinitely
     healthcheck:
