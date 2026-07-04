@@ -18,8 +18,11 @@ include:
 {% if 'branding' in all_groups %}
   - ./infrastructure/branding.yml
 {% endif %}
-{% if 'collectory' in services_enabled or 'ala_bie' in services_enabled %}
-  # Order-independent branding readiness gate for commonui hubs (collectory, bie-hub).
+{% if 'collectory' in services_enabled or 'ala_bie' in services_enabled or ('spatial' in services_enabled and (use_branding | default(false) | bool) and (spatial_hub_skin_layout | default('portal')) == 'spatial-layout') %}
+  # Order-independent branding readiness gate for commonui hubs (collectory, bie-hub) and, when the
+  # Spatial skin is active, for la_spatial-skin-init (which fetches spatial-layout.gsp once branding
+  # actually serves). Included on the spatial host only when the skin is on, so a branding-less
+  # deploy never pays the poll timeout.
   - ./infrastructure/wait-for-branding.yml
 {% endif %}
 {% if docker_mail_development_mode | default(false) %}

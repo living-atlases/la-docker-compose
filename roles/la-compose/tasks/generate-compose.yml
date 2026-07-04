@@ -1916,6 +1916,10 @@
     force: yes
     recursive: yes
   become: false
+  # Clone on the controller (where the delegated skin-detection stat looks), not on every remote
+  # host — branding_source_path (/tmp/branding-git-checkout) is a controller-side scratch path.
+  delegate_to: localhost
+  run_once: true
   when:
     - use_branding | default(false) | bool
     - branding_source is defined and branding_source is not none
@@ -1926,9 +1930,18 @@
     - spatial-hub
 
 - name: Detect the base-branding Spatial skin layout (local or git branding)
+  # Presence of the source layout signals this branding ships the Spatial skin feature; when it does,
+  # skin.layout=spatial-layout and la_spatial-skin-init fetches the BUILT gsp over HTTP from the
+  # branding nginx at runtime (dist/ is git-ignored, so only app/ is in the checkout).
   stat:
     path: "{{ branding_source_path }}/app/spatial/spatial-layout.gsp"
   register: spatial_skin_stat
+  # The branding checkout (local ../lademo-branding or the git clone in /tmp) lives on the
+  # CONTROLLER, not on the target hosts. Run the stat once on localhost and let the registered
+  # result propagate to every host, so multihost deploys detect the skin correctly (an undelegated
+  # stat runs on each remote where the path does not exist -> exists:false -> skin silently dropped).
+  delegate_to: localhost
+  run_once: true
   when:
     - use_branding | default(false) | bool
     - branding_source_path is defined
@@ -2118,6 +2131,10 @@
   stat:
     path: "{{ branding_source_path }}/app/spatial/spatial-layout.gsp"
   register: spatial_skin_gsp
+  # Same as the detection above: the branding source is a controller-side path. Stat it once on
+  # localhost so this guard doesn't false-fail on remote hosts once the skin auto-detects.
+  delegate_to: localhost
+  run_once: true
   when:
     - "'branding' in services_to_build"
     - (spatial_hub_skin_layout | default('portal')) == 'spatial-layout'
@@ -2130,7 +2147,8 @@
     msg: >-
       spatial_hub_skin_layout is 'spatial-layout' but the branding at
       '{{ branding_source_path }}' does not provide app/spatial/spatial-layout.gsp — it needs a
-      base-branding version that generates dist/spatial/. Update the branding, or set
+      base-branding version that ships the Spatial skin (the branding-builder image then serves the
+      built dist/spatial/ over nginx, which la_spatial-skin-init fetches). Update the branding, or set
       spatial_hub_skin_layout to 'portal' (stock) or 'generic' (branding banner/footer via
       header_and_footer_baseurl).
   when:
