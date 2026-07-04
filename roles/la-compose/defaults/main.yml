@@ -233,11 +233,11 @@ nginx_access_log: "/var/log/nginx/access.log main"
 # ============================================
 
 # use_branding gates applying the branding (currently only the Spatial Portal skin). Branding is
-# non-optional in la-toolkit (LAServiceDesc optional:false), so it is always deployed — tie
-# use_branding to that instead of leaving it off, so the Spatial base-branding skin auto-applies
-# whenever branding is present. The skin auto-detect (generate-compose.yml) + the deploy-time guard
-# still fall back to 'portal' if the branding doesn't actually ship app/spatial/spatial-layout.gsp.
-use_branding: "{{ 'branding' in (services_to_build | default([])) }}"
+# non-optional in la-toolkit (LAServiceDesc optional:false), so it is always configured — key off
+# branding_source (a cluster-wide inventory var) rather than the PER-HOST services_to_build, so the
+# Spatial skin auto-applies on the host that runs spatial-hub (not just the branding-build host). The
+# skin auto-detect + deploy guard still fall back to 'portal' if the branding lacks app/spatial/spatial-layout.gsp.
+use_branding: "{{ branding_source is defined and branding_source is not none }}"
 branding_source: null
 branding_url: "branding"
 branding_node_version: "18"
