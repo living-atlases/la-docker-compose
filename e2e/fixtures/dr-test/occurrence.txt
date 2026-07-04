@@ -1,0 +1,9 @@
+occurrenceID	basisOfRecord	scientificName	kingdom	family	decimalLatitude	decimalLongitude	geodeticDatum	eventDate	countryCode	stateProvince	recordedBy	catalogNumber
+la-e2e-0001	HumanObservation	Phascolarctos cinereus	Animalia	Phascolarctidae	-27.4705	153.0260	WGS84	2021-03-14	AU	Queensland	LA E2E Suite	LAE2E-0001
+la-e2e-0002	HumanObservation	Macropus rufus	Animalia	Macropodidae	-31.9523	115.8613	WGS84	2021-05-02	AU	Western Australia	LA E2E Suite	LAE2E-0002
+la-e2e-0003	HumanObservation	Ornithorhynchus anatinus	Animalia	Ornithorhynchidae	-35.2809	149.1300	WGS84	2021-06-21	AU	Australian Capital Territory	LA E2E Suite	LAE2E-0003
+la-e2e-0004	PreservedSpecimen	Acacia dealbata	Plantae	Fabaceae	-37.8136	144.9631	WGS84	2020-09-10	AU	Victoria	LA E2E Suite	LAE2E-0004
+la-e2e-0005	PreservedSpecimen	Eucalyptus globulus	Plantae	Myrtaceae	-42.8821	147.3272	WGS84	2020-11-05	AU	Tasmania	LA E2E Suite	LAE2E-0005
+la-e2e-0006	HumanObservation	Dromaius novaehollandiae	Animalia	Casuariidae	-34.9285	138.6007	WGS84	2022-01-18	AU	South Australia	LA E2E Suite	LAE2E-0006
+la-e2e-0007	HumanObservation	Litoria caerulea	Animalia	Pelodryadidae	-12.4634	130.8456	WGS84	2022-02-27	AU	Northern Territory	LA E2E Suite	LAE2E-0007
+la-e2e-0008	HumanObservation	Aquila audax	Animalia	Accipitridae	-33.8688	151.2093	WGS84	2022-04-09	AU	New South Wales	LA E2E Suite	LAE2E-0008

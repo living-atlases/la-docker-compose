@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<eml:eml xmlns:eml="eml://ecoinformatics.org/eml-2.1.1"
+         xmlns:dc="http://purl.org/dc/terms/"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="eml://ecoinformatics.org/eml-2.1.1 http://rs.gbif.org/schema/eml-gbif-profile/1.1/eml.xsd"
+         packageId="la-e2e-test/v1.0" system="http://gbif.org" scope="system"
+         xml:lang="en">
+  <dataset>
+    <title xml:lang="en">Living Atlas E2E Test Dataset</title>
+    <creator>
+      <organizationName>Living Atlas Community</organizationName>
+      <electronicMailAddress>e2e@example.org</electronicMailAddress>
+    </creator>
+    <metadataProvider>
+      <organizationName>Living Atlas Community</organizationName>
+    </metadataProvider>
+    <pubDate>2024-01-01</pubDate>
+    <language>en</language>
+    <abstract>
+      <para>Tiny synthetic occurrence dataset (8 records) used by the
+      la-docker-compose Airflow ingestion e2e test. Not real observations.</para>
+    </abstract>
+    <intellectualRights>
+      <para>To the extent possible under law, the publisher has waived all rights
+      (CC0 1.0).</para>
+    </intellectualRights>
+    <contact>
+      <organizationName>Living Atlas Community</organizationName>
+      <electronicMailAddress>e2e@example.org</electronicMailAddress>
+    </contact>
+  </dataset>
+</eml:eml>

@@ -1,0 +1,15 @@
+{
+  "name": "Living Atlas E2E Test Dataset",
+  "acronym": "LAE2E",
+  "resourceType": "records",
+  "provenance": "Synthetic fixture for the la-docker-compose Airflow ingestion e2e test.",
+  "licenseType": "CC0",
+  "status": "dataAvailable",
+  "connectionParameters": {
+    "protocol": "DwCA",
+    "url": "__DWCA_URL__",
+    "termsForUniqueKey": ["occurrenceID"],
+    "automated": false,
+    "incremental": false
+  }
+}

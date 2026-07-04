@@ -88,6 +88,11 @@ pipeline {
             defaultValue: true,
             description: 'Include the CAS/OIDC login smoke test. Logs in as the CAS admin, with credentials read from the inventory local-passwords.ini (email var + the plaintext password left in a comment).'
         )
+        booleanParam(
+            name: 'RUN_AIRFLOW_INGEST',
+            defaultValue: false,
+            description: 'Run the Airflow ingestion e2e: ingest a tiny fixed DwCA through the real pipeline and assert records in Solr + biocache. Runs against the ALREADY-RUNNING stack (independent of redeploy) — set this true with FORCE_REDEPLOY=false to test ingestion without a full deploy. Report-only unless E2E_BLOCKING. The ingested data also seeds the Cypress biocache/species suites.'
+        )
     }
 
     stages {
@@ -660,6 +665,50 @@ EOF
                         gate()
                     } else {
                         catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') { gate() }
+                    }
+                }
+            }
+        }
+
+        // ----- Airflow ingestion e2e (opt-in via RUN_AIRFLOW_INGEST) -----
+        // Runs against the ALREADY-RUNNING stack — NOT gated on DO_REDEPLOY — so a
+        // real ingestion can be tested without a full redeploy. Ingests a tiny fixed
+        // DwCA through the pipeline and asserts records in Solr + biocache; that data
+        // also seeds the Cypress biocache/species suites below (empty index = useless).
+        // Report-only (UNSTABLE on failure) unless E2E_BLOCKING.
+        stage('Airflow Ingest E2E') {
+            when { expression { params.RUN_AIRFLOW_INGEST && params.AUTO_DEPLOY && !params.ONLY_CLEAN } }
+            steps {
+                script {
+                    def hosts = env.TARGET_HOSTS.trim().split(/\s+/)
+                    def mode = params.E2E_BLOCKING ? '--blocking' : '--report-only'
+                    def run = {
+                        def ran = false
+                        for (h in hosts) {
+                            def targetHost = h
+                            // Only the host actually running la_airflow does the ingest; skip the rest.
+                            def hasAirflow = sh(returnStatus: true, script: """
+                                ssh -o BatchMode=yes -o StrictHostKeyChecking=no ${targetHost} \
+                                  "docker inspect -f '{{.State.Running}}' la_airflow 2>/dev/null | grep -q true"
+                            """) == 0
+                            if (!hasAirflow) { echo "No la_airflow on ${targetHost}; skipping."; continue }
+                            ran = true
+                            echo "Airflow ingest e2e on ${targetHost}..."
+                            sh """
+                                set -eu
+                                ssh -o BatchMode=yes -o StrictHostKeyChecking=no ${targetHost} "mkdir -p /tmp/ingest-e2e"
+                                scp -o BatchMode=yes -o StrictHostKeyChecking=no "${WORKSPACE}/scripts/e2e-airflow-ingest.sh" ${targetHost}:/tmp/ingest-e2e/
+                                scp -o BatchMode=yes -o StrictHostKeyChecking=no -r "${WORKSPACE}/e2e/fixtures/dr-test" ${targetHost}:/tmp/ingest-e2e/
+                                ssh -o BatchMode=yes -o StrictHostKeyChecking=no ${targetHost} \
+                                  "FIXTURE_DIR=/tmp/ingest-e2e/dr-test TIMEOUT=1800 bash /tmp/ingest-e2e/e2e-airflow-ingest.sh ${mode}"
+                            """
+                        }
+                        if (!ran) { echo "la_airflow not found on any target host — nothing ingested." }
+                    }
+                    if (params.E2E_BLOCKING) {
+                        run()
+                    } else {
+                        catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') { run() }
                     }
                 }
             }

@@ -72,6 +72,21 @@ check("B. --cluster rewritten to --embedded", t.get("cmd") == "la-pipelines samp
 check("B. unknown jar flagged (not silently skipped)", translate_step(bad_step)["kind"] == "unknown")
 check("B. bootstrap helper script -> no-op", translate_step(helper_step)["kind"] == "noop-script")
 
+# Optional stage skipping: PIPELINES_SKIP_STAGES no-ops whole stages (e.g. `sds`
+# when sensitive-data-service is not deployed) without touching pipelines-airflow.
+sds_step = {"Name": "sds", "HadoopJarStep":
+            {"Jar": "command-runner.jar",
+             "Args": ["bash", "-c", "la-pipelines sds dr-test --cluster 1>&2"]}}
+check("B. stage runs by default (no skip list)", translate_step(sds_step)["kind"] == "exec")
+os.environ["PIPELINES_SKIP_STAGES"] = "sds"
+try:
+    check("B. PIPELINES_SKIP_STAGES no-ops the listed stage",
+          translate_step(sds_step)["kind"] == "noop-stage")
+    check("B. non-listed stage still runs under a skip list",
+          translate_step(cmd_step)["kind"] == "exec")
+finally:
+    del os.environ["PIPELINES_SKIP_STAGES"]
+
 # ---- C. sitecustomize swaps the 4 EMR classes -------------------------------
 def _mod(name):
     m = types.ModuleType(name); sys.modules[name] = m; return m

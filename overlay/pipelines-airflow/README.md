@@ -97,9 +97,35 @@ tests/run-in-airflow.sh
 (The static test already caught one missing Variable — `spark_submit_args` — that a
 line-based grep had missed.)
 
+## Ingestion e2e (real single-dataset ingest → Solr)
+
+`scripts/e2e-airflow-ingest.sh` (in the la-docker-compose repo root) ingests a tiny
+fixed DwCA (`e2e/fixtures/dr-test/`, 8 records) through the **real** pipeline and
+asserts the records reach Solr + biocache-service. Run it on the host where the
+stack lives (all access is `docker exec`, no REST API):
+
+```bash
+# on the stack host (or: ssh <host> ... bash /tmp/e2e-airflow-ingest.sh):
+DR_UID=dr-e2e-test scripts/e2e-airflow-ingest.sh --report-only
+```
+
+Design notes:
+- Triggers **`Ingest_small_datasets` directly with `run_indexing=true`** — the only
+  single-dataset path that reaches Solr (`Load_dataset` triggers ingest with
+  `run_indexing=false`, so it never indexes).
+- The archive is seeded straight into `la_pipelines` at
+  `{{dwca_import_dir}}/<dr>/<dr>.zip` (where `dwca-avro` reads it); the S3-copy
+  bootstrap step is a no-op in the overlay. `--seed-minio` also pushes it to MinIO.
+- **SDS is optional**: the run passes `pipelines_skip_stages: "sds"` in the DAG conf;
+  `sitecustomize` reads it (conf > Airflow Variable `pipelines_skip_stages` > env
+  `PIPELINES_SKIP_STAGES`) and no-ops the `sds` stage — so sensitive-data-service
+  need not be deployed. Add more stages to skip the same way (comma-separated).
+- In CI: param `RUN_AIRFLOW_INGEST=true` runs the `Airflow Ingest E2E` Jenkins stage
+  against the already-running stack (independent of redeploy).
+
 ## Files
 - `sitecustomize.py` — bootstrap: swaps the 4 EMR classes for local shims.
-- `pa_local_compute.py` — Airflow-free step translation (s3-dist-cp→no-op; `--cluster`→`--embedded`).
+- `pa_local_compute.py` — Airflow-free step translation (s3-dist-cp→no-op; `--cluster`→`--embedded`; `PIPELINES_SKIP_STAGES` stage no-op).
 - `variables/airflow-variables.local.json` — 75 Variables mapped to committed `ala_config` names.
 - `compose/Dockerfile.airflow` — Airflow image + providers + docker CLI.
 - `compose/docker-compose.airflow.yml` — Airflow (+MinIO) services for la-docker-compose.

@@ -4,6 +4,7 @@ DAGs build into local actions, and run them. Kept separate from sitecustomize.py
 so it can be unit-tested without an Airflow runtime (see tests/).
 """
 import os
+import re
 import shlex
 import subprocess
 
@@ -37,6 +38,16 @@ def translate_step(step: dict) -> dict:
         ).split(",") if m.strip()]
         if any(m in cmd for m in noop_markers):
             return {"name": name, "kind": "noop-script", "cmd": cmd}
+        # Optionally no-op whole pipeline stages (e.g. `sds` when the
+        # sensitive-data-service is not deployed). PIPELINES_SKIP_STAGES is a
+        # comma-separated list of la-pipelines subcommands; a step whose command
+        # invokes `la-pipelines <stage>` is skipped. Keeps pipelines-airflow
+        # untouched — the DAG still builds the step, the overlay drops it.
+        skip_stages = [s.strip() for s in os.environ.get(
+            "PIPELINES_SKIP_STAGES", "").split(",") if s.strip()]
+        for stage in skip_stages:
+            if re.search(r"\bla-pipelines\s+" + re.escape(stage) + r"\b", cmd):
+                return {"name": name, "kind": "noop-stage", "cmd": cmd, "stage": stage}
         # DAG steps build `--cluster`; locally we run single-node Spark. Use
         # --embedded, NOT --local: every la-pipelines stage accepts --embedded,
         # but uuid/image-sync/image-load/sample/solr/dwca-export reject --local
@@ -58,7 +69,7 @@ def build_argv(action: dict):
 
 def run_local_step(action: dict):
     """Execute one translated action against the local la_pipelines stack."""
-    if action["kind"] in ("noop-copy", "noop-script"):
+    if action["kind"] in ("noop-copy", "noop-script", "noop-stage"):
         print(f"{LOG_PREFIX} skip {action['kind']}: {action['name']}")
         return f"noop:{action['name']}"
     if action["kind"] == "exec":

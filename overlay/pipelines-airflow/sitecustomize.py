@@ -28,8 +28,28 @@ if os.environ.get("PIPELINES_COMPUTE_BACKEND", "").lower() == "local":
                 print(f"{LOG_PREFIX} (no EMR cluster created)")
                 return "local-cluster"
 
+        def _apply_runtime_skip(context):
+            """Let a run choose which stages to no-op WITHOUT redeploying: the
+            `Ingest_small_datasets` sds stage, say, when sensitive-data-service is
+            absent. Precedence: DAG run conf `pipelines_skip_stages` > Airflow
+            Variable `pipelines_skip_stages` > whatever PIPELINES_SKIP_STAGES the
+            container was started with. Read lazily so the Airflow-free unit test
+            (fake airflow.models) never trips over the Variable import."""
+            try:
+                dr = context.get("dag_run") if context else None
+                conf = (getattr(dr, "conf", None) or {})
+                val = conf.get("pipelines_skip_stages")
+                if val is None:
+                    from airflow.models import Variable
+                    val = Variable.get("pipelines_skip_stages", default_var="")
+                if val:
+                    os.environ["PIPELINES_SKIP_STAGES"] = val
+            except Exception as exc:
+                print(f"{LOG_PREFIX} skip-stage override unavailable: {exc!r}")
+
         class LocalAddStepsOperator(_ShimBase):
             def execute(self, context):
+                _apply_runtime_skip(context)
                 return [run_local_step(translate_step(s)) for s in self._steps] or ["local-step-0"]
 
         class LocalStepSensor(_ShimBase):
