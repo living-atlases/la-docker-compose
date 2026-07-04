@@ -50,14 +50,21 @@ Cypress.Commands.add(
       () => {
         // Start on a hub and trigger the login → redirects to CAS on the auth subdomain.
         cy.visit(serviceUrl("records"));
+        // The login link sits in a collapsed Bootstrap auth dropdown (ul#dropdown-auth-menu.signedOut,
+        // display:none). Reveal it with jQuery .show() so the anchor is genuinely visible and a plain
+        // click performs a NATIVE navigation to CAS. A forced click on a display:none anchor dispatches
+        // the click event but does not reliably trigger the browser's default navigation — that was the
+        // #268 failure, where cy.origin(auth) ran while the app was still on records.l-a.site.
+        // cy.get retries until the auth menu renders, so this survives a late-loading navbar.
+        cy.get("#dropdown-auth-menu", { timeout: 20000 }).invoke("show");
+        // Scope to the real login anchor (href points at /login), not the dropdown toggle that a
+        // broad [class*="login"] match could grab first.
         cy.get(
-          'a[href*="/cas/login"], a[href*="login"], #loginButton, .loginBtn, [class*="login"]',
+          'a.loginBtn[href*="/login"], a[href*="/cas/login"], a[href*="/login"]',
         )
+          .filter(":visible")
           .first()
-          // The login link sits in a collapsed auth dropdown (ul#dropdown-auth-menu.signedOut,
-          // display:none) in the current hub UI, so Cypress sees it as not visible. It's a real
-          // <a href="/login…"> that navigates on click regardless, so force past the visibility check.
-          .click({ force: true });
+          .click();
 
         // On the CAS origin: fill the CAS 6.x login form and submit.
         cy.origin(
