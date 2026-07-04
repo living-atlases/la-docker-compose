@@ -676,6 +676,11 @@ EOF
                         // Fetch the manifest from a target host into the workspace for the container.
                         sh """
                             set -eu
+                            # Clear stale JUnit results from previous builds BEFORE running, so `junit` only
+                            # publishes THIS run's XMLs. Otherwise a build where cypress fails to produce fresh
+                            # output (crash on npm ci / cypress startup) republishes the last good run's stale
+                            # XMLs — freezing the same failures at an ever-growing 'age' and hiding the real state.
+                            rm -rf "${WORKSPACE}/e2e/results"
                             if [ "${targetHost}" = "localhost" ] || [ "${targetHost}" = "127.0.0.1" ]; then
                                 cp /data/docker-compose/e2e-targets.json "${WORKSPACE}/e2e/e2e-targets.json"
                             else
