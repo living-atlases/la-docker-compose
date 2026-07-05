@@ -97,7 +97,10 @@ pipeline {
 
     stages {
         stage('Clean machines') {
-            when { expression { params.CLEAN_MACHINE || params.ONLY_CLEAN } }
+            // Never wipe in ingest-only mode (RUN_AIRFLOW_INGEST without FORCE_REDEPLOY), even if
+            // CLEAN_MACHINE is left at its default true — the intent there is to test the ingest
+            // against the live stack, not to destroy it.
+            when { expression { (params.CLEAN_MACHINE || params.ONLY_CLEAN) && !(params.RUN_AIRFLOW_INGEST && !params.FORCE_REDEPLOY) } }
             steps {
                 script {
                     def hosts = env.TARGET_HOSTS.trim().split(/\s+/)
@@ -309,7 +312,16 @@ EOF
                     def isManual = currentBuild.rawBuild.getCause(hudson.model.Cause$UserIdCause) != null
                     def isCron = currentBuild.rawBuild.getCause(hudson.triggers.TimerTrigger$TimerTriggerCause) != null
 
-                    if (params.FORCE_REDEPLOY || (isManual && !isCron)) {
+                    // Ingest-only run: RUN_AIRFLOW_INGEST without FORCE_REDEPLOY means "test the
+                    // ingest against the ALREADY-RUNNING stack" — never redeploy. This MUST win over
+                    // the isManual heuristic below: a build triggered via the API/MCP authenticates
+                    // as a user (UserIdCause) so isManual=true, which would otherwise flip
+                    // DO_REDEPLOY=true and run the destructive Pre-Deploy Docker Cleanup (nuclear
+                    // /var/lib/docker wipe) before the ingest ever runs. Guard it explicitly.
+                    if (params.RUN_AIRFLOW_INGEST && !params.FORCE_REDEPLOY) {
+                        env.DO_REDEPLOY = 'false'
+                        echo 'Ingest-only run (RUN_AIRFLOW_INGEST, no FORCE_REDEPLOY): skipping redeploy + docker cleanup.'
+                    } else if (params.FORCE_REDEPLOY || (isManual && !isCron)) {
                         env.DO_REDEPLOY = 'true'
                         echo 'Force or Manual redeploy detected.'
                     } else {
