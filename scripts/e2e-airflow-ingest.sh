@@ -35,9 +35,12 @@ SOLR_COLLECTION="${SOLR_COLLECTION:-biocache}"
 SOLR_URL="${SOLR_URL:-http://solr:8983/solr}"                 # reachable from la_airflow (overlay var)
 BIOCACHE_WS="${BIOCACHE_WS:-http://biocache-service:8080/ws}" # reachable from la_airflow (overlay var)
 COLLECTORY_WS="${COLLECTORY_WS:-http://collectory:8080/ws}"
-# Where la-pipelines' dwca-avro reads the archive: {{dwca_import_dir}}/{dr}/{dr}.zip
-# (inventory sets dwca_import_dir=/dwca-exports). Override if your inventory differs.
-DWCA_IMPORT_DIR="${DWCA_IMPORT_DIR:-/dwca-exports}"
+# Where la-pipelines' dwca-avro reads the archive: {{dwca_import_dir}}/{dr}/{dr}.zip.
+# In container mode the generator sets dwca_import_dir=/data/la-pipelines/dwca-import
+# (matches the bind mount in pipelines.yml.j2), NOT the VM-style /dwca-exports the
+# inventory carries. Override if your deployment differs.
+DWCA_IMPORT_DIR="${DWCA_IMPORT_DIR:-/data/la-pipelines/dwca-import}"
+PIPELINES_UID="${PIPELINES_UID:-1000}"   # la_pipelines runs as this uid (pipelines.yml.j2)
 SKIP_STAGES="${SKIP_STAGES:-sds}"        # -> pipelines_skip_stages in the DAG run conf
 EXPECTED_MIN="${EXPECTED_MIN:-1}"        # min indexed records to call it a success
 TIMEOUT="${TIMEOUT:-1800}"               # seconds to wait for the DAG run
@@ -94,8 +97,11 @@ log "packaging fixture -> $ZIP"
 # --- 2. seed the archive where dwca-avro reads it (la_pipelines volume) -----------
 DEST_DIR="${DWCA_IMPORT_DIR}/${DR_UID}"
 log "seeding archive into ${PIPELINES_CONTAINER}:${DEST_DIR}/${DR_UID}.zip"
-docker exec "$PIPELINES_CONTAINER" mkdir -p "$DEST_DIR"
+# mkdir as root (the mount may be root- or 1000-owned), then hand the tree to the
+# pipelines uid so dwca-avro can read the archive. docker cp writes as root.
+docker exec -u 0 "$PIPELINES_CONTAINER" mkdir -p "$DEST_DIR"
 docker cp "$ZIP" "${PIPELINES_CONTAINER}:${DEST_DIR}/${DR_UID}.zip"
+docker exec -u 0 "$PIPELINES_CONTAINER" chown -R "${PIPELINES_UID}:${PIPELINES_UID}" "$DEST_DIR"
 
 # --- 2b. (optional) also push to MinIO — the production Load_dataset path ---------
 if [[ "$SEED_MINIO" == true ]]; then
