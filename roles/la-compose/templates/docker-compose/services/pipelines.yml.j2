@@ -3,6 +3,12 @@ services:
     image: {% set svc_reg = la_pipelines_registry | default(docker_registry | default('')) %}{{ svc_reg }}{% if svc_reg %}/{% endif %}la-pipelines:${TAG:-latest}
     container_name: la_pipelines
     profiles: [app-core, full]
+    # Cross-host datastore reachability: on multihost the pipelines host (e.g. mh-3)
+    # must reach solr/zookeeper/cassandra on other hosts. Every other cross-host
+    # consumer renders this (see biocache-service.yml.j2); pipelines was missing it,
+    # so la_pipelines had an empty ExtraHosts and the solr/index stages could not
+    # resolve solr:8983 / zookeeper:2181. Single-host: dict is empty -> no-op.
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     user: "1000:1000"
     # Cap container memory to avoid the Exit 137 OOM-kill. Must be >= the per-stage JVM
     # heap (pipelines_jvm_def_options, e.g. -Xmx3g) plus ~1g overhead. Tune via env.
