@@ -10,6 +10,7 @@ transparently binds the shims. Translation logic lives in pa_local_compute.py
 """
 import json
 import os
+import sys
 
 if os.environ.get("PIPELINES_COMPUTE_BACKEND", "").lower() == "local":
     try:
@@ -88,6 +89,10 @@ if os.environ.get("PIPELINES_COMPUTE_BACKEND", "").lower() == "local":
         _ops.EmrAddStepsOperator = LocalAddStepsOperator
         _sen.EmrStepSensor = LocalStepSensor
         _sen.EmrJobFlowSensor = LocalJobFlowSensor
-        print(f"{LOG_PREFIX} EMR operators swapped for local shims")
+        # Startup banner MUST go to stderr: it fires on every python invocation in the
+        # container (sitecustomize runs at interpreter start), so on stdout it pollutes
+        # anything that captures a command's output — e.g. `airflow dags list-runs -o json`
+        # or the e2e harness's Solr/biocache count queries.
+        print(f"{LOG_PREFIX} EMR operators swapped for local shims", file=sys.stderr)
     except Exception as exc:  # never break interpreter startup
-        print(f"[no-aws-overlay] NOT activated: {exc!r}")
+        print(f"[no-aws-overlay] NOT activated: {exc!r}", file=sys.stderr)
