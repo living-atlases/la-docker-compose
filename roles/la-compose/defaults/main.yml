@@ -266,6 +266,12 @@ monitoring_enabled: false
 # Gatus health-check interval (default 5m in upstream role; tightened for docker-compose dev)
 gatus_interval: "1m"
 
+# Gatus "Up" condition fed to the upstream gatus role's http.j2 (default there is
+# '[STATUS] == 200'). ALA endpoints behind CAS legitimately return 302/401/403 (and
+# param-less API paths 400/404) while healthy, so ==200 produces massive false-reds.
+# '< 500' keeps only real outages red (502/503/504/timeout/no upstream).
+gatus_up_condition: "[STATUS] < 500"
+
 # Post-deploy health gate timeout (seconds). validate-post-deploy.yml passes this
 # to wait-for-health.sh --timeout. Raised from 300 to accommodate cassandra cold-start:
 # start_period 120s + schema load (la_cassandra_init cqlsh) + biocache-service retry

@@ -752,6 +752,29 @@
     - (layersdb_exists.stdout | default('') | trim) != "1"
   tags: [db-init]
 
+- name: "DB Init: Make the layers role own all layersdb objects"
+  # layersdb.sql is loaded as the postgres superuser, so most tables end up owned by
+  # postgres (only a handful by layers). spatial-service connects as layers and fails
+  # with "permission denied for table ..." (fields, task, objects, ...) and, at boot,
+  # "must be owner of table ..." on its CREATE INDEX / ALTER TABLE schema-ensure. Reassign
+  # ownership of every public app table/sequence to layers (skip the PostGIS-owned
+  # spatial_ref_sys). Runs unconditionally (idempotent) so it also repairs an existing DB.
+  command: >
+    docker exec -u postgres la_postgres psql -v ON_ERROR_STOP=1
+    -d {{ layers_db_name | default('layersdb') }} -c
+    "DO $$ DECLARE r record; BEGIN
+       FOR r IN SELECT tablename FROM pg_tables
+                WHERE schemaname='public' AND tablename <> 'spatial_ref_sys'
+                  AND tableowner <> '{{ layers_db_username | default('layers') }}'
+       LOOP EXECUTE format('ALTER TABLE public.%I OWNER TO {{ layers_db_username | default('layers') }}', r.tablename); END LOOP;
+       FOR r IN SELECT sequencename FROM pg_sequences WHERE schemaname='public'
+       LOOP EXECUTE format('ALTER SEQUENCE public.%I OWNER TO {{ layers_db_username | default('layers') }}', r.sequencename); END LOOP;
+     END $$;"
+  become: true
+  when: "'spatial-service' in physical_server_groups"
+  changed_when: false
+  tags: [db-init]
+
 # --- geonetwork PostGIS database + login role ---
 # CREATEDB is required: the geonetwork:*-postgres image entrypoint connects as this role and
 # createdb's a (vestigial) `admin` db on boot — without CREATEDB it exits (set -e) and crash-loops.
