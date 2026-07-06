@@ -123,8 +123,28 @@ Design notes:
 - In CI: param `RUN_AIRFLOW_INGEST=true` runs the `Airflow Ingest E2E` Jenkins stage
   against the already-running stack (independent of redeploy).
 
+## Notifications (generic, provider-agnostic)
+
+`airflow_local_settings.py` (auto-loaded by Airflow from the overlay's PYTHONPATH)
+attaches notifications to every DAG/task via cluster policies — **no DAG changes**,
+mirroring ALA (per-task failure + per-DAG-run success). Provider is auto-detected
+from credentials placed in `.env-custom` (never committed):
+
+```bash
+# .env-custom (Telegram wins over Slack; unset + no creds => silent no-op)
+NOTIFICATIONS_ENABLED=true
+TELEGRAM_BOT_TOKEN=123:abc
+TELEGRAM_CHAT_ID=-100123
+# or: SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
+PIPELINES_ENV_LABEL=lademo      # optional prefix in the message
+```
+
+The DAGs' own Slack path stays off (`SLACK_NOTIFICATION=false`); this overlay layer
+handles everything generically.
+
 ## Files
 - `sitecustomize.py` — bootstrap: swaps the 4 EMR classes for local shims.
+- `airflow_local_settings.py` — cluster policy: generic Telegram/Slack notifications.
 - `pa_local_compute.py` — Airflow-free step translation (s3-dist-cp→no-op; `--cluster`→`--embedded`; `PIPELINES_SKIP_STAGES` stage no-op).
 - `variables/airflow-variables.local.json` — 75 Variables mapped to committed `ala_config` names.
 - `compose/Dockerfile.airflow` — Airflow image + providers + docker CLI.

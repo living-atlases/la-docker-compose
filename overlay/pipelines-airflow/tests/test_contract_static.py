@@ -122,6 +122,28 @@ add = ops.EmrAddStepsOperator(task_id="add_steps", job_flow_id="x",
                               aws_conn_id="aws_default", steps=[s3_step])
 check("C. shim runs a no-op step end to end", add.execute(context={}) == ["noop:copy"])
 
+# ---- D. notifications cluster policy (opt-in, no-op by default) -------------
+import airflow_local_settings as _notify  # noqa: E402
+
+class _Dummy:
+    on_failure_callback = None
+    on_success_callback = None
+
+for _k in ("NOTIFICATIONS_ENABLED", "TELEGRAM_BOT_TOKEN", "SLACK_WEBHOOK_URL"):
+    os.environ.pop(_k, None)
+_t, _d = _Dummy(), _Dummy()
+_notify.task_policy(_t); _notify.dag_policy(_d)
+check("D. no-op without creds/flag", _t.on_failure_callback is None and _d.on_success_callback is None)
+
+os.environ["NOTIFICATIONS_ENABLED"] = "true"
+try:
+    _t2, _d2 = _Dummy(), _Dummy()
+    _notify.task_policy(_t2); _notify.dag_policy(_d2)
+    check("D. attaches callbacks when enabled",
+          callable(_t2.on_failure_callback) and callable(_d2.on_success_callback))
+finally:
+    del os.environ["NOTIFICATIONS_ENABLED"]
+
 print()
 if failures:
     print(f"CONTRACT FAILED: {len(failures)} check(s) -> {failures}")
