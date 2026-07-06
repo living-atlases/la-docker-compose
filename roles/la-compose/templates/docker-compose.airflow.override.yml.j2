@@ -1,0 +1,20 @@
+# Rendered by la-compose onto the pipelines host next to the overlay compose, and
+# merged into it via `docker compose -f docker-compose.airflow.yml -f <this>`.
+#
+# Gives the overlay's Airflow containers the SAME cross-host /etc/hosts entries that
+# every other la-docker-compose consumer gets (docker_extra_hosts_dict: public
+# service domains -> owning host private IP, plus datastores solr/zookeeper/... ->
+# host IP). Without this la_airflow has an empty ExtraHosts and resolves the public
+# service domains to the LOCAL nginx (wrong host) -> 404; with it, the DAGs reach
+# biocache/collectory (public URLs) and solr/zookeeper cross-host, exactly like
+# la_gatus_service does on the same host.
+#
+# Generic: docker_extra_hosts_dict is per-host computed from the inventory topology.
+# Single-host: the dict is empty -> extra_hosts: {} -> no-op.
+services:
+  airflow-init:
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+  airflow-webserver:
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+  airflow-scheduler:
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}

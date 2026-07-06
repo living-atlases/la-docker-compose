@@ -12,6 +12,14 @@ airflow users create --username admin --password "${AIRFLOW_ADMIN_PASSWORD:-admi
 echo "==> import Airflow Variables"
 airflow variables import /opt/overlay/variables/airflow-variables.local.json
 
+# Deployment-specific overrides (public service URLs from the inventory), rendered by
+# la-compose next to the base file. Imported AFTER the base so its keys win. Absent on
+# single-host / standalone use -> the internal defaults above stand.
+if [ -f /opt/overlay/variables/airflow-variables.override.json ]; then
+  echo "==> import Airflow Variables override (inventory service URLs)"
+  airflow variables import /opt/overlay/variables/airflow-variables.override.json
+fi
+
 # Dummy AWS/EMR connections so operators that still construct them don't fail at
 # import/build time. The overlay shims ignore them at execute time.
 echo "==> create dummy aws_default / emr_default connections"

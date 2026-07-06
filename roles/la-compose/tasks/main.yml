@@ -520,9 +520,45 @@
           become: true
           when: airflow_dags_src.stat.exists
 
+        # Cross-host reachability for the overlay: render an override giving the Airflow
+        # containers the same docker_extra_hosts_dict every other consumer gets, so the
+        # DAGs resolve the public service domains (biocache/collectory) to the owning
+        # host and reach solr/zookeeper — instead of hitting the local nginx (404).
+        - name: "Airflow: render cross-host extra_hosts override"
+          template:
+            src: docker-compose.airflow.override.yml.j2
+            dest: "{{ docker_compose_data_dir }}/overlay/pipelines-airflow/compose/docker-compose.airflow.override.yml"
+          become: true
+          when: airflow_dags_src.stat.exists
+
+        # The overlay ships internal service URLs (http://biocache-service:8080/ws) that
+        # only resolve when co-located. On multihost the DAGs must use the same public
+        # endpoints the inventory already defines (biocache_service_base_url — the var
+        # generate-e2e-targets.yml uses), reachable cross-host via the extra_hosts above.
+        # Rendered as an override; seed.sh imports it after the base file so these keys
+        # win. Generic: derived from inventory, never hardcoded; a missing value drops the
+        # key so single-host / standalone keeps the overlay's internal default.
+        # NOTE: only biocache_url is overridden here — it is on the Ingest_small_datasets
+        # path (get_dr_count) and its public path is validated (records-ws root serves the
+        # WS: /occurrences/search -> 200). registry_url/collectory is only used by
+        # Load_dataset (different path, /ws nuance unverified) and is left for that work.
+        - name: "Airflow: render Variables override (public service URLs from inventory)"
+          copy:
+            content: "{{ _airflow_var_override | to_nice_json }}\n"
+            dest: "{{ docker_compose_data_dir }}/overlay/pipelines-airflow/variables/airflow-variables.override.json"
+          vars:
+            _airflow_var_override: >-
+              {{ {
+                   'biocache_url': ((biocache_service_base_url | default('')) ~ (biocache_service_context_path | default(''))),
+                 } | dict2items | rejectattr('value', 'equalto', '') | list | items2dict }}
+          become: true
+          when:
+            - airflow_dags_src.stat.exists
+            - (biocache_service_base_url | default('')) != ''
+
         - name: "Airflow: start the NO-AWS overlay on the pipelines host (best-effort)"
           command: >
-            docker compose -f docker-compose.airflow.yml up -d --build
+            docker compose -f docker-compose.airflow.yml -f docker-compose.airflow.override.yml up -d --build
           args:
             chdir: "{{ docker_compose_data_dir }}/overlay/pipelines-airflow/compose"
           environment:
