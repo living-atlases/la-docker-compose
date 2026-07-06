@@ -128,6 +128,12 @@ add_str = ops.EmrAddStepsOperator(task_id="add_steps2", job_flow_id="x",
                                   aws_conn_id="aws_default", steps=json.dumps([s3_step]))
 check("C. steps-as-JSON-string is parsed (not iterated)", add_str.execute(context={}) == ["noop:copy"])
 
+# Airflow's non-native templating renders `steps` to a PYTHON repr (single-quoted
+# dicts), which is NOT valid JSON — must still parse. Regression guard for #278.
+add_repr = ops.EmrAddStepsOperator(task_id="add_steps3", job_flow_id="x",
+                                   aws_conn_id="aws_default", steps=str([s3_step]))
+check("C. steps-as-python-repr is parsed", add_repr.execute(context={}) == ["noop:copy"])
+
 # ---- D. notifications cluster policy (opt-in, no-op by default) -------------
 import airflow_local_settings as _notify  # noqa: E402
 

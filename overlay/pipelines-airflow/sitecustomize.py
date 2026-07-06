@@ -62,8 +62,16 @@ if os.environ.get("PIPELINES_COMPUTE_BACKEND", "").lower() == "local":
                 _apply_runtime_skip(context)
                 steps = self.steps
                 if isinstance(steps, str):
-                    # rendered to a JSON string (or not a list) -> parse back to dicts
-                    steps = json.loads(steps)
+                    # Airflow renders the templated `steps` to a string. Without native
+                    # templating that is a PYTHON repr of the list (single-quoted dicts),
+                    # not JSON. Parse Python literals safely (literals only, never code),
+                    # falling back to JSON.
+                    import ast
+                    _parse = ast.literal_eval  # safe: literals only, not arbitrary code
+                    try:
+                        steps = _parse(steps)
+                    except (ValueError, SyntaxError):
+                        steps = json.loads(steps)
                 return [run_local_step(translate_step(s)) for s in steps] or ["local-step-0"]
 
         class LocalStepSensor(_ShimBase):
