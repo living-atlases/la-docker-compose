@@ -458,8 +458,15 @@ EOF
                     # Non-blocking: a refresh hiccup must never fail the deploy, and it
                     # skips cleanly when the replayed tree is not a git checkout.
                     if [ -d "${INVENTORY_PARENT_DIR}/lademo-branding/.git" ]; then
-                      echo "Refreshing base-branding (git pull)..."
-                      git -C "${INVENTORY_PARENT_DIR}/lademo-branding" pull --autostash --no-edit || echo "WARN: base-branding pull failed (continuing with replayed tree)"
+                      # base-branding's canonical branch is `main` (github.com/living-atlases/base-branding).
+                      # The replay's fresh clone checks out the repo DEFAULT branch — still `master`, which
+                      # LACKS app/spatial/ (the Spatial Portal skin). On master the branding-builder ships
+                      # without dist/spatial, so spatial-hub falls back to the stock ALA portal layout
+                      # (skin.layout auto-detect finds no gsp -> portal). Force lademo-branding onto
+                      # origin/main so CI builds the CURRENT branding (works even from a single-branch clone).
+                      echo "Refreshing base-branding to origin/main..."
+                      git -C "${INVENTORY_PARENT_DIR}/lademo-branding" fetch --prune origin main || echo "WARN: fetch origin/main failed (continuing with replayed tree)"
+                      git -C "${INVENTORY_PARENT_DIR}/lademo-branding" checkout -B main FETCH_HEAD || echo "WARN: checkout main failed (continuing with replayed tree)"
                       echo "Initialising commonui-bs3-2019 submodule (ships committed build/ assets)..."
                       git -C "${INVENTORY_PARENT_DIR}/lademo-branding" submodule update --init commonui-bs3-2019 || echo "WARN: commonui submodule init failed (branding may miss commonui assets)"
                       if ls "${INVENTORY_PARENT_DIR}/lademo-branding/commonui-bs3-2019/build/css/ala-styles.css" >/dev/null 2>&1; then
