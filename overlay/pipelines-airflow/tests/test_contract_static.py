@@ -122,6 +122,12 @@ add = ops.EmrAddStepsOperator(task_id="add_steps", job_flow_id="x",
                               aws_conn_id="aws_default", steps=[s3_step])
 check("C. shim runs a no-op step end to end", add.execute(context={}) == ["noop:copy"])
 
+# steps can arrive as a JSON string (templated XCom rendered to str) — must be parsed,
+# not iterated char by char ('str' object has no attribute 'get'). Regression guard.
+add_str = ops.EmrAddStepsOperator(task_id="add_steps2", job_flow_id="x",
+                                  aws_conn_id="aws_default", steps=json.dumps([s3_step]))
+check("C. steps-as-JSON-string is parsed (not iterated)", add_str.execute(context={}) == ["noop:copy"])
+
 # ---- D. notifications cluster policy (opt-in, no-op by default) -------------
 import airflow_local_settings as _notify  # noqa: E402
 

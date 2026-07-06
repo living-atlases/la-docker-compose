@@ -8,6 +8,7 @@ for local shims BEFORE Airflow parses any DAG, so the DAGs' `from ...emr import 
 transparently binds the shims. Translation logic lives in pa_local_compute.py
 (Airflow-free, unit-tested). See README.md / SPIKE_RESULTS.md.
 """
+import json
 import os
 
 if os.environ.get("PIPELINES_COMPUTE_BACKEND", "").lower() == "local":
@@ -19,7 +20,12 @@ if os.environ.get("PIPELINES_COMPUTE_BACKEND", "").lower() == "local":
         class _ShimBase(BaseOperator):
             """Accept any EMR-operator kwargs; forward only valid BaseOperator ones."""
             def __init__(self, *args, **kwargs):
-                self._steps = kwargs.get("steps", [])
+                # Keep `steps` under its real attribute name so template_fields can
+                # render it: the DAG passes steps as a Jinja/XCom expression
+                # ("{{ ti.xcom_pull('construct_steps') }}") that the real
+                # EmrAddStepsOperator renders via template_fields. Our swap must keep
+                # that, or execute() iterates the raw string -> 'str' has no .get.
+                self.steps = kwargs.get("steps", [])
                 valid = set(inspect.signature(BaseOperator.__init__).parameters)
                 super().__init__(**{k: v for k, v in kwargs.items() if k in valid})
 
@@ -48,9 +54,17 @@ if os.environ.get("PIPELINES_COMPUTE_BACKEND", "").lower() == "local":
                 print(f"{LOG_PREFIX} skip-stage override unavailable: {exc!r}")
 
         class LocalAddStepsOperator(_ShimBase):
+            # Render the templated `steps` (Jinja/XCom) before execute, like the real
+            # operator — without this the swap drops templating and steps stays a string.
+            template_fields = ("steps",)
+
             def execute(self, context):
                 _apply_runtime_skip(context)
-                return [run_local_step(translate_step(s)) for s in self._steps] or ["local-step-0"]
+                steps = self.steps
+                if isinstance(steps, str):
+                    # rendered to a JSON string (or not a list) -> parse back to dicts
+                    steps = json.loads(steps)
+                return [run_local_step(translate_step(s)) for s in steps] or ["local-step-0"]
 
         class LocalStepSensor(_ShimBase):
             def execute(self, context):
