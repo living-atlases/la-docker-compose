@@ -145,8 +145,12 @@ af airflow dags trigger -r "$RUN_ID" -c "$CONF" "$DAG_ID"
 log "waiting up to ${TIMEOUT}s for the run to finish"
 state=""; elapsed=0
 while (( elapsed < TIMEOUT )); do
+  # NOTE: the overlay's sitecustomize prints a banner to stdout on every airflow
+  # invocation, so the `-o json` output is prefixed with noise -> json.load(stdin)
+  # would fail and leave state empty (poll never sees 'failed', waits the full
+  # timeout). Extract the JSON array (starts with '[{' or '[]') before parsing.
   state=$(af airflow dags list-runs -d "$DAG_ID" -o json 2>/dev/null \
-    | afi python3 -c 'import sys,json; rid=sys.argv[1]; d=json.load(sys.stdin); print(next((r.get("state","") for r in d if rid in (r.get("run_id"),r.get("dag_run_id"))),""))' "$RUN_ID" 2>/dev/null || true)
+    | afi python3 -c 'import sys,json,re; rid=sys.argv[1]; s=sys.stdin.read(); m=re.search(r"\[\s*(?:\{|\])", s); d=json.loads(s[m.start():]) if m else []; print(next((r.get("state","") for r in d if rid in (r.get("run_id"),r.get("dag_run_id"))),""))' "$RUN_ID" 2>/dev/null || true)
   case "$state" in
     success)  log "run state: success"; break ;;
     failed)   err "run state: failed"; break ;;
