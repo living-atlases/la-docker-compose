@@ -746,8 +746,15 @@ EOF
                                   REPLACE INTO redeploy_canary.t VALUES (1, UNIX_TIMESTAMP());"'
                                 echo "mysql canary seeded"
                             fi
-                            # Snapshot running la_* containers (name + immutable ID)
-                            sudo docker ps --filter "name=la_" --format '{{.Names}} {{.ID}}' | sort > /tmp/redeploy-before.txt
+                            # Snapshot running la_* containers: name, immutable ID, and health state.
+                            # A container that is UNHEALTHY before the redeploy is allowed to be recreated
+                            # (the redeploy heals it: pre-deploy cleanup removes unhealthy la_* and compose
+                            # up recreates it fresh), so Phase C enforces a stable ID only for containers
+                            # that were NOT unhealthy here.
+                            sudo docker ps --filter "name=la_" --format '{{.Names}} {{.ID}}' | while read -r nm cid; do
+                                h=\$(sudo docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "\$nm" 2>/dev/null || echo none)
+                                echo "\$nm \$cid \$h"
+                            done | sort > /tmp/redeploy-before.txt
                             wc -l /tmp/redeploy-before.txt
                             # Availability probe against local nginx (1s cadence) while the redeploy runs
                             sudo rm -f /tmp/redeploy-probe.stop /tmp/redeploy-probe.log
@@ -822,9 +829,16 @@ EOF
                                 n=\$(sudo docker exec la_mysql sh -c 'mysql -N -uroot -p"\$MYSQL_ROOT_PASSWORD" -e "SELECT COUNT(*) FROM redeploy_canary.t;"' 2>/dev/null || echo 0)
                                 if [ "\$n" = "1" ]; then echo "PASS: mysql canary preserved"; else echo "FAIL: mysql canary lost (count=\$n)"; rc=1; fi
                             fi
-                            # Every container running BEFORE must still run with the SAME ID
+                            # Every container that was running AND not-unhealthy BEFORE must still run
+                            # with the SAME ID. Containers that were unhealthy before are allowed to be
+                            # recreated (the redeploy heals them), so they are skipped here — this keeps
+                            # the contract test focused on healthy containers and decouples it from the
+                            # OIDC boot-ordering churn (collectory/logger/spatial-hub can boot unhealthy).
                             sudo docker ps --filter "name=la_" --format '{{.Names}} {{.ID}}' | sort > /tmp/redeploy-after.txt
-                            while read -r name id; do
+                            while read -r name id health; do
+                                if [ "\$health" = "unhealthy" ]; then
+                                    echo "SKIP: \$name was unhealthy before redeploy (recreation allowed)"; continue
+                                fi
                                 if ! grep -q "^\$name \$id\$" /tmp/redeploy-after.txt; then
                                     echo "FAIL: container \$name was recreated or stopped (was \$id)"; rc=1
                                 fi

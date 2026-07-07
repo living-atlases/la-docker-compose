@@ -429,6 +429,49 @@
             chdir: "{{ docker_compose_data_dir }}"
           become: true
 
+        # Finding 1 (non-fatal warning): on the --no-recreate path a changed service
+        # DEFINITION (image/version bump, new env/port/volume) is NOT applied to an
+        # already-running container — config-restart-apply only re-reads bind-mounted
+        # FILE content via `docker compose restart`. So an image bump here is a silent
+        # no-op. Detect it: compare each running service's live compose config-hash
+        # label to the freshly computed hash; a mismatch = the definition drifted but
+        # --no-recreate left the container stale. WARN only (apply deliberately via
+        # docker_force_recreate in CI/staging). Never fails the deploy.
+        - name: "Post-up: warn on service-definition drift not applied by --no-recreate"
+          shell: |
+            set +e
+            drift=""
+            while read -r svc want; do
+              [ -n "$svc" ] || continue
+              cid=$(docker compose ps -q "$svc" 2>/dev/null | head -1)
+              [ -n "$cid" ] || continue
+              have=$(docker inspect -f '{{ '{{' }} index .Config.Labels "com.docker.compose.config-hash" {{ '}}' }}' "$cid" 2>/dev/null)
+              if [ -n "$have" ] && [ "$have" != "$want" ]; then
+                drift="$drift $svc"
+              fi
+            done < <(docker compose config --hash '*' 2>/dev/null)
+            if [ -n "$drift" ]; then
+              echo "WARN: --no-recreate left changed service definitions unapplied:$drift"
+              echo "WARN: re-run with -e docker_force_recreate=true (CI/staging) to apply them."
+            else
+              echo "OK: no unapplied service-definition drift"
+            fi
+          args:
+            chdir: "{{ docker_compose_data_dir }}"
+            executable: /bin/bash
+          become: true
+          register: nrec_drift
+          changed_when: false
+          failed_when: false
+          when: not (docker_force_recreate | default(false) | bool)
+
+        - name: "Post-up: surface the --no-recreate drift warning"
+          debug:
+            msg: "{{ nrec_drift.stdout_lines | default([]) }}"
+          when:
+            - nrec_drift is defined
+            - "'WARN:' in (nrec_drift.stdout | default(''))"
+
       rescue:
         - name: "Deploy failure: capture container diagnostics to /tmp/la-docker-deploy-failure.log"
           shell: |
