@@ -275,10 +275,16 @@ services up. The pieces that enforce this (all in `roles/la-compose/`):
   `docker exec` *before* anything mutates (the container port of ala-install's
   `db-backup` role; complements the scheduled `la_db-backup` container).
   Default on when `la_env=production`; a failed dump aborts the deploy.
-- **Uptime**: `la_nginx` is never force-removed on the normal path — regenerated
-  vhosts are applied with `nginx -t` + graceful reload; only *unhealthy*
-  containers are recreated; services whose bind-mounted config content changed
-  are selectively restarted (`tasks/config-restart-detect.yml` / `-apply.yml`).
+- **Uptime**: the normal-path `docker compose up` runs with `--no-recreate`, so
+  it converges the topology (creates missing services, starts stopped ones) but
+  never recreates or stops a live container — a redeploy over an unchanged stack
+  is a no-op, with no new container IDs and no nginx rebind/downtime window.
+  `la_nginx` is never force-removed; regenerated vhosts are applied with
+  `nginx -t` + graceful reload, and services whose bind-mounted config content
+  changed are selectively restarted (`tasks/config-restart-detect.yml` /
+  `-apply.yml`). A deliberate full recreate stays available via
+  `docker_force_recreate` (CI/staging only — `enforce-production-safety` forbids
+  it in production).
 - **Guard rails**: `tasks/validate-service-consistency.yml` aborts if
   `up --remove-orphans` would delete a running service that vanished from the
   generated compose (override: `-e allow_service_removal=true`). With

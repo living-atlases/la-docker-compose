@@ -3286,8 +3286,13 @@
     - docker-compose
 
 - name: "SSL Certificates: Start nginx to validate local certificates"
+  # --no-recreate: on a first deploy this creates nginx; on a redeploy nginx is
+  # already running (cert validation still works against it) and must be left
+  # untouched — a plain `up -d nginx` here would recreate nginx and re-run its
+  # service_completed_successfully one-shots, causing a downtime window before the
+  # main up, breaking the non-destructive redeploy contract (TEST_REDEPLOY).
   shell: |
-    cd "{{ docker_compose_data_dir }}" && docker compose up -d nginx 2>&1 || true
+    cd "{{ docker_compose_data_dir }}" && docker compose up -d --no-recreate nginx 2>&1 || true
   environment:
     DOCKER_HOST: "{{ docker_socket }}"
   become: true
