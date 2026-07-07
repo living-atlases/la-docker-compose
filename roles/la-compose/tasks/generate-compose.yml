@@ -1550,6 +1550,106 @@
     - config
     - normalize
 
+# Auto-detect the base-branding Spatial Portal skin and flip skin.layout BEFORE the spatial-hub role
+# renders spatial-hub-config.yml below (and before docker-compose.yml is generated further down), so
+# the CONFIG (skin.layout) and the COMPOSE (spatial-skin-init + views mount) agree on the same value.
+# This MUST run after the SPATIAL-HUB bulk load above (which promotes the inventory spatial_hub_skin_layout,
+# default 'portal', to a fact) and before the config render — otherwise the config keeps 'portal' and the
+# app renders the generic ALA layout even though the branding ships the skin. We materialise the branding
+# here (git clone for a URL source; a local source is already on disk) and stat app/spatial/spatial-layout.gsp
+# on the resolved path, so the skin auto-detects for BOTH local AND git-URL branding. Explicit
+# spatial_hub_skin_layout still wins; the deploy-time guard further down re-verifies. The git-URL
+# resolve/clone below is idempotent with the same tasks later in this file.
+- name: Resolve branding_source as a git URL (early, for skin detection)
+  set_fact:
+    branding_is_git_url: "{{ branding_source is defined and branding_source is match('^(https?://|git@).*') }}"
+  when:
+    - use_branding | default(false) | bool
+    - branding_source is defined and branding_source is not none
+  tags:
+    - docker-compose
+    - branding
+    - spatial-hub
+
+- name: Resolve branding source path (early, for skin detection)
+  set_fact:
+    branding_source_path: >-
+      {%- if branding_is_git_url | default(false) -%}
+        /tmp/branding-git-checkout
+      {%- elif branding_source is match('^/') -%}
+        {{ branding_source }}
+      {%- else -%}
+        {{ inventory_dir }}/{{ branding_source }}
+      {%- endif -%}
+  when:
+    - use_branding | default(false) | bool
+    - branding_source is defined and branding_source is not none
+  tags:
+    - docker-compose
+    - branding
+    - spatial-hub
+
+- name: Clone branding from git repository early (if git URL, for skin detection)
+  git:
+    repo: "{{ branding_source }}"
+    dest: "{{ branding_source_path }}"
+    version: "{{ branding_git_ref | default('master') }}"
+    update: yes
+    force: yes
+    recursive: yes
+  become: false
+  # Clone on the controller (where the delegated skin-detection stat looks), not on every remote
+  # host — branding_source_path (/tmp/branding-git-checkout) is a controller-side scratch path.
+  delegate_to: localhost
+  run_once: true
+  when:
+    - use_branding | default(false) | bool
+    - branding_source is defined and branding_source is not none
+    - branding_is_git_url | default(false) | bool
+  tags:
+    - docker-compose
+    - branding
+    - spatial-hub
+
+- name: Detect the base-branding Spatial skin layout (local or git branding)
+  # Presence of the source layout signals this branding ships the Spatial skin feature; when it does,
+  # skin.layout=spatial-layout and la_spatial-skin-init fetches the BUILT gsp over HTTP from the
+  # branding nginx at runtime (dist/ is git-ignored, so only app/ is in the checkout).
+  stat:
+    path: "{{ branding_source_path }}/app/spatial/spatial-layout.gsp"
+  register: spatial_skin_stat
+  # The branding checkout (local ../lademo-branding or the git clone in /tmp) lives on the
+  # CONTROLLER, not on the target hosts. Run the stat once on localhost and let the registered
+  # result propagate to every host, so multihost deploys detect the skin correctly (an undelegated
+  # stat runs on each remote where the path does not exist -> exists:false -> skin silently dropped).
+  delegate_to: localhost
+  run_once: true
+  when:
+    - use_branding | default(false) | bool
+    - branding_source_path is defined
+  tags:
+    - docker-compose
+    - spatial-hub
+
+- name: Record Spatial skin availability and select the layout (drives skin.layout + the views mount)
+  # NOTE: the generated inventory ships spatial_hub_skin_layout (default 'portal') in the spatial
+  # service vars, and the SPATIAL-HUB bulk load above promotes those inventory vars to FACTS *before*
+  # this task. A fact outranks the role-default auto-expression in defaults/main.yml, so that
+  # expression is shadowed and skin.layout stays 'portal' even when the branding ships the skin. Fix
+  # it here, after the promotion: when the branding provides app/spatial/spatial-layout.gsp, flip a
+  # *default* 'portal' to 'spatial-layout' (leave an explicit 'generic' — or any non-portal value —
+  # untouched). This runs after the fact promotion and before the config render + compose gen, so both
+  # sides see the same value.
+  set_fact:
+    spatial_branding_skin_available: "{{ spatial_skin_stat.stat.exists | default(false) }}"
+    spatial_hub_skin_layout: >-
+      {{ 'spatial-layout'
+         if ((spatial_skin_stat.stat.exists | default(false)) and (spatial_hub_skin_layout | default('portal')) == 'portal')
+         else (spatial_hub_skin_layout | default('portal')) }}
+  tags:
+    - docker-compose
+    - spatial-hub
+
 - name: Run spatial-hub configuration generation
   include_role:
     name: spatial-hub
@@ -1870,102 +1970,12 @@
   tags:
     - docker-compose
 
-# Auto-detect the base-branding Spatial Portal skin BEFORE docker-compose.yml is generated below,
-# so the views mount in spatial-hub.yml.j2 and skin.layout in the config agree on the same value.
-# We materialise the branding here (git clone for a URL source; a local source is already on disk)
-# and stat app/spatial/spatial-layout.gsp on the resolved path, so the skin auto-detects for BOTH
-# local AND git-URL branding (previously git-URL branding was materialised only later in the play,
-# so it never auto-detected and needed a manual spatial_hub_skin_layout=spatial-layout). Explicit
-# spatial_hub_skin_layout still wins; the deploy-time guard further down re-verifies. The git-URL
-# resolve/clone below is idempotent with the same tasks later in this file.
-- name: Resolve branding_source as a git URL (early, for skin detection)
-  set_fact:
-    branding_is_git_url: "{{ branding_source is defined and branding_source is match('^(https?://|git@).*') }}"
-  when:
-    - use_branding | default(false) | bool
-    - branding_source is defined and branding_source is not none
-  tags:
-    - docker-compose
-    - branding
-    - spatial-hub
-
-- name: Resolve branding source path (early, for skin detection)
-  set_fact:
-    branding_source_path: >-
-      {%- if branding_is_git_url | default(false) -%}
-        /tmp/branding-git-checkout
-      {%- elif branding_source is match('^/') -%}
-        {{ branding_source }}
-      {%- else -%}
-        {{ inventory_dir }}/{{ branding_source }}
-      {%- endif -%}
-  when:
-    - use_branding | default(false) | bool
-    - branding_source is defined and branding_source is not none
-  tags:
-    - docker-compose
-    - branding
-    - spatial-hub
-
-- name: Clone branding from git repository early (if git URL, for skin detection)
-  git:
-    repo: "{{ branding_source }}"
-    dest: "{{ branding_source_path }}"
-    version: "{{ branding_git_ref | default('master') }}"
-    update: yes
-    force: yes
-    recursive: yes
-  become: false
-  # Clone on the controller (where the delegated skin-detection stat looks), not on every remote
-  # host — branding_source_path (/tmp/branding-git-checkout) is a controller-side scratch path.
-  delegate_to: localhost
-  run_once: true
-  when:
-    - use_branding | default(false) | bool
-    - branding_source is defined and branding_source is not none
-    - branding_is_git_url | default(false) | bool
-  tags:
-    - docker-compose
-    - branding
-    - spatial-hub
-
-- name: Detect the base-branding Spatial skin layout (local or git branding)
-  # Presence of the source layout signals this branding ships the Spatial skin feature; when it does,
-  # skin.layout=spatial-layout and la_spatial-skin-init fetches the BUILT gsp over HTTP from the
-  # branding nginx at runtime (dist/ is git-ignored, so only app/ is in the checkout).
-  stat:
-    path: "{{ branding_source_path }}/app/spatial/spatial-layout.gsp"
-  register: spatial_skin_stat
-  # The branding checkout (local ../lademo-branding or the git clone in /tmp) lives on the
-  # CONTROLLER, not on the target hosts. Run the stat once on localhost and let the registered
-  # result propagate to every host, so multihost deploys detect the skin correctly (an undelegated
-  # stat runs on each remote where the path does not exist -> exists:false -> skin silently dropped).
-  delegate_to: localhost
-  run_once: true
-  when:
-    - use_branding | default(false) | bool
-    - branding_source_path is defined
-  tags:
-    - docker-compose
-    - spatial-hub
-
-- name: Record Spatial skin availability and select the layout (drives skin.layout + the views mount)
-  # NOTE: the generated inventory ships spatial_hub_skin_layout (default 'portal') in the spatial
-  # service vars, and la-compose promotes those inventory vars to FACTS *before* this task. A fact
-  # outranks the role-default auto-expression in defaults/main.yml, so that expression is shadowed
-  # and skin.layout stays 'portal' even when the branding ships the skin. Fix it here, after the
-  # promotion: when the branding provides app/spatial/spatial-layout.gsp, flip a *default* 'portal'
-  # to 'spatial-layout' (leave an explicit 'generic' — or any non-portal value — untouched). This
-  # runs after the fact promotion and before docker-compose.yml is generated, so it wins.
-  set_fact:
-    spatial_branding_skin_available: "{{ spatial_skin_stat.stat.exists | default(false) }}"
-    spatial_hub_skin_layout: >-
-      {{ 'spatial-layout'
-         if ((spatial_skin_stat.stat.exists | default(false)) and (spatial_hub_skin_layout | default('portal')) == 'portal')
-         else (spatial_hub_skin_layout | default('portal')) }}
-  tags:
-    - docker-compose
-    - spatial-hub
+# NOTE: the base-branding Spatial skin auto-detect + skin.layout flip used to live HERE, but that
+# ran AFTER "Run spatial-hub configuration generation" (which renders spatial-hub-config.yml with
+# skin.layout={{ spatial_hub_skin_layout }}), so the CONFIG got the inventory default 'portal' while
+# only the compose side (views mount) got 'spatial-layout' — the app obeys the config and rendered
+# the generic ALA layout. The block now runs earlier, right after the SPATIAL-HUB bulk load and
+# BEFORE the config render, so config and compose agree. See generate-compose.yml above.
 
 - name: Generate docker-compose.yml
   template:
