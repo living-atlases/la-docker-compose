@@ -113,7 +113,7 @@ pipeline {
         )
         booleanParam(
             name: 'RUN_AIRFLOW_INGEST',
-            defaultValue: false,
+            defaultValue: true,
             description: 'Run the Airflow ingestion e2e: ingest a tiny fixed DwCA through the real pipeline and assert records in Solr + biocache. Runs against the ALREADY-RUNNING stack (independent of redeploy) — set this true with FORCE_REDEPLOY=false to test ingestion without a full deploy. Report-only unless E2E_BLOCKING. The ingested data also seeds the Cypress biocache/species suites.'
         )
     }
@@ -895,7 +895,10 @@ EOF
         }
 
         stage('E2E Smoke Tests') {
-            when { expression { params.RUN_E2E && env.DO_REDEPLOY == 'true' && params.AUTO_DEPLOY && !params.ONLY_CLEAN } }
+            // Run after a redeploy OR after an Airflow ingest against the already-running stack:
+            // the ingest (stage above) seeds the biocache/species suites, so the smoke should
+            // consume that fresh data even when DO_REDEPLOY is false (ingest-only run).
+            when { expression { params.RUN_E2E && (env.DO_REDEPLOY == 'true' || params.RUN_AIRFLOW_INGEST) && params.AUTO_DEPLOY && !params.ONLY_CLEAN } }
             steps {
                 script {
                     def hosts = env.TARGET_HOSTS.trim().split(/\s+/)
