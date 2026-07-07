@@ -1,3 +1,18 @@
+// CI safety net: the destructive stages (Clean machines, Pre-Deploy Docker
+// Cleanup) wipe /data and /var/lib/docker. They must only ever touch known
+// DISPOSABLE test hosts — if someone points TARGET_HOSTS at a production
+// machine with CLEAN_MACHINE left at its default (true), abort before any ssh.
+// Production deploys additionally set la_env=production in their inventory,
+// which makes the Ansible side refuse destructive flags (enforce-production-safety.yml).
+def assertDisposableHosts(String hostsStr, String allowRegex) {
+    hostsStr.trim().split(/\s+/).each { h ->
+        if (!(h ==~ allowRegex)) {
+            error("SAFETY: host '${h}' does not match CLEAN_HOSTS_ALLOW_REGEX (${allowRegex}) — " +
+                  "refusing to run a destructive cleanup stage. Is TARGET_HOSTS pointing at production?")
+        }
+    }
+}
+
 pipeline {
     agent any
 
@@ -24,6 +39,9 @@ pipeline {
         VENV_DIR = "${BASE_DIR}/.venv-ansible"
 
         GENERATOR_GIT_URL = "https://github.com/living-atlases/generator-living-atlas.git"
+
+        // Hosts the destructive cleanup stages are allowed to touch (disposable CI machines).
+        CLEAN_HOSTS_ALLOW_REGEX = 'gbif-es-docker-cluster-.*|la-mh-[0-9]+|docker-[0-9]+|localhost|127\\.0\\.0\\.1'
     }
 
     parameters {
@@ -89,6 +107,11 @@ pipeline {
             description: 'Include the CAS/OIDC login smoke test. Logs in as the CAS admin, with credentials read from the inventory local-passwords.ini (email var + the plaintext password left in a comment).'
         )
         booleanParam(
+            name: 'TEST_REDEPLOY',
+            defaultValue: false,
+            description: 'Hot-redeploy integrity test: after the green deploy, seed canary data (file + MySQL row), snapshot container IDs, start an nginx availability probe, re-run the playbooks WITHOUT cleaning, and assert nothing was destroyed, no downtime, and unchanged services kept their containers. Adds one full playbook run to the build.'
+        )
+        booleanParam(
             name: 'RUN_AIRFLOW_INGEST',
             defaultValue: false,
             description: 'Run the Airflow ingestion e2e: ingest a tiny fixed DwCA through the real pipeline and assert records in Solr + biocache. Runs against the ALREADY-RUNNING stack (independent of redeploy) — set this true with FORCE_REDEPLOY=false to test ingestion without a full deploy. Report-only unless E2E_BLOCKING. The ingested data also seeds the Cypress biocache/species suites.'
@@ -103,6 +126,7 @@ pipeline {
             when { expression { (params.CLEAN_MACHINE || params.ONLY_CLEAN) && !(params.RUN_AIRFLOW_INGEST && !params.FORCE_REDEPLOY) } }
             steps {
                 script {
+                    assertDisposableHosts(env.TARGET_HOSTS, env.CLEAN_HOSTS_ALLOW_REGEX)
                     def hosts = env.TARGET_HOSTS.trim().split(/\s+/)
                     
                     // Pre-scan SSH keys for remote hosts
@@ -487,10 +511,11 @@ EOF
                     env.DO_REDEPLOY == 'true' && 
                     !params.ONLY_CLEAN && 
                     params.AUTO_DEPLOY
-                } 
+                }
             }
             steps {
                 script {
+                    assertDisposableHosts(env.TARGET_HOSTS, env.CLEAN_HOSTS_ALLOW_REGEX)
                     def hosts = env.TARGET_HOSTS.trim().split(/\s+/)
                     
                     def jobs = [:]
@@ -685,6 +710,142 @@ EOF
                     } else {
                         catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') { gate() }
                     }
+                }
+            }
+        }
+
+        // ----- Hot-redeploy integrity test (opt-in via TEST_REDEPLOY) -----
+        // Proves the production redeploy contract on the freshly deployed stack:
+        // re-running the playbooks WITHOUT cleaning must (1) destroy no data,
+        // (2) keep nginx serving throughout (graceful reload, no recreate), and
+        // (3) leave every previously-running container alone (no config changes
+        // => no restarts). Blocking by design: if this fails, redeploy-over-live
+        // is broken and must not reach production.
+        stage('Hot Redeploy Test') {
+            when { expression { params.TEST_REDEPLOY && env.DO_REDEPLOY == 'true' && params.AUTO_DEPLOY && !params.ONLY_CLEAN } }
+            steps {
+                script {
+                    def hosts = env.TARGET_HOSTS.trim().split(/\s+/)
+
+                    // --- Phase A: seed canaries, snapshot containers, start nginx probe (per host) ---
+                    for (h in hosts) {
+                        def targetHost = h
+                        sh("""
+                            set -eu
+                            phase_a=\$(cat <<'EOF'
+                            set -eu
+                            echo "==> [redeploy-test] Phase A on \$(hostname)"
+                            # File canary in /data (outside compose-managed dirs)
+                            date -u +%s | sudo tee /data/.redeploy-canary >/dev/null
+                            # MySQL canary: own throwaway schema, no app tables touched.
+                            # Root password comes from the container env — never leaves the host.
+                            if sudo docker ps --format '{{.Names}}' | grep -qx la_mysql; then
+                                sudo docker exec la_mysql sh -c 'mysql -uroot -p"\$MYSQL_ROOT_PASSWORD" -e "
+                                  CREATE DATABASE IF NOT EXISTS redeploy_canary;
+                                  CREATE TABLE IF NOT EXISTS redeploy_canary.t (id INT PRIMARY KEY, ts BIGINT);
+                                  REPLACE INTO redeploy_canary.t VALUES (1, UNIX_TIMESTAMP());"'
+                                echo "mysql canary seeded"
+                            fi
+                            # Snapshot running la_* containers (name + immutable ID)
+                            sudo docker ps --filter "name=la_" --format '{{.Names}} {{.ID}}' | sort > /tmp/redeploy-before.txt
+                            wc -l /tmp/redeploy-before.txt
+                            # Availability probe against local nginx (1s cadence) while the redeploy runs
+                            sudo rm -f /tmp/redeploy-probe.stop /tmp/redeploy-probe.log
+                            if sudo docker ps --format '{{.Names}}' | grep -qx la_nginx; then
+                                nohup bash -c 'while [ ! -f /tmp/redeploy-probe.stop ]; do
+                                    if curl -sk -o /dev/null --max-time 2 https://127.0.0.1/; then echo OK; else echo FAIL; fi
+                                    sleep 1
+                                done >> /tmp/redeploy-probe.log' >/dev/null 2>&1 &
+                                echo "nginx probe started"
+                            fi
+EOF
+                            )
+                            if [ "${targetHost}" = "localhost" ] || [ "${targetHost}" = "127.0.0.1" ]; then
+                                bash -c "\$phase_a"
+                            else
+                                echo "\$phase_a" | ssh -o BatchMode=yes ${targetHost} bash -s
+                            fi
+                        """.stripIndent())
+                    }
+
+                    // --- Phase B: re-run the playbooks, same invocation as 'Run Playbooks', NO cleaning ---
+                    def inventoryArg = "-i ${INVENTORY_DIR}/lademo-inventory.ini"
+                    if (fileExists("${INVENTORY_DIR}/lademo-local-extras.ini")) {
+                        inventoryArg += " -i ${INVENTORY_DIR}/lademo-local-extras.ini"
+                    }
+                    if (fileExists("${INVENTORY_DIR}/lademo-local-passwords.ini")) {
+                        inventoryArg += " -i ${INVENTORY_DIR}/lademo-local-passwords.ini"
+                    }
+                    // Same skip list: a different set would legitimately add/remove services
+                    // and invalidate the container-stability assertion below.
+                    def skipArg = ''
+                    if (params.SKIP_SERVICES?.trim()) {
+                        def skipList = params.SKIP_SERVICES.split(',').collect { it.trim() }.findAll { it }
+                        skipArg = " --extra-vars '" + groovy.json.JsonOutput.toJson([skip_services: skipList]) + "'"
+                    }
+                    sh """
+                        set -eu
+                        export PATH="${VENV_DIR}/bin:\$PATH"
+                        export ANSIBLE_ROLES_PATH="${WORKSPACE}/ala-install/ansible/roles:${WORKSPACE}/roles"
+                        export ANSIBLE_FORCE_COLOR=true
+                        export ANSIBLE_STDOUT_CALLBACK=yaml
+                        export ANSIBLE_HOST_KEY_CHECKING=False
+                        echo "[redeploy-test] Re-running site.yml over the live stack (no clean)..."
+                        ansible-playbook playbooks/site.yml ${inventoryArg} --limit docker_compose --extra-vars "auto_deploy=true"${skipArg} -vv
+                    """
+
+                    // --- Phase C: assert canaries intact, zero probe failures, stable containers ---
+                    for (h in hosts) {
+                        def targetHost = h
+                        sh("""
+                            set -eu
+                            phase_c=\$(cat <<'EOF'
+                            set -eu
+                            echo "==> [redeploy-test] Phase C on \$(hostname)"
+                            rc=0
+                            # Stop the probe and judge availability
+                            sudo touch /tmp/redeploy-probe.stop; sleep 2
+                            if [ -f /tmp/redeploy-probe.log ]; then
+                                total=\$(wc -l < /tmp/redeploy-probe.log)
+                                fails=\$(grep -c FAIL /tmp/redeploy-probe.log || true)
+                                echo "nginx probe: \$fails failures / \$total samples"
+                                if [ "\$fails" -gt 0 ]; then echo "FAIL: nginx had downtime during redeploy"; rc=1; fi
+                            fi
+                            # File canary
+                            if sudo test -f /data/.redeploy-canary; then
+                                echo "PASS: file canary preserved"
+                            else
+                                echo "FAIL: file canary deleted (/data was touched!)"; rc=1
+                            fi
+                            # MySQL canary
+                            if sudo docker ps --format '{{.Names}}' | grep -qx la_mysql; then
+                                n=\$(sudo docker exec la_mysql sh -c 'mysql -N -uroot -p"\$MYSQL_ROOT_PASSWORD" -e "SELECT COUNT(*) FROM redeploy_canary.t;"' 2>/dev/null || echo 0)
+                                if [ "\$n" = "1" ]; then echo "PASS: mysql canary preserved"; else echo "FAIL: mysql canary lost (count=\$n)"; rc=1; fi
+                            fi
+                            # Every container running BEFORE must still run with the SAME ID
+                            sudo docker ps --filter "name=la_" --format '{{.Names}} {{.ID}}' | sort > /tmp/redeploy-after.txt
+                            while read -r name id; do
+                                if ! grep -q "^\$name \$id\$" /tmp/redeploy-after.txt; then
+                                    echo "FAIL: container \$name was recreated or stopped (was \$id)"; rc=1
+                                fi
+                            done < /tmp/redeploy-before.txt
+                            [ "\$rc" -eq 0 ] && echo "PASS: all pre-existing containers untouched"
+                            # Cleanup canaries and probe artifacts
+                            sudo rm -f /data/.redeploy-canary /tmp/redeploy-probe.stop /tmp/redeploy-probe.log /tmp/redeploy-before.txt /tmp/redeploy-after.txt
+                            if sudo docker ps --format '{{.Names}}' | grep -qx la_mysql; then
+                                sudo docker exec la_mysql sh -c 'mysql -uroot -p"\$MYSQL_ROOT_PASSWORD" -e "DROP DATABASE IF EXISTS redeploy_canary;"' || true
+                            fi
+                            exit \$rc
+EOF
+                            )
+                            if [ "${targetHost}" = "localhost" ] || [ "${targetHost}" = "127.0.0.1" ]; then
+                                bash -c "\$phase_c"
+                            else
+                                echo "\$phase_c" | ssh -o BatchMode=yes ${targetHost} bash -s
+                            fi
+                        """.stripIndent())
+                    }
+                    echo "✓ Hot redeploy test passed: no data loss, no nginx downtime, containers stable"
                 }
             }
         }
