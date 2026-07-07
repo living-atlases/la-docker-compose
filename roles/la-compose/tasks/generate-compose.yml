@@ -1949,9 +1949,20 @@
     - docker-compose
     - spatial-hub
 
-- name: Record Spatial skin availability (drives skin.layout + the views mount)
+- name: Record Spatial skin availability and select the layout (drives skin.layout + the views mount)
+  # NOTE: the generated inventory ships spatial_hub_skin_layout (default 'portal') in the spatial
+  # service vars, and la-compose promotes those inventory vars to FACTS *before* this task. A fact
+  # outranks the role-default auto-expression in defaults/main.yml, so that expression is shadowed
+  # and skin.layout stays 'portal' even when the branding ships the skin. Fix it here, after the
+  # promotion: when the branding provides app/spatial/spatial-layout.gsp, flip a *default* 'portal'
+  # to 'spatial-layout' (leave an explicit 'generic' — or any non-portal value — untouched). This
+  # runs after the fact promotion and before docker-compose.yml is generated, so it wins.
   set_fact:
     spatial_branding_skin_available: "{{ spatial_skin_stat.stat.exists | default(false) }}"
+    spatial_hub_skin_layout: >-
+      {{ 'spatial-layout'
+         if ((spatial_skin_stat.stat.exists | default(false)) and (spatial_hub_skin_layout | default('portal')) == 'portal')
+         else (spatial_hub_skin_layout | default('portal')) }}
   tags:
     - docker-compose
     - spatial-hub
