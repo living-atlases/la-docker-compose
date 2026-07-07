@@ -407,10 +407,24 @@
         - docker-compose
         - deploy
       block:
+        # Normal path: --no-recreate. `docker compose up` is NOT a no-op on an
+        # unchanged redeploy — it recreates any service that depends on a run-once
+        # init container via `service_completed_successfully` (compose re-runs the
+        # exited one-shot on every up, then recreates its dependents), so a plain
+        # `up` tears down and rebuilds live containers (e.g. nginx/collectory) even
+        # when nothing changed: new container IDs + a downtime window on the nginx
+        # rebind. That breaks the non-destructive redeploy contract (TEST_REDEPLOY).
+        # --no-recreate converges the topology (missing services are still created,
+        # stopped ones restarted) while never recreating or stopping an existing
+        # container; config changes are applied out-of-band by config-restart-apply
+        # (graceful nginx reload + selective restart of services whose bind-mounted
+        # config content changed). This matches the production contract, where
+        # enforce-production-safety already forbids docker_force_recreate — a
+        # deliberate full recreate stays available in CI/staging via that flag.
         - name: Start Docker Compose services
           command: >
             docker compose up -d --remove-orphans
-            {{ '--force-recreate' if docker_force_recreate | default(false) | bool else '' }}
+            {{ '--force-recreate' if docker_force_recreate | default(false) | bool else '--no-recreate' }}
           args:
             chdir: "{{ docker_compose_data_dir }}"
           become: true

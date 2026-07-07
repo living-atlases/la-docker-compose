@@ -336,8 +336,10 @@ docker_desktop_workaround: false
 allow_service_removal: false
 
 # Restart services whose bind-mounted config content changed since the last
-# deploy (compose only recreates on service-definition changes, never on
-# mounted-file content). Snapshots live in
+# deploy. The normal-path `docker compose up` runs with --no-recreate (it never
+# recreates a live container), and compose never picks up mounted-file content
+# changes anyway, so this out-of-band restart is what applies regenerated config
+# to already-running services. Snapshots live in
 # {{ docker_compose_data_dir }}/.config-hashes/. nginx is excluded (reload).
 config_change_restart: true
 
