@@ -80,6 +80,37 @@ finish() {   # honest exit under --blocking; report-only otherwise
 af()  { docker exec "$AIRFLOW_CONTAINER" "$@"; }
 afi() { docker exec -i "$AIRFLOW_CONTAINER" "$@"; }
 
+# Dump the Airflow task log(s) for the run's failed task(s). states-for-dag-run only
+# reports state=failed, not *why*; without the actual log the overlay shims (e.g. the
+# EMR add_steps shim) fail opaquely. Best-effort: never let this fail the harness.
+# We only dump tasks whose OWN state is 'failed' (upstream_failed ones are just cascade
+# noise — the real traceback lives in the first task that failed).
+dump_failed_task_logs() {
+  local base tasks t
+  base=$(af airflow config get-value logging base_log_folder 2>/dev/null \
+         | tr -d '\r' | grep -E '^/' | tail -1)
+  base="${base:-${AIRFLOW_HOME:-/opt/airflow}/logs}"
+  tasks=$(af airflow tasks states-for-dag-run "$DAG_ID" "$RUN_ID" -o json 2>/dev/null \
+    | afi python3 -c 'import sys,json,re
+s=sys.stdin.read(); m=re.search(r"\[\s*(?:\{|\])",s)
+d=json.loads(s[m.start():]) if m else []
+print(" ".join(t.get("task_id","") for t in d if t.get("state")=="failed"))' 2>/dev/null || true)
+  if [[ -z "$tasks" ]]; then
+    warn "no 'failed' task found to dump the log of (see the state table above)"
+    return 0
+  fi
+  for t in $tasks; do
+    log "----- log tail for failed task '$t' (run=$RUN_ID) -----"
+    # newest matching *.log across new-style (run_id=…/task_id=…) and legacy
+    # (<DAG>/<task>/<date>) log layouts. GNU find/xargs (present in the airflow image).
+    af bash -lc "find '$base' -type f -name '*.log' \
+        \( -path '*run_id=${RUN_ID}*task_id=${t}*' -o -path '*/${DAG_ID}/${t}/*' \) \
+        -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -1 | cut -d' ' -f2- \
+        | xargs -r tail -n 120" 2>/dev/null \
+      || warn "could not read a log file for task '$t' under $base"
+  done
+}
+
 # --- 0. preconditions ------------------------------------------------------------
 command -v docker >/dev/null || { err "docker not found on this host"; exit 2; }
 for c in "$AIRFLOW_CONTAINER" "$PIPELINES_CONTAINER"; do
@@ -162,6 +193,7 @@ if [[ "$state" != "success" ]]; then
   err "DAG run did not succeed (state='${state:-timeout}') after ${elapsed}s"
   log "task states for this run:"
   af airflow tasks states-for-dag-run "$DAG_ID" "$RUN_ID" 2>/dev/null || true
+  dump_failed_task_logs
   finish 1
 fi
 
