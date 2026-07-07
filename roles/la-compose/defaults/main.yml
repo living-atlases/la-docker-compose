@@ -310,3 +310,43 @@ ssl_key_file: "privkey.pem"
 webserver_nginx: true
 # Suppress warning about undefined nginx_vhost_fragments_to_clear (not needed for docker).
 nginx_vhost_fragments_to_clear_no_warning: true
+
+# ============================================
+# Redeploy safety (production)
+# ============================================
+
+# Environment designation: ci | staging | production. In production,
+# enforce-production-safety.yml fails the deploy if any destructive flag
+# (docker_force_recreate, force_db_init, allow_service_removal,
+# docker_desktop_workaround) is set — the operator must drop the flag, there is
+# no silent override. Set in the inventory ([all:vars] la_env=production).
+la_env: ci
+
+# Remove la_nginx before `compose up`. Only needed on Docker Desktop, whose
+# port-forwarder holds :80/:443 bindings after stop. On Linux hosts (CI VMs,
+# production) nginx must be left running: config changes are applied with a
+# graceful `nginx -s reload` (zero downtime) instead of a container recreate.
+docker_desktop_workaround: false
+
+# `docker compose up --remove-orphans` deletes any running container whose
+# service disappeared from the generated compose (generation bug, SKIP_SERVICES
+# change, incomplete inventory). validate-service-consistency.yml aborts the
+# deploy in that case unless this is explicitly set to true for an intentional
+# service removal.
+allow_service_removal: false
+
+# Restart services whose bind-mounted config content changed since the last
+# deploy (compose only recreates on service-definition changes, never on
+# mounted-file content). Snapshots live in
+# {{ docker_compose_data_dir }}/.config-hashes/. nginx is excluded (reload).
+config_change_restart: true
+
+# Dump MySQL/MongoDB/PostgreSQL (auth users, registry, metadata DBs) before the
+# deploy mutates anything — the container equivalent of ala-install's db-backup
+# role (mysqldump/pg_dump/mongodump invoked before each service role). Enabled
+# by default in production; CI machines are disposable so they skip the cost.
+# Big re-generable datastores (Cassandra/Solr/ES) are NOT dumped.
+pre_deploy_backup: "{{ (la_env | default('ci')) == 'production' }}"
+la_backup_dir: "{{ data_dir }}/backups/pre-deploy"
+# How many timestamped backup sets to keep (older ones are pruned).
+pre_deploy_backup_keep: 7

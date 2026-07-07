@@ -1,0 +1,65 @@
+---
+# Pre-up safety gate against accidental service removal.
+#
+# `docker compose up --remove-orphans` DELETES any running container whose
+# service is no longer in the generated compose file. On CI that is harmless
+# (machines are wiped anyway); on a live/production stack a generation bug, a
+# SKIP_SERVICES change or an incomplete inventory would silently tear a running
+# service down. Compare the services of the running la-compose containers
+# (via the compose 'service' label — authoritative, no name parsing) against the
+# new compose file and abort on any disappearance unless the operator explicitly
+# passes allow_service_removal=true.
+
+- name: "Pre-up: Services defined in the new compose file"
+  command: docker compose config --services
+  args:
+    chdir: "{{ docker_compose_data_dir }}"
+  register: new_compose_services
+  become: true
+  changed_when: false
+  tags: [docker-compose, deploy]
+
+# `compose ps` matches containers by the project label (same resolution as the
+# later `up`), so it also lists services that are no longer in the compose file
+# (the would-be orphans) — exactly the set we need to protect.
+- name: "Pre-up: Services of currently running compose containers"
+  command: docker compose ps --services --status=running
+  args:
+    chdir: "{{ docker_compose_data_dir }}"
+  register: running_compose_services
+  become: true
+  changed_when: false
+  tags: [docker-compose, deploy]
+
+- name: "Pre-up: Compute services that --remove-orphans would delete"
+  set_fact:
+    services_to_be_removed: "{{ running_compose_services.stdout_lines | difference(new_compose_services.stdout_lines) }}"
+  tags: [docker-compose, deploy]
+
+- name: "Pre-up: ABORT — running services missing from the new compose file"
+  fail:
+    msg: |
+      SAFETY GATE: `docker compose up --remove-orphans` would DELETE these
+      currently-running services, which are missing from the newly generated
+      docker-compose.yml:
+
+        {{ services_to_be_removed | join(', ') }}
+
+      Most likely causes: a config-generation bug, a SKIP_SERVICES change, or an
+      incomplete inventory. Fix the generation and re-run.
+
+      If the removal is INTENTIONAL, re-run with:
+        -e allow_service_removal=true
+      (data on external volumes survives; the containers do not)
+  when:
+    - services_to_be_removed | length > 0
+    - not (allow_service_removal | default(false) | bool)
+  tags: [docker-compose, deploy]
+
+- name: "Pre-up: Service removal explicitly allowed — proceeding"
+  debug:
+    msg: "allow_service_removal=true — compose up will remove: {{ services_to_be_removed | join(', ') }}"
+  when:
+    - services_to_be_removed | length > 0
+    - allow_service_removal | default(false) | bool
+  tags: [docker-compose, deploy]

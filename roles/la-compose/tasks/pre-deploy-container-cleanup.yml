@@ -1,0 +1,45 @@
+---
+# Pre-deploy container cleanup — surgical, production-safe.
+#
+# Unhealthy la_* containers keep their health state even when stopped, so
+# `docker compose up` sees them unhealthy immediately; they are already broken,
+# so removing them for a fresh recreate loses nothing.
+#
+# la_nginx is NOT removed on the normal path: killing it takes the whole site
+# down on every redeploy (it is the single entrypoint). Regenerated vhosts are
+# applied with a graceful `nginx -s reload` after `compose up` (see main.yml).
+# The removal only remains as an opt-in Docker Desktop workaround, whose
+# port-forwarder holds :80/:443 bindings after stop (docker_desktop_workaround).
+
+- name: "Pre-deploy: List unhealthy la_* containers"
+  shell: docker ps -a --filter "health=unhealthy" --filter "name=la_" --format '{{ '{{' }}.Names{{ '}}' }}'
+  register: unhealthy_containers
+  become: true
+  changed_when: false
+  tags: [docker-compose, deploy]
+
+- name: "Pre-deploy: Remove unhealthy la_* containers (reset health state; recreated by compose up)"
+  shell: |
+    docker ps -a --filter "health=unhealthy" --filter "name=la_" --format '{{ '{{' }}.Names{{ '}}' }}' \
+      | xargs -r docker rm -f
+  become: true
+  register: unhealthy_removal
+  failed_when: false
+  changed_when: unhealthy_removal.rc == 0
+  when: unhealthy_containers.stdout_lines | length > 0
+  tags: [docker-compose, deploy]
+
+- name: "Pre-deploy: Report removed unhealthy containers"
+  debug:
+    msg: "Removed unhealthy containers (recreated fresh by compose up): {{ unhealthy_containers.stdout_lines | join(', ') }}"
+  when: unhealthy_containers.stdout_lines | length > 0
+  tags: [docker-compose, deploy]
+
+- name: "Pre-deploy: Remove la_nginx (Docker Desktop port-binding workaround only)"
+  command: docker rm -f la_nginx
+  become: true
+  register: nginx_removal
+  failed_when: false
+  changed_when: nginx_removal.rc == 0
+  when: docker_desktop_workaround | default(false) | bool
+  tags: [docker-compose, deploy]

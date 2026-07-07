@@ -823,6 +823,15 @@
   changed_when: false
   tags: [db-init]
 
+# Idempotent check-then-ALTER migrations for databases that already exist —
+# fixes that changed a CREATE statement (e.g. emmet collation, 6646fb6) reach
+# aged/production volumes here instead of "requiring a clean deploy".
+- name: "DB Init: Apply idempotent schema migrations to existing databases"
+  include_tasks: schema-migrations.yml
+  tags:
+    - db-init
+    - db-migrations
+
 - name: "DB Init: Verify database initialization completed successfully"
   include_tasks: validate-db-init.yml
   when: "'cas-servers' in physical_server_groups"

@@ -1,0 +1,108 @@
+---
+# Pre-deploy database backups (container port of ala-install's db-backup role,
+# which runs mysqldump/pg_dump/mongodump BEFORE each service role touches the DB).
+#
+# Runs before init-databases / schema migrations / compose up so a redeploy over
+# an existing production stack always has a restore point for the small,
+# non-regenerable databases: MySQL (emmet/CAS auth users, collectory,
+# specieslists, logger, alerts), MongoDB (CAS ticket registry + OIDC service
+# registrations) and PostgreSQL (images, doi, dataquality, layersdb, geonetwork).
+# Cassandra/Solr/ES are re-generable from source data and far too big — not dumped.
+#
+# Complementary to the la_db-backup compose service (tiredofit/db-backup,
+# infrastructure/db-backup.yml.j2), which takes PERIODIC backups on a schedule:
+# this task guarantees a restore point exactly AT deploy time, before any
+# mutation, regardless of when the last scheduled backup ran.
+#
+# Self-gating: each dump only runs if its la_* container is RUNNING on this host,
+# so a first deploy (nothing running yet) and non-db hosts skip cleanly.
+# A failed dump FAILS the deploy on purpose: no backup, no mutation.
+
+- name: "Pre-deploy backup: timestamp for this backup set"
+  set_fact:
+    backup_ts: "{{ lookup('pipe', 'date -u +%Y%m%dT%H%M%SZ') }}"
+  tags: [pre-deploy-backup]
+
+- name: "Pre-deploy backup: list running database containers on this host"
+  shell: docker ps --filter "status=running" --format '{{ '{{' }}.Names{{ '}}' }}' | grep -E '^la_(mysql|mongodb|postgres)$' || true
+  register: backup_db_containers
+  become: true
+  changed_when: false
+  tags: [pre-deploy-backup]
+
+- name: "Pre-deploy backup: nothing to back up on this host"
+  debug:
+    msg: "No running la_mysql/la_mongodb/la_postgres container here — skipping backups."
+  when: backup_db_containers.stdout_lines | length == 0
+  tags: [pre-deploy-backup]
+
+- name: "Pre-deploy backup: dump databases to {{ la_backup_dir }}/{{ backup_ts }}"
+  when: backup_db_containers.stdout_lines | length > 0
+  become: true
+  tags: [pre-deploy-backup]
+  block:
+    - name: "Pre-deploy backup: ensure backup directory exists (root-only)"
+      file:
+        path: "{{ la_backup_dir }}/{{ backup_ts }}"
+        state: directory
+        mode: "0700"
+        owner: root
+        group: root
+
+    - name: "Pre-deploy backup: dump MySQL (all databases, routines/triggers/events)"
+      shell: >
+        set -o pipefail;
+        docker exec la_mysql mysqldump --all-databases --routines --events --triggers
+        --single-transaction -u root -p{{ mysql_root_password }}
+        | gzip > "{{ la_backup_dir }}/{{ backup_ts }}/mysql-all.sql.gz"
+      args:
+        executable: /bin/bash
+      no_log: true
+      when: "'la_mysql' in backup_db_containers.stdout_lines"
+
+    - name: "Pre-deploy backup: dump MongoDB (archive, gzip)"
+      shell: >
+        set -o pipefail;
+        docker exec la_mongodb mongodump --quiet
+        --username {{ mongodb_root_username }} --password {{ mongodb_root_password }}
+        --authenticationDatabase admin --archive --gzip
+        > "{{ la_backup_dir }}/{{ backup_ts }}/mongodb.archive.gz"
+      args:
+        executable: /bin/bash
+      no_log: true
+      when: "'la_mongodb' in backup_db_containers.stdout_lines"
+
+    - name: "Pre-deploy backup: dump PostgreSQL (pg_dumpall: roles + all databases)"
+      shell: >
+        set -o pipefail;
+        docker exec -u postgres la_postgres pg_dumpall
+        | gzip > "{{ la_backup_dir }}/{{ backup_ts }}/postgres-all.sql.gz"
+      args:
+        executable: /bin/bash
+      when: "'la_postgres' in backup_db_containers.stdout_lines"
+
+    - name: "Pre-deploy backup: verify dumps are non-empty"
+      shell: |
+        set -e
+        for f in "{{ la_backup_dir }}/{{ backup_ts }}"/*.gz; do
+          [ -s "$f" ] || { echo "EMPTY BACKUP: $f"; exit 1; }
+          gzip -t "$f" || { echo "CORRUPT BACKUP: $f"; exit 1; }
+        done
+        ls -lh "{{ la_backup_dir }}/{{ backup_ts }}"
+      register: backup_verify
+      changed_when: false
+
+    - name: "Pre-deploy backup: report"
+      debug:
+        msg: "{{ backup_verify.stdout_lines }}"
+
+    # Retention: keep the newest pre_deploy_backup_keep sets. Only directories
+    # matching our own timestamp pattern inside la_backup_dir are candidates —
+    # nothing else is ever touched.
+    - name: "Pre-deploy backup: prune backup sets beyond retention ({{ pre_deploy_backup_keep }})"
+      shell: |
+        cd "{{ la_backup_dir }}"
+        ls -1d [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z 2>/dev/null \
+          | sort -r | tail -n +{{ (pre_deploy_backup_keep | int) + 1 }} | xargs -r rm -rf --
+      register: backup_prune
+      changed_when: backup_prune.stdout != ""

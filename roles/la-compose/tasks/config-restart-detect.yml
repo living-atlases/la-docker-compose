@@ -1,0 +1,107 @@
+---
+# Config-change detection (phase 1 of 2 — see config-restart-apply.yml).
+#
+# Service configs are bind-mounted files; `docker compose up -d` only recreates
+# a container when its *service definition* changes, never when the *content*
+# of a mounted file does. So without this, a redeploy that regenerates
+# properties/yml files leaves services running with stale config (the old fix
+# was to force-remove containers — full downtime). Here we hash each service's
+# config tree and compare against the snapshot of the previous deploy
+# ({{ docker_compose_data_dir }}/.config-hashes); services whose hash changed
+# are gracefully restarted AFTER compose up (apply phase). nginx is excluded:
+# its config is applied with `nginx -s reload` (zero downtime).
+#
+# First deploy (no snapshot): nothing restarts — the containers just started
+# with the current config; the snapshot is written by the apply phase.
+
+- name: "Config-change: build the watch list (enabled services with bind-mounted config)"
+  set_fact:
+    # svc: services_enabled key (per-host gating) / service: compose service name
+    # (container la_<service>) / path: host config dir the container mounts.
+    config_watch: >-
+      {{
+        [
+          { 'svc': 'cas',                  'service': 'cas',                         'path': data_dir ~ '/cas/config' },
+          { 'svc': 'userdetails',          'service': 'userdetails',                 'path': data_dir ~ '/userdetails/config' },
+          { 'svc': 'apikey',               'service': 'apikey',                      'path': data_dir ~ '/apikey/config' },
+          { 'svc': 'cas_management',       'service': 'cas-management',              'path': data_dir ~ '/cas-management/config' },
+          { 'svc': 'collectory',           'service': 'collectory',                  'path': (collectory_data_dir | default(data_dir ~ '/collectory')) ~ '/config' },
+          { 'svc': 'species_lists',        'service': 'species-list',                'path': data_dir ~ '/specieslist-webapp/config' },
+          { 'svc': 'ala_bie',              'service': 'bie-hub',                     'path': data_dir ~ '/ala-bie-hub/config' },
+          { 'svc': 'bie_index',            'service': 'bie-index',                   'path': data_dir ~ '/bie-index/config' },
+          { 'svc': 'ala_hub',              'service': 'biocache-hub',                'path': data_dir ~ '/' ~ (biocache_hub | default('ala-hub')) ~ '/config' },
+          { 'svc': 'biocache_service',     'service': 'biocache-service',            'path': data_dir ~ '/biocache/config' },
+          { 'svc': 'logger',               'service': 'logger-service',              'path': data_dir ~ '/logger/config' },
+          { 'svc': 'images',               'service': 'image-service',               'path': data_dir ~ '/image-service/config' },
+          { 'svc': 'namematchingService',  'service': 'namematching-service',        'path': data_dir ~ '/ala-namematching-server/config' },
+          { 'svc': 'sensitiveDataService', 'service': 'sensitive-data-service',      'path': data_dir ~ '/ala-sensitive-data-server/config' },
+          { 'svc': 'alerts',               'service': 'alerts',                      'path': data_dir ~ '/alerts/config' },
+          { 'svc': 'regions',              'service': 'regions',                     'path': data_dir ~ '/regions/config' },
+          { 'svc': 'doi',                  'service': 'doi-service',                 'path': data_dir ~ '/doi-service/config' },
+          { 'svc': 'dataQuality',          'service': 'data-quality-filter-service', 'path': data_dir ~ '/data-quality-filter-service/config' },
+          { 'svc': 'spatial',              'service': 'spatial-hub',                 'path': data_dir ~ '/spatial-hub/config' },
+          { 'svc': 'spatial_service',      'service': 'spatial-service',             'path': data_dir ~ '/spatial-service/config' },
+          { 'svc': 'ecodata',              'service': 'ecodata',                     'path': data_dir ~ '/ecodata/config' },
+          { 'svc': 'biocollect',           'service': 'biocollect',                  'path': data_dir ~ '/biocollect/config' },
+        ] | selectattr('svc', 'in', services_enabled) | list
+      }}
+  tags: [docker-compose, deploy, config-restart]
+
+# One line per service: "<service> <sha256-of-config-tree>". The hash covers
+# file paths AND content (sha256sum lines are themselves hashed), so renames,
+# additions and deletions all count as a change. Missing dirs are skipped.
+- name: "Config-change: hash current config trees"
+  shell: |
+    while read -r svc dir; do
+      [ -d "$dir" ] || continue
+      h=$(find "$dir" -type f -print0 | sort -z | xargs -0 -r sha256sum | sha256sum | awk '{print $1}')
+      printf '%s %s\n' "$svc" "$h"
+    done <<'WATCHLIST'
+    {% for e in config_watch %}
+    {{ e.service }} {{ e.path }}
+    {% endfor %}
+    WATCHLIST
+  args:
+    executable: /bin/bash
+  register: config_hashes_now
+  become: true
+  changed_when: false
+  tags: [docker-compose, deploy, config-restart]
+
+- name: "Config-change: read previous snapshot (if any)"
+  shell: cat "{{ docker_compose_data_dir }}/.config-hashes" 2>/dev/null || true
+  register: config_hashes_prev
+  become: true
+  changed_when: false
+  tags: [docker-compose, deploy, config-restart]
+
+# Changed = present in the previous snapshot with a different hash. Services
+# without a baseline are NOT restarted (fresh containers already carry the
+# current config); their hash simply enters the snapshot.
+- name: "Config-change: index the previous snapshot"
+  set_fact:
+    _config_prev_hashes: "{{ dict(config_hashes_prev.stdout_lines | map('split', ' ', 1)) }}"
+    config_changed_services: []
+    # Containers started after this moment were (re)created by compose up itself
+    # and must not be restarted again (double warmup).
+    config_preup_epoch: "{{ ansible_date_time.epoch | default(lookup('pipe', 'date +%s')) }}"
+  tags: [docker-compose, deploy, config-restart]
+
+- name: "Config-change: compute services whose config changed since last deploy"
+  set_fact:
+    config_changed_services: "{{ config_changed_services + [item.split(' ', 1) | first] }}"
+  loop: "{{ config_hashes_now.stdout_lines }}"
+  loop_control:
+    label: "{{ item.split(' ', 1) | first }}"
+  when:
+    - (item.split(' ', 1) | first) in _config_prev_hashes
+    - _config_prev_hashes[item.split(' ', 1) | first] != (item.split(' ', 1) | last)
+  tags: [docker-compose, deploy, config-restart]
+
+- name: "Config-change: report"
+  debug:
+    msg: >-
+      {{ 'Config changed for: ' ~ (config_changed_services | join(', ')) ~ ' — will restart after compose up.'
+         if config_changed_services | length > 0
+         else 'No bind-mounted config changes detected.' }}
+  tags: [docker-compose, deploy, config-restart]

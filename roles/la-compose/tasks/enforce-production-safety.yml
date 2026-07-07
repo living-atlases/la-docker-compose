@@ -1,0 +1,43 @@
+---
+# Production safety gate.
+#
+# The deploy is designed to be re-runnable against a live stack (idempotent
+# inits, external volumes, selective restarts). The remaining destructive
+# behaviours all hide behind explicit flags — this gate makes sure none of them
+# can reach a production inventory ([all:vars] la_env=production): the run
+# FAILS with the offending flags listed. No silent overrides: the operator must
+# consciously drop the flag (or, for a truly intentional destructive action,
+# temporarily change la_env — leaving an audit trail in the inventory).
+
+- name: "Safety: report deployment environment"
+  debug:
+    msg: "la_env={{ la_env | default('ci') }}{{ ' — production safety gate ACTIVE' if (la_env | default('ci')) == 'production' else '' }}"
+  tags: [always, safety]
+
+- name: "Safety: refuse destructive flags in production"
+  fail:
+    msg: |
+      PRODUCTION SAFETY GATE: la_env=production forbids destructive flags, and
+      the following are set:
+      {% if docker_force_recreate | default(false) | bool %}
+        - docker_force_recreate=true  (compose down + full recreate: full-site downtime)
+      {% endif %}
+      {% if force_db_init | default(false) | bool %}
+        - force_db_init=true          (re-runs DB provisioning against live databases)
+      {% endif %}
+      {% if allow_service_removal | default(false) | bool %}
+        - allow_service_removal=true  (lets --remove-orphans delete running services)
+      {% endif %}
+      {% if docker_desktop_workaround | default(false) | bool %}
+        - docker_desktop_workaround=true (force-removes la_nginx: full-site downtime)
+      {% endif %}
+
+      Drop the flag(s) and re-run. If the destructive action is truly intended,
+      run it manually and consciously outside the production-gated deploy.
+  when:
+    - (la_env | default('ci')) == 'production'
+    - (docker_force_recreate | default(false) | bool)
+      or (force_db_init | default(false) | bool)
+      or (allow_service_removal | default(false) | bool)
+      or (docker_desktop_workaround | default(false) | bool)
+  tags: [always, safety]

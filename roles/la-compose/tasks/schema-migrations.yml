@@ -1,0 +1,80 @@
+---
+# Idempotent schema migrations for EXISTING databases.
+#
+# The init-databases tasks are create-if-missing (`CREATE ... IF NOT EXISTS`),
+# so a fix that changes how an object is CREATED never reaches a database that
+# already exists — historically those fixes "required a clean deploy", which is
+# not an option in production. This file is the redeploy-safe alternative:
+#
+#   Pattern per migration: SELECT the current state -> apply ALTER only when it
+#   differs -> report honestly (changed only when something was altered).
+#   Never DROP/DELETE. Safe to re-run forever.
+#
+# Add new migrations at the end, with a comment naming the original commit/bug.
+
+# --- Migration 1: emmet (CAS user store) collation -------------------------
+# 6646fb6 fixed MySQL error 1267 (stored procedures created with the server
+# default utf8mb4_0900_ai_ci vs tables in utf8mb4_unicode_ci) by adding COLLATE
+# to CREATE DATABASE — which only helps fresh volumes. Bring aged databases to
+# the same state: fix the database default AND convert any table left behind
+# on the old collation (emmet is small; the conversion is quick).
+
+- name: "DB Migration: emmet — check current database default collation"
+  command: >
+    docker exec la_mysql mysql -N -u root -p{{ mysql_root_password }}
+    -e "SELECT DEFAULT_COLLATION_NAME FROM information_schema.SCHEMATA
+        WHERE SCHEMA_NAME='{{ cas_db_name | default('emmet') }}';"
+  register: emmet_db_collation
+  become: true
+  changed_when: false
+  no_log: true
+  when: "'mysql' in db_compose_services.stdout_lines"
+  tags: [db-init, db-migrations]
+
+- name: "DB Migration: emmet — set database default collation to utf8mb4_unicode_ci"
+  command: >
+    docker exec la_mysql mysql -u root -p{{ mysql_root_password }}
+    -e "ALTER DATABASE {{ cas_db_name | default('emmet') }}
+        CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+  become: true
+  no_log: true
+  when:
+    - "'mysql' in db_compose_services.stdout_lines"
+    - (emmet_db_collation.stdout | default('') | trim) not in ('', 'utf8mb4_unicode_ci')
+  tags: [db-init, db-migrations]
+
+- name: "DB Migration: emmet — list tables on a different collation"
+  command: >
+    docker exec la_mysql mysql -N -u root -p{{ mysql_root_password }}
+    -e "SELECT TABLE_NAME FROM information_schema.TABLES
+        WHERE TABLE_SCHEMA='{{ cas_db_name | default('emmet') }}'
+          AND TABLE_TYPE='BASE TABLE'
+          AND TABLE_COLLATION IS NOT NULL
+          AND TABLE_COLLATION <> 'utf8mb4_unicode_ci';"
+  register: emmet_bad_tables
+  become: true
+  changed_when: false
+  no_log: true
+  when: "'mysql' in db_compose_services.stdout_lines"
+  tags: [db-init, db-migrations]
+
+- name: "DB Migration: emmet — convert stray tables to utf8mb4_unicode_ci"
+  command: >
+    docker exec la_mysql mysql -u root -p{{ mysql_root_password }}
+    -e "ALTER TABLE {{ cas_db_name | default('emmet') }}.{{ item }}
+        CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+  loop: "{{ emmet_bad_tables.stdout_lines | default([]) }}"
+  become: true
+  no_log: true
+  when: "'mysql' in db_compose_services.stdout_lines"
+  tags: [db-init, db-migrations]
+
+- name: "DB Migration: emmet collation — report"
+  debug:
+    msg: >-
+      emmet collation: db default was
+      '{{ emmet_db_collation.stdout | default('n/a') | trim }}'
+      ({{ 'fixed' if (emmet_db_collation.stdout | default('') | trim) not in ('', 'utf8mb4_unicode_ci') else 'ok' }});
+      tables converted: {{ emmet_bad_tables.stdout_lines | default([]) | length }}
+  when: "'mysql' in db_compose_services.stdout_lines"
+  tags: [db-init, db-migrations]

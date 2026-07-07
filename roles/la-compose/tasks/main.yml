@@ -94,6 +94,14 @@
         - always
         - docker-compose
 
+    # Fails fast if a destructive flag reaches a production inventory
+    # (la_env=production). See enforce-production-safety.yml.
+    - name: "LAYER 0: Production safety gate"
+      include_tasks: enforce-production-safety.yml
+      tags:
+        - always
+        - safety
+
     - name: Load variables from collectory role if present on this server
       include_vars:
         file: "{{ playbook_dir }}/../ala-install/ansible/roles/collectory/vars/main.yml"
@@ -300,6 +308,19 @@
         - pre-deploy
       register: pre_deploy_result
 
+    # Dump MySQL/Mongo/Postgres before anything mutates (container port of
+    # ala-install's db-backup role). Default: on in production (la_env), off in
+    # CI. Self-gating per host: only dumps datastores actually running here.
+    - name: "Pre-deploy: Backup existing databases (production restore point)"
+      include_tasks: pre-deploy-backup.yml
+      when:
+        - auto_deploy | default(true) | bool
+        - pre_deploy_backup | default(false) | bool
+      tags:
+        - docker-compose
+        - deploy
+        - pre-deploy-backup
+
     - name: Clean up existing containers and networks before redeployment
       block:
         - name: Remove Docker Compose state metadata files
@@ -342,19 +363,33 @@
         - deploy
         - db-init
 
-    # Containers that are unhealthy preserve that state even when stopped, so
-    # `docker compose up` sees them as unhealthy immediately and fails. Remove all
-    # la_* containers in unhealthy state before up so compose recreates them fresh.
-    # Also removes la_nginx explicitly to release :80/:443 (Docker Desktop port-forwarder
-    # holds bindings after stop).
-    - name: "Pre-deploy: Remove unhealthy la_* containers and nginx (reset health state)"
-      shell: |
-        docker rm -f la_nginx 2>/dev/null || true
-        docker ps -a --filter "health=unhealthy" --filter "name=la_" --format "{{ '{{' }}.Names{{ '}}' }}" | xargs -r docker rm -f
-      become: true
-      register: nginx_stop
-      failed_when: false
-      changed_when: nginx_stop.rc == 0
+    # Surgical cleanup: remove only unhealthy la_* containers (already broken;
+    # compose up recreates them fresh). la_nginx is left running — regenerated
+    # vhosts are applied with a graceful reload in config-restart-apply.yml, so
+    # a redeploy no longer takes the whole site down. The old force-remove
+    # survives as an opt-in Docker Desktop workaround (docker_desktop_workaround).
+    - name: "Pre-deploy: Clean unhealthy la_* containers (surgical, production-safe)"
+      include_tasks: pre-deploy-container-cleanup.yml
+      when: auto_deploy | default(true) | bool
+      tags:
+        - docker-compose
+        - deploy
+
+    # Detect services whose bind-mounted config content changed since the last
+    # deploy (compose up alone never picks that up); they are restarted after
+    # the up in config-restart-apply.yml.
+    - name: "Pre-deploy: Detect bind-mounted config changes"
+      include_tasks: config-restart-detect.yml
+      when: auto_deploy | default(true) | bool
+      tags:
+        - docker-compose
+        - deploy
+        - config-restart
+
+    # Abort if `up --remove-orphans` would delete a running service that
+    # disappeared from the generated compose (generation bug / SKIP_SERVICES).
+    - name: "Pre-up: Validate service consistency (no accidental removals)"
+      include_tasks: validate-service-consistency.yml
       when: auto_deploy | default(true) | bool
       tags:
         - docker-compose
@@ -462,6 +497,17 @@
               docker compose up failed. See /tmp/la-docker-deploy-failure.log for full diagnostic.
               First root-cause line(s):
               {{ deploy_failure_diag.stdout | default('(no root-cause line matched — read full log)') }}
+
+    # Apply config changes without downtime: graceful nginx reload (regenerated
+    # vhosts) + restart of only the services whose bind-mounted config changed
+    # (detected pre-up); persists the new hash snapshot.
+    - name: "Post-up: Apply config changes (nginx reload + selective restarts)"
+      include_tasks: config-restart-apply.yml
+      when: auto_deploy | default(true) | bool
+      tags:
+        - docker-compose
+        - deploy
+        - config-restart
 
     # NO-AWS overlay (opt-in via use_airflow). Brought up as its OWN compose project
     # joined to the stack network (la_internal), AFTER the stack so la_pipelines + the

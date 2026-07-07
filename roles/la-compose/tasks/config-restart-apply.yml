@@ -1,0 +1,87 @@
+---
+# Config-change apply (phase 2 of 2 — see config-restart-detect.yml).
+# Runs right after `docker compose up` succeeded:
+#   1. nginx: validate the regenerated config (nginx -t) and apply it with a
+#      graceful reload — zero downtime, replaces the old force-remove approach.
+#   2. Restart only the services whose bind-mounted config content changed,
+#      skipping any container compose up already (re)created in this run.
+#   3. Persist the new hash snapshot (only after a successful up, so a failed
+#      deploy leaves the old baseline in place and the restart re-triggers).
+
+- name: "Config-apply: is la_nginx running?"
+  shell: docker ps --filter "name=^la_nginx$" --filter "status=running" -q
+  register: nginx_running
+  become: true
+  changed_when: false
+  tags: [docker-compose, deploy, config-restart]
+
+- name: "Config-apply: validate regenerated nginx config (nginx -t)"
+  command: docker exec la_nginx nginx -t
+  register: nginx_config_test
+  become: true
+  changed_when: false
+  failed_when: false
+  when: nginx_running.stdout != ""
+  tags: [docker-compose, deploy, config-restart]
+
+- name: "Config-apply: ABORT — regenerated nginx config is invalid"
+  fail:
+    msg: |
+      `nginx -t` rejected the regenerated configuration — NOT reloading (the
+      running nginx keeps serving the previous config; the site stays up).
+      Fix the vhost generation and re-run.
+      {{ nginx_config_test.stderr | default('') }}
+  when:
+    - nginx_running.stdout != ""
+    - nginx_config_test.rc != 0
+  tags: [docker-compose, deploy, config-restart]
+
+- name: "Config-apply: graceful nginx reload (applies regenerated vhosts, zero downtime)"
+  command: docker exec la_nginx nginx -s reload
+  become: true
+  when:
+    - nginx_running.stdout != ""
+    - nginx_config_test.rc == 0
+  tags: [docker-compose, deploy, config-restart]
+
+# Restart changed services one task-iteration at a time. Guard per service:
+# skip if the container is gone (nothing to restart) or was started after the
+# pre-up timestamp (compose up already recreated it with the new config).
+- name: "Config-apply: restart services whose config changed"
+  shell: |
+    started=$(docker inspect -f '{{ '{{' }}.State.StartedAt{{ '}}' }}' "la_{{ item }}" 2>/dev/null) || {
+      echo "SKIP no-container"; exit 0; }
+    started_epoch=$(date -d "$started" +%s)
+    if [ "$started_epoch" -gt "{{ config_preup_epoch }}" ]; then
+      echo "SKIP recreated-by-compose-up"; exit 0
+    fi
+    docker compose restart "{{ item }}"
+    echo "RESTARTED"
+  args:
+    chdir: "{{ docker_compose_data_dir }}"
+    executable: /bin/bash
+  loop: "{{ config_changed_services | default([]) }}"
+  register: config_restart_result
+  become: true
+  changed_when: "'RESTARTED' in config_restart_result.stdout"
+  when: config_change_restart | default(true) | bool
+  tags: [docker-compose, deploy, config-restart]
+
+- name: "Config-apply: report restarts"
+  debug:
+    msg: >-
+      {{ config_restart_result.results
+         | map(attribute='item') | zip(config_restart_result.results | map(attribute='stdout'))
+         | map('join', ': ') | list }}
+  when:
+    - config_change_restart | default(true) | bool
+    - config_changed_services | default([]) | length > 0
+  tags: [docker-compose, deploy, config-restart]
+
+- name: "Config-apply: persist the new config-hash snapshot"
+  copy:
+    content: "{{ config_hashes_now.stdout }}\n"
+    dest: "{{ docker_compose_data_dir }}/.config-hashes"
+    mode: "0644"
+  become: true
+  tags: [docker-compose, deploy, config-restart]

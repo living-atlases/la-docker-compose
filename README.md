@@ -261,6 +261,45 @@ inventory / `*-local-extras.ini`: `<service>_max_memory` (default `2g` → `-Xmx
 
 ---
 
+## Production redeploys (non-destructive contract)
+
+Re-running the deploy (`ansiblew` / `site.yml`) over a **live** stack is designed
+to be safe: it must destroy nothing, apply configuration changes, and keep
+services up. The pieces that enforce this (all in `roles/la-compose/`):
+
+- **Data**: DB volumes are external and never removed; DB/Solr/CAS inits are
+  create-if-missing; `tasks/schema-migrations.yml` applies check-then-`ALTER`
+  migrations to *existing* databases (so CREATE-time fixes reach aged volumes
+  without a clean deploy).
+- **Backups**: `tasks/pre-deploy-backup.yml` dumps MySQL/MongoDB/PostgreSQL via
+  `docker exec` *before* anything mutates (the container port of ala-install's
+  `db-backup` role; complements the scheduled `la_db-backup` container).
+  Default on when `la_env=production`; a failed dump aborts the deploy.
+- **Uptime**: `la_nginx` is never force-removed on the normal path — regenerated
+  vhosts are applied with `nginx -t` + graceful reload; only *unhealthy*
+  containers are recreated; services whose bind-mounted config content changed
+  are selectively restarted (`tasks/config-restart-detect.yml` / `-apply.yml`).
+- **Guard rails**: `tasks/validate-service-consistency.yml` aborts if
+  `up --remove-orphans` would delete a running service that vanished from the
+  generated compose (override: `-e allow_service_removal=true`). With
+  `la_env=production` in the inventory, destructive flags
+  (`docker_force_recreate`, `force_db_init`, `allow_service_removal`,
+  `docker_desktop_workaround`) fail the run before anything is touched.
+
+Key variables (see `roles/la-compose/defaults/main.yml`): `la_env` (`ci` |
+`staging` | `production`), `pre_deploy_backup`, `la_backup_dir`,
+`pre_deploy_backup_keep`, `config_change_restart`, `allow_service_removal`,
+`docker_desktop_workaround`.
+
+The Jenkins parameter `TEST_REDEPLOY` verifies the contract end-to-end: after a
+green deploy it seeds canary data, probes nginx availability every second,
+re-runs the playbooks without cleaning, and fails the build on any data loss,
+nginx downtime, or spurious container recreation. The CI-only destructive
+stages (`CLEAN_MACHINE`, nuclear Docker cleanup) additionally refuse hosts not
+matching `CLEAN_HOSTS_ALLOW_REGEX`.
+
+---
+
 ## Testing & local development
 
 > **Automation-only rule.** Every change to the Docker stack must go through
