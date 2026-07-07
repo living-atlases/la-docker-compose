@@ -3079,6 +3079,25 @@
     - data-quality
     - docker-compose
 
+# Re-assert the skin.layout flip immediately before rendering spatial-hub.yml. The flip runs
+# earlier (before the spatial-hub CONFIG render) but a later spatial-cluster bulk-load
+# (spatial-service / geoserver / geonetwork share the alias context) re-promotes the inventory
+# spatial_hub_skin_layout=portal as a fact — which would make THIS compose template (it gates
+# la_spatial-skin-init + the /data/spatial-hub/views mount on == 'spatial-layout') disagree with
+# the already-rendered config (skin.layout=spatial-layout): the config asks for the decorator but
+# the layout gsp is never staged/mounted → SiteMesh can't decorate → unstyled page. Re-flip here so
+# config and compose agree. Idempotent; reuses the earlier delegated spatial_skin_stat.
+- name: Re-assert Spatial skin layout before compose render (a later bulk-load may have reverted it)
+  set_fact:
+    spatial_hub_skin_layout: >-
+      {{ 'spatial-layout'
+         if ((spatial_skin_stat.stat.exists | default(false)) and (spatial_hub_skin_layout | default('portal')) == 'portal')
+         else (spatial_hub_skin_layout | default('portal')) }}
+  when: "'spatial' in services_enabled"
+  tags:
+    - spatial-hub
+    - docker-compose
+
 - name: Generate spatial-hub.yml
   template:
     src: docker-compose/services/spatial-hub.yml.j2
