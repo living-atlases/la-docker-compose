@@ -1646,6 +1646,19 @@
       {{ 'spatial-layout'
          if ((spatial_skin_stat.stat.exists | default(false)) and (spatial_hub_skin_layout | default('portal')) == 'portal')
          else (spatial_hub_skin_layout | default('portal')) }}
+    # Single source of truth for every COMPOSE template that gates on the skin
+    # (base.yml.j2's wait-for-branding include + spatial-hub.yml.j2's
+    # spatial-skin-init/depends_on/views mount). spatial_hub_skin_layout is an
+    # INVENTORY var, so any later bulk-load re-promotes 'portal' over the flip
+    # and templates rendered at different points disagree — CI #284/#285:
+    # base.yml rendered WITHOUT wait-for-branding while spatial-hub.yml rendered
+    # spatial-skin-init depending on it -> "depends on undefined service":
+    # invalid compose project -> every compose command on the spatial host dies.
+    # This name does NOT exist in inventories, so no bulk-load can clobber it.
+    spatial_skin_active: >-
+      {{ (use_branding | default(false) | bool)
+         and ( ((spatial_skin_stat.stat.exists | default(false)) and (spatial_hub_skin_layout | default('portal')) == 'portal')
+               or (spatial_hub_skin_layout | default('portal')) == 'spatial-layout' ) }}
   tags:
     - docker-compose
     - spatial-hub
@@ -2158,7 +2171,9 @@
   run_once: true
   when:
     - "'branding' in services_to_build"
-    - (spatial_hub_skin_layout | default('portal')) == 'spatial-layout'
+    # spatial_skin_active (not the layout var): bulk-loads re-promote the inventory
+    # 'portal' over the flipped fact, which would silently skip this guard.
+    - spatial_skin_active | default(false) | bool
   tags:
     - branding
     - spatial-hub
@@ -2174,7 +2189,7 @@
       header_and_footer_baseurl).
   when:
     - "'branding' in services_to_build"
-    - (spatial_hub_skin_layout | default('portal')) == 'spatial-layout'
+    - spatial_skin_active | default(false) | bool
     - not (spatial_skin_gsp.stat.exists | default(false))
   tags:
     - branding
