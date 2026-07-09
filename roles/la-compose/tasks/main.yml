@@ -363,11 +363,13 @@
         - deploy
         - db-init
 
-    # Surgical cleanup: remove only unhealthy la_* containers (already broken;
-    # compose up recreates them fresh). la_nginx is left running — regenerated
-    # vhosts are applied with a graceful reload in config-restart-apply.yml, so
-    # a redeploy no longer takes the whole site down. The old force-remove
-    # survives as an opt-in Docker Desktop workaround (docker_desktop_workaround).
+    # Surgical cleanup: restart only unhealthy la_* containers (a restart
+    # resets the sticky health state just like a recreate, but keeps the
+    # container + ID — no redeploy-time churn from flapping OIDC healthchecks).
+    # la_nginx is left running — regenerated vhosts are applied with a graceful
+    # reload in config-restart-apply.yml, so a redeploy no longer takes the
+    # whole site down. The old force-remove survives as an opt-in Docker
+    # Desktop workaround (docker_desktop_workaround).
     - name: "Pre-deploy: Clean unhealthy la_* containers (surgical, production-safe)"
       include_tasks: pre-deploy-container-cleanup.yml
       when: auto_deploy | default(true) | bool

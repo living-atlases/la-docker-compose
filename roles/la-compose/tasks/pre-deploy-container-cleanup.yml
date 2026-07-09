@@ -2,10 +2,17 @@
 # Pre-deploy container cleanup — surgical, production-safe.
 #
 # Unhealthy la_* containers keep their health state even when stopped, so
-# `docker compose up` sees them unhealthy immediately; they are already broken,
-# so removing them for a fresh recreate loses nothing.
+# `docker compose up` sees them unhealthy immediately. A `docker restart`
+# clears that state exactly like a remove+recreate does (health goes back to
+# 'starting' and probes re-run), but PRESERVES the container and its ID — so a
+# redeploy never destroys a container just because its healthcheck was flapping
+# at that moment (e.g. the OIDC-route healthchecks of logger/data-quality going
+# 500 while CAS warms up). CI #287: the old `rm -f` here recreated
+# la_logger-service mid-redeploy and tripped the hot-redeploy container-ID
+# assertion. If the restart doesn't cure it, the post-deploy converge rounds
+# retry, and the health gate stays honest.
 #
-# la_nginx is NOT removed on the normal path: killing it takes the whole site
+# la_nginx is NOT touched on the normal path: killing it takes the whole site
 # down on every redeploy (it is the single entrypoint). Regenerated vhosts are
 # applied with a graceful `nginx -s reload` after `compose up` (see main.yml).
 # The removal only remains as an opt-in Docker Desktop workaround, whose
@@ -18,20 +25,20 @@
   changed_when: false
   tags: [docker-compose, deploy]
 
-- name: "Pre-deploy: Remove unhealthy la_* containers (reset health state; recreated by compose up)"
+- name: "Pre-deploy: Restart unhealthy la_* containers (resets health state, keeps container + ID)"
   shell: |
     docker ps -a --filter "health=unhealthy" --filter "name=la_" --format '{{ '{{' }}.Names{{ '}}' }}' \
-      | xargs -r docker rm -f
+      | xargs -r docker restart
   become: true
-  register: unhealthy_removal
+  register: unhealthy_restart
   failed_when: false
-  changed_when: unhealthy_removal.rc == 0
+  changed_when: unhealthy_restart.rc == 0
   when: unhealthy_containers.stdout_lines | length > 0
   tags: [docker-compose, deploy]
 
-- name: "Pre-deploy: Report removed unhealthy containers"
+- name: "Pre-deploy: Report restarted unhealthy containers"
   debug:
-    msg: "Removed unhealthy containers (recreated fresh by compose up): {{ unhealthy_containers.stdout_lines | join(', ') }}"
+    msg: "Restarted unhealthy containers (health state reset, IDs preserved): {{ unhealthy_containers.stdout_lines | join(', ') }}"
   when: unhealthy_containers.stdout_lines | length > 0
   tags: [docker-compose, deploy]
 
