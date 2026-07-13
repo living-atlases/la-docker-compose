@@ -27,8 +27,11 @@ pipeline {
     }
 
     environment {
-        // TARGET_HOSTS can be overridden in Jenkins job
-        TARGET_HOSTS = "gbif-es-docker-cluster-2023-1 gbif-es-docker-cluster-2023-2 gbif-es-docker-cluster-2023-3"
+        // Effective TARGET_HOSTS is resolved in the 'Resolve topology' stage
+        // (declarative environment{} vars cannot be reassigned from script, so the
+        // default lives under a different name). A job-level TARGET_HOSTS env
+        // override still wins.
+        DEFAULT_TARGET_HOSTS = "gbif-es-docker-cluster-2023-1 gbif-es-docker-cluster-2023-2 gbif-es-docker-cluster-2023-3"
 
         BASE_DIR = "${env.HOME}/ala-install-docker-tests"
         GENERATOR_DIR = "${BASE_DIR}/generator-living-atlas"
@@ -59,6 +62,11 @@ pipeline {
             name: 'ONLY_CLEAN',
             defaultValue: false,
             description: 'Only clean machines and stop'
+        )
+        choice(
+            name: 'TOPOLOGY',
+            choices: ['default', '3host-alt', '2host', '1host'],
+            description: 'Deployment topology. default = the la-toolkit-synced layout (current 3-host split, untouched). Any other value applies topologies/<name>.placement.json over the agent\'s .yo-rc (backed up and restored on the next default build), trims TARGET_HOSTS to the variant\'s host count and merges its skip_services. MANUAL BUILDS ONLY — SCM-triggered builds refuse non-default topologies. Remember to point the external front proxy per topologies/README.md (scripts/apply-topology.py proxy-map) before/after.'
         )
         string(
             name: 'GENERATOR_BRANCH',
@@ -119,6 +127,44 @@ pipeline {
     }
 
     stages {
+        // Resolve TOPOLOGY before anything destructive: trims TARGET_HOSTS to the
+        // variant's host count (unused VMs are never cleaned nor deployed to) and
+        // exposes the variant's skip_services for the deploy stages. Non-default
+        // topologies are gated to MANUAL builds so a plain push can never redeploy
+        // the cluster with an alternative layout.
+        stage('Resolve topology') {
+            steps {
+                script {
+                    def topo = params.TOPOLOGY ?: 'default'
+                    env.TOPOLOGY_SKIP_SERVICES = ''
+                    if (!env.TARGET_HOSTS?.trim()) {
+                        env.TARGET_HOSTS = env.DEFAULT_TARGET_HOSTS
+                    }
+                    if (topo != 'default') {
+                        if (currentBuild.getBuildCauses('hudson.triggers.SCMTrigger$SCMTriggerCause')) {
+                            error("SAFETY: TOPOLOGY=${topo} is only allowed on manually triggered builds — an SCM-triggered build must deploy the default topology.")
+                        }
+                        def placementFile = "topologies/${topo}.placement.json"
+                        if (!fileExists(placementFile)) {
+                            error("TOPOLOGY=${topo}: ${placementFile} not found")
+                        }
+                        def allHosts = env.TARGET_HOSTS.trim().split(/\s+/)
+                        def hostCount = sh(returnStdout: true,
+                            script: "python3 -c \"import json; print(len(json.load(open('${placementFile}'))['hosts']))\"").trim().toInteger()
+                        if (hostCount > allHosts.size()) {
+                            error("TOPOLOGY=${topo} needs ${hostCount} hosts but TARGET_HOSTS only has ${allHosts.size()}")
+                        }
+                        env.TARGET_HOSTS = allHosts.take(hostCount).join(' ')
+                        env.TOPOLOGY_SKIP_SERVICES = sh(returnStdout: true,
+                            script: "python3 -c \"import json; print(','.join(json.load(open('${placementFile}')).get('skip_services', [])))\"").trim()
+                        currentBuild.description = "TOPOLOGY=${topo} (${hostCount} hosts)"
+                        echo "TOPOLOGY=${topo}: TARGET_HOSTS=${env.TARGET_HOSTS} topology skip_services=${env.TOPOLOGY_SKIP_SERVICES}"
+                        echo "REMINDER: the external front proxy must route the public vhosts per this variant (scripts/apply-topology.py proxy-map — see topologies/README.md)."
+                    }
+                }
+            }
+        }
+
         stage('Clean machines') {
             // Never wipe in ingest-only mode (RUN_AIRFLOW_INGEST without FORCE_REDEPLOY), even if
             // CLEAN_MACHINE is left at its default true — the intent there is to test the ingest
@@ -255,6 +301,20 @@ EOF
                     "$VENV_MOL/bin/pip" install --quiet --upgrade pip
                     "$VENV_MOL/bin/pip" install --quiet molecule ansible-core
                     VENV_MOLECULE="$VENV_MOL" PATH="$VENV_MOL/bin:$PATH" "$VENV_MOL/bin/molecule" test -s unit
+                '''
+            }
+        }
+
+        // Level-1 topology validation: every topologies/*.placement.json variant is
+        // checked against its COMMITTED fixture inventory (resolved-hostvars only:
+        // scope leaks, orphan services, duplicated vhosts, placement invariants).
+        // No real hosts, no docker, no node — seconds per variant, runs on every build.
+        stage('Topology matrix') {
+            when { expression { !params.ONLY_CLEAN } }
+            steps {
+                sh '''
+                    set -eu
+                    VENV_MOLECULE="${WORKSPACE}/.venv-molecule" bash scripts/test-topologies.sh
                 '''
             }
         }
@@ -456,6 +516,35 @@ EOF
                     echo "Cleaning stale branding workspace before replay..."
                     rm -rf "${INVENTORY_PARENT_DIR}/lademo-branding"
 
+                    # --- Topology overlay -------------------------------------------------
+                    # The agent's .yo-rc.json is the la-toolkit-synced source of truth. For a
+                    # non-default TOPOLOGY we back it up ONCE (.la-toolkit-base) and derive the
+                    # variant .yo-rc from that pristine base, so repeated alternative builds
+                    # never compound. The next default build restores the base and deletes the
+                    # backup (NOTE: re-sync from la-toolkit only while no backup file exists,
+                    # i.e. while the cluster is on the default topology).
+                    YORC="${INVENTORY_PARENT_DIR}/.yo-rc.json"
+                    YORC_BASE="${INVENTORY_PARENT_DIR}/.yo-rc.json.la-toolkit-base"
+                    if [ "${params.TOPOLOGY}" != "default" ]; then
+                        if [ ! -f "\$YORC_BASE" ]; then
+                            cp "\$YORC" "\$YORC_BASE"
+                            echo "Backed up la-toolkit .yo-rc to \$YORC_BASE"
+                        fi
+                        echo "Applying topology overlay: ${params.TOPOLOGY}"
+                        python3 "${WORKSPACE}/scripts/apply-topology.py" apply \
+                            --base "\$YORC_BASE" \
+                            --placement "${WORKSPACE}/topologies/${params.TOPOLOGY}.placement.json" \
+                            --out "\$YORC"
+                        echo "Front-proxy routing this variant needs (apply in ansible-extras):"
+                        python3 "${WORKSPACE}/scripts/apply-topology.py" proxy-map \
+                            --base "\$YORC_BASE" \
+                            --placement "${WORKSPACE}/topologies/${params.TOPOLOGY}.placement.json"
+                    elif [ -f "\$YORC_BASE" ]; then
+                        echo "TOPOLOGY=default: restoring la-toolkit .yo-rc from backup"
+                        mv "\$YORC_BASE" "\$YORC"
+                    fi
+                    # ----------------------------------------------------------------------
+
                     echo "Running generator..."
                     node ./node_modules/yo/lib/cli.js living-atlas --replay-dont-ask --force
                     
@@ -628,9 +717,14 @@ EOF
                     }
 
                     // Temporary flag: skip immature services (e.g. SDS) without touching inventories.
+                    // Merged with the active topology's skip_services (reduced variants trim
+                    // heavy services they have no room for).
                     def skipArg = ''
-                    if (params.SKIP_SERVICES?.trim()) {
-                        def skipList = params.SKIP_SERVICES.split(',').collect { it.trim() }.findAll { it }
+                    def skipList = []
+                    if (params.SKIP_SERVICES?.trim()) { skipList += params.SKIP_SERVICES.split(',') as List }
+                    if (env.TOPOLOGY_SKIP_SERVICES?.trim()) { skipList += env.TOPOLOGY_SKIP_SERVICES.split(',') as List }
+                    skipList = skipList.collect { it.trim() }.findAll { it }.unique()
+                    if (skipList) {
                         skipArg = " --extra-vars '" + groovy.json.JsonOutput.toJson([skip_services: skipList]) + "'"
                         echo "Skipping services: ${skipList}"
                     }
@@ -783,11 +877,15 @@ EOF
                     if (fileExists("${INVENTORY_DIR}/lademo-local-passwords.ini")) {
                         inventoryArg += " -i ${INVENTORY_DIR}/lademo-local-passwords.ini"
                     }
-                    // Same skip list: a different set would legitimately add/remove services
-                    // and invalidate the container-stability assertion below.
+                    // Same skip list (params + active topology): a different set would
+                    // legitimately add/remove services and invalidate the
+                    // container-stability assertion below.
                     def skipArg = ''
-                    if (params.SKIP_SERVICES?.trim()) {
-                        def skipList = params.SKIP_SERVICES.split(',').collect { it.trim() }.findAll { it }
+                    def skipList = []
+                    if (params.SKIP_SERVICES?.trim()) { skipList += params.SKIP_SERVICES.split(',') as List }
+                    if (env.TOPOLOGY_SKIP_SERVICES?.trim()) { skipList += env.TOPOLOGY_SKIP_SERVICES.split(',') as List }
+                    skipList = skipList.collect { it.trim() }.findAll { it }.unique()
+                    if (skipList) {
                         skipArg = " --extra-vars '" + groovy.json.JsonOutput.toJson([skip_services: skipList]) + "'"
                     }
                     sh """

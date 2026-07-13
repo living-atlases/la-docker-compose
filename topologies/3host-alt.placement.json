@@ -1,0 +1,35 @@
+{
+  "description": "3 hosts, deliberately shuffled split: host1 = auth + central services, host2 = user-facing data apps, host3 = datastores + heavy infra. Breaks co-locations the default layout takes for granted (hub/bie away from CAS, biocache-service away from mysql host, gatus/regions moved).",
+  "hosts": ["host1", "host2", "host3"],
+  "services": {
+    "cas": "host1",
+    "collectory": "host1",
+    "logger": "host1",
+    "alerts": "host1",
+    "branding": "host1",
+
+    "ala_hub": "host2",
+    "biocache_service": "host2",
+    "ala_bie": "host2",
+    "bie_index": "host2",
+    "images": "host2",
+    "lists": "host2",
+    "regions": "host2",
+    "gatus": "host2",
+
+    "solrcloud": "host3",
+    "zookeeper": "host3",
+    "cassandra": "host3",
+    "spatial": "host3",
+    "doi": "host3",
+    "data_quality": "host3",
+    "namematching_service": "host3",
+    "sensitive_data_service": "host3",
+    "sds": "host3",
+    "pipelines": "host3",
+    "spark": "host3",
+    "hadoop": "host3",
+    "airflow": "host3"
+  },
+  "skip_services": []
+}

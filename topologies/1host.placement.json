@@ -1,0 +1,48 @@
+{
+  "description": "1 host (all-in-one): every enabled service on host1, aggressive skip_services so the stack fits a single VM. Validates that nothing in the generation/deploy path assumes multi-host.",
+  "hosts": ["host1"],
+  "services": {
+    "cas": "host1",
+    "collectory": "host1",
+    "ala_hub": "host1",
+    "biocache_service": "host1",
+    "ala_bie": "host1",
+    "bie_index": "host1",
+    "images": "host1",
+    "lists": "host1",
+    "logger": "host1",
+    "alerts": "host1",
+    "branding": "host1",
+    "gatus": "host1",
+    "solrcloud": "host1",
+    "zookeeper": "host1",
+    "cassandra": "host1",
+
+    "spatial": "host1",
+    "doi": "host1",
+    "data_quality": "host1",
+    "sds": "host1",
+    "sensitive_data_service": "host1",
+    "namematching_service": "host1",
+    "pipelines": "host1",
+    "spark": "host1",
+    "hadoop": "host1",
+    "airflow": "host1",
+    "regions": "host1"
+  },
+  "skip_services": [
+    "spatial",
+    "spatial-service",
+    "geoserver",
+    "geonetwork",
+    "doi-service",
+    "data_quality_filter_service",
+    "sds",
+    "sensitive-data-service",
+    "namematching-service",
+    "pipelines",
+    "spark",
+    "hadoop",
+    "regions"
+  ]
+}

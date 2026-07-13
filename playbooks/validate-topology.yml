@@ -1,0 +1,131 @@
+---
+# Topology invariants — resolved hostvars only. NO render, NO docker, NO real
+# hosts (connection: local, gather_facts: false), same model as
+# molecule/multihost/converge.yml (which covers the localhost scope-leak class;
+# run BOTH against an inventory to validate a topology).
+#
+# What this catches (the placement-dependent failure classes):
+#   1. Orphan service groups: a service group present in the inventory whose
+#      hosts are not co-located with any docker_compose host — the service
+#      would silently never be deployed (the service_aliases-gap class).
+#   2. Split/duplicated public vhosts: the same nginx vhost alias served from
+#      two different physical hosts (the external proxy can only send a
+#      subdomain to one VM).
+#   3. Ambiguous app placement: a non-datastore service enabled on more than
+#      one physical host.
+#   4. Hosts without a resolvable private IP (extra_hosts/publish-ports need it).
+#
+# Run standalone:
+#   ANSIBLE_ROLES_PATH=roles:ala-install/ansible/roles ansible-playbook \
+#     playbooks/validate-topology.yml \
+#     -i inventories/testing/topologies/<variant>/lademo-inventories/lademo-inventory.ini \
+#     --limit docker_compose
+
+- name: "Topology: compute per-host facts (role's own setup-facts, no host prep)"
+  hosts: docker_compose
+  gather_facts: false
+  connection: local
+  tasks:
+    - name: "Compute physical_server_groups / services_enabled as the real render does"
+      ansible.builtin.import_role:
+        name: la-compose
+        tasks_from: setup-facts.yml
+
+    - name: "Parse this host's nginx vhost aliases"
+      ansible.builtin.set_fact:
+        topo_nginx_aliases: "{{ (nginx_docker_internal_aliases | default('[]')) | from_json }}"
+
+    - name: "Assert this docker_compose host has a private IP"
+      ansible.builtin.assert:
+        that:
+          - (host_private_ip | default(hostvars[inventory_hostname].get('ansible_host', ''))) | length > 0
+        fail_msg: "{{ inventory_hostname }}: no host_private_ip/ansible_host — cross-host extra_hosts and published datastore ports cannot be derived"
+
+- name: "Topology: cluster-wide invariants"
+  hosts: docker_compose
+  gather_facts: false
+  connection: local
+  run_once: true
+  vars:
+    # Datastores may legitimately span hosts (clustered); apps must not.
+    topo_multihost_ok_services: [solrcloud, zookeeper, cassandra, solr, hadoop, spark]
+  tasks:
+    - name: "Collect enabled services per docker_compose host"
+      ansible.builtin.set_fact:
+        topo_enabled_by_host: >-
+          {%- set out = {} -%}
+          {%- for h in groups['docker_compose'] -%}
+            {%- set _ = out.update({h: hostvars[h].get('services_enabled', [])}) -%}
+          {%- endfor -%}
+          {{ out }}
+
+    - name: "1. Detect orphan service groups (present in inventory, deployed nowhere)"
+      ansible.builtin.set_fact:
+        topo_orphans: >-
+          {%- set enabled_union = topo_enabled_by_host.values() | flatten | unique -%}
+          {%- set orphans = [] -%}
+          {%- for svc, desc in docker_services_desc.items() -%}
+            {%- set grp = desc.group | default('') -%}
+            {%- if grp in groups and (groups[grp] | length > 0) and svc not in enabled_union -%}
+              {%- set _ = orphans.append(svc ~ ' (group ' ~ grp ~ ')') -%}
+            {%- endif -%}
+          {%- endfor -%}
+          {{ orphans }}
+
+    - name: "1. Assert no orphan service groups"
+      ansible.builtin.assert:
+        that: topo_orphans | length == 0
+        fail_msg: >-
+          Services present in the inventory but co-located with NO docker_compose
+          host (they would silently never deploy): {{ topo_orphans | join(', ') }}
+        success_msg: "no orphan service groups"
+
+    - name: "2. Detect public vhost aliases served from more than one host"
+      ansible.builtin.set_fact:
+        topo_dup_aliases: >-
+          {%- set seen = {} -%}
+          {%- for h in groups['docker_compose'] -%}
+            {%- for a in hostvars[h].get('topo_nginx_aliases', []) -%}
+              {%- set _ = seen.update({a: (seen.get(a, []) + [h])}) -%}
+            {%- endfor -%}
+          {%- endfor -%}
+          {%- set dups = [] -%}
+          {%- for a, hs in seen.items() -%}
+            {%- if hs | length > 1 -%}
+              {%- set _ = dups.append(a ~ ' on ' ~ (hs | join('+'))) -%}
+            {%- endif -%}
+          {%- endfor -%}
+          {{ dups }}
+
+    - name: "2. Assert each public vhost is served from exactly one host"
+      ansible.builtin.assert:
+        that: topo_dup_aliases | length == 0
+        fail_msg: >-
+          Public vhost alias(es) served from MORE THAN ONE physical host (the
+          external proxy can only route a subdomain to one VM):
+          {{ topo_dup_aliases }}
+        success_msg: "no duplicated public vhosts"
+
+    - name: "3. Detect non-datastore services enabled on more than one host"
+      ansible.builtin.set_fact:
+        topo_multi_placed: >-
+          {%- set out = [] -%}
+          {%- set enabled_union = topo_enabled_by_host.values() | flatten | unique -%}
+          {%- for svc in enabled_union -%}
+            {%- if svc not in topo_multihost_ok_services -%}
+              {%- set hosts_with = [] -%}
+              {%- for h, svcs in topo_enabled_by_host.items() -%}
+                {%- if svc in svcs -%}{%- set _ = hosts_with.append(h) -%}{%- endif -%}
+              {%- endfor -%}
+              {%- if hosts_with | length > 1 -%}
+                {%- set _ = out.append(svc ~ ' on ' ~ (hosts_with | join('+'))) -%}
+              {%- endif -%}
+            {%- endif -%}
+          {%- endfor -%}
+          {{ out }}
+
+    - name: "3. Assert app services are placed on exactly one host"
+      ansible.builtin.assert:
+        that: topo_multi_placed | length == 0
+        fail_msg: "App services enabled on multiple hosts: {{ topo_multi_placed | join(', ') }}"
+        success_msg: "every app service is placed on exactly one host"

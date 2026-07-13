@@ -1,0 +1,35 @@
+{
+  "description": "Control topology: the CURRENT CI layout (3 hosts, same service split). The matrix must pass this one identically to today's deploy.",
+  "hosts": ["host1", "host2", "host3"],
+  "services": {
+    "cas": "host1",
+    "collectory": "host1",
+    "ala_hub": "host1",
+    "biocache_service": "host1",
+    "lists": "host1",
+    "logger": "host1",
+    "alerts": "host1",
+    "branding": "host1",
+
+    "spatial": "host2",
+    "images": "host2",
+    "doi": "host2",
+    "data_quality": "host2",
+    "solrcloud": "host2",
+    "zookeeper": "host2",
+
+    "ala_bie": "host3",
+    "bie_index": "host3",
+    "regions": "host3",
+    "sds": "host3",
+    "namematching_service": "host3",
+    "sensitive_data_service": "host3",
+    "pipelines": "host3",
+    "spark": "host3",
+    "hadoop": "host3",
+    "cassandra": "host3",
+    "airflow": "host3",
+    "gatus": "host3"
+  },
+  "skip_services": []
+}
