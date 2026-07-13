@@ -154,7 +154,11 @@ pipeline {
                         if (hostCount > allHosts.size()) {
                             error("TOPOLOGY=${topo} needs ${hostCount} hosts but TARGET_HOSTS only has ${allHosts.size()}")
                         }
-                        env.TARGET_HOSTS = allHosts.take(hostCount).join(' ')
+                        // Sandbox-safe host slice (Groovy's Object[].take() is not
+                        // whitelisted in the Jenkins script sandbox): index-loop instead.
+                        def picked = []
+                        for (int i = 0; i < hostCount; i++) { picked.add(allHosts[i]) }
+                        env.TARGET_HOSTS = picked.join(' ')
                         env.TOPOLOGY_SKIP_SERVICES = sh(returnStdout: true,
                             script: "python3 -c \"import json; print(','.join(json.load(open('${placementFile}')).get('skip_services', [])))\"").trim()
                         currentBuild.description = "TOPOLOGY=${topo} (${hostCount} hosts)"
@@ -721,8 +725,8 @@ EOF
                     // heavy services they have no room for).
                     def skipArg = ''
                     def skipList = []
-                    if (params.SKIP_SERVICES?.trim()) { skipList += params.SKIP_SERVICES.split(',') as List }
-                    if (env.TOPOLOGY_SKIP_SERVICES?.trim()) { skipList += env.TOPOLOGY_SKIP_SERVICES.split(',') as List }
+                    if (params.SKIP_SERVICES?.trim()) { skipList += params.SKIP_SERVICES.tokenize(',') }
+                    if (env.TOPOLOGY_SKIP_SERVICES?.trim()) { skipList += env.TOPOLOGY_SKIP_SERVICES.tokenize(',') }
                     skipList = skipList.collect { it.trim() }.findAll { it }.unique()
                     if (skipList) {
                         skipArg = " --extra-vars '" + groovy.json.JsonOutput.toJson([skip_services: skipList]) + "'"
@@ -882,8 +886,8 @@ EOF
                     // container-stability assertion below.
                     def skipArg = ''
                     def skipList = []
-                    if (params.SKIP_SERVICES?.trim()) { skipList += params.SKIP_SERVICES.split(',') as List }
-                    if (env.TOPOLOGY_SKIP_SERVICES?.trim()) { skipList += env.TOPOLOGY_SKIP_SERVICES.split(',') as List }
+                    if (params.SKIP_SERVICES?.trim()) { skipList += params.SKIP_SERVICES.tokenize(',') }
+                    if (env.TOPOLOGY_SKIP_SERVICES?.trim()) { skipList += env.TOPOLOGY_SKIP_SERVICES.tokenize(',') }
                     skipList = skipList.collect { it.trim() }.findAll { it }.unique()
                     if (skipList) {
                         skipArg = " --extra-vars '" + groovy.json.JsonOutput.toJson([skip_services: skipList]) + "'"
