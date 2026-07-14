@@ -397,7 +397,7 @@ collect_diagnostics() {
 # the chain cassandra -> biocache-service -> biocache-hub converge. Only restarts
 # containers reporting 'unhealthy' (not 'starting'), so a genuinely-broken service
 # (e.g. SDS data error) just exhausts the rounds and the gate still fails — no masking.
-CONVERGE_ROUNDS="${CONVERGE_ROUNDS:-3}"
+CONVERGE_ROUNDS="${CONVERGE_ROUNDS:-4}"
 # 600s (not 180): the usual converge case is a slow hub, not just a connection kick.
 # bie-hub caches the cross-host branding header/footer ONCE at startup; on a cold
 # fresh-volume boot it caches null (branding host still booting) and serves HTTP 500
@@ -406,7 +406,12 @@ CONVERGE_ROUNDS="${CONVERGE_ROUNDS:-3}"
 # left it stuck 'starting' and round 2 gave up (it only restarts 'unhealthy', not
 # 'starting'). wait_for_all_healthy returns as soon as all are healthy, so this only
 # raises the ceiling; it does not slow the green path. Override via env if needed.
-CONVERGE_TIMEOUT="${CONVERGE_TIMEOUT:-600}"
+# 900 (not 600): on a heavy apps host (e.g. the 3host-alt layout puts biocache/bie-hub
+# on the same node as pipelines/spark/hadoop, and Solr is cross-host), a restarted
+# biocache-hub/bie-hub needs a cold Grails re-boot + cross-host branding/Solr fetch
+# that can exceed 600s; build #295 timed out a converge round with one service still
+# 'starting' (Unhealthy: 0) so the next round found nothing to restart and bailed.
+CONVERGE_TIMEOUT="${CONVERGE_TIMEOUT:-900}"
 
 converge_unhealthy() {
     local services="$1"
