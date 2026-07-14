@@ -130,6 +130,38 @@
         - always
         - docker-volumes
 
+    # ala-install's docker-common/tasks/common.yml (included by vhost-generating
+    # roles — species-list, collectory, cas5, userdetails, cas-management — when
+    # deployment_type == 'swarm') chowns /data/docker-compose/nginx/{conf.d,
+    # sites-enabled,sites-available} to the `nginx` user. That host user only
+    # exists where the `nginx` role apt-installed nginx; on a host that runs a
+    # vhost-generating role but NOT the nginx install it fails with
+    # "chown failed: failed to look up user nginx". This is placement-dependent:
+    # it never bites the default layout (the user happens to exist wherever those
+    # roles land) but breaks the moment those services move to a host without it.
+    # Ensure the group+user exist on every docker_compose host so the chown
+    # always has a valid target. The nginx container reads its bind-mounted
+    # config as root, so the host uid need not match the container's.
+    - name: "Ensure host 'nginx' group/user exists (docker-common vhost chown target)"
+      block:
+        - name: "Ensure 'nginx' group exists"
+          ansible.builtin.group:
+            name: nginx
+            system: true
+            state: present
+        - name: "Ensure 'nginx' user exists"
+          ansible.builtin.user:
+            name: nginx
+            group: nginx
+            system: true
+            create_home: false
+            shell: /usr/sbin/nologin
+            state: present
+      when: deployment_type | default('swarm') == 'swarm'
+      tags:
+        - always
+        - docker-compose
+
     - name: Include generate-compose tasks
       include_tasks: generate-compose.yml
       tags:
