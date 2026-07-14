@@ -142,22 +142,27 @@
     # Ensure the group+user exist on every docker_compose host so the chown
     # always has a valid target. The nginx container reads its bind-mounted
     # config as root, so the host uid need not match the container's.
-    - name: "Ensure host 'nginx' group/user exists (docker-common vhost chown target)"
-      block:
-        - name: "Ensure 'nginx' group exists"
-          ansible.builtin.group:
-            name: nginx
-            system: true
-            state: present
-        - name: "Ensure 'nginx' user exists"
-          ansible.builtin.user:
-            name: nginx
-            group: nginx
-            system: true
-            create_home: false
-            shell: /usr/sbin/nologin
-            state: present
-      when: deployment_type | default('swarm') == 'swarm'
+    # No deployment_type gate: this task runs BEFORE setup-facts/generate-compose
+    # set deployment_type to 'swarm', so gating on it here skips wrongly (build
+    # #294). la-compose only ever runs on docker_compose hosts and creating a
+    # system nginx user is harmless/idempotent, so just always ensure it.
+    - name: "Ensure host 'nginx' group exists (docker-common vhost chown target)"
+      ansible.builtin.group:
+        name: nginx
+        system: true
+        state: present
+      tags:
+        - always
+        - docker-compose
+
+    - name: "Ensure host 'nginx' user exists (docker-common vhost chown target)"
+      ansible.builtin.user:
+        name: nginx
+        group: nginx
+        system: true
+        create_home: false
+        shell: /usr/sbin/nologin
+        state: present
       tags:
         - always
         - docker-compose
