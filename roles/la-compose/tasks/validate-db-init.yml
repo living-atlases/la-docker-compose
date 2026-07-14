@@ -50,6 +50,7 @@
 
 - name: "Database validation: Display MongoDB cas-ticket-registry status"
   debug:
+    verbosity: 2
     msg: |
       {% if ticket_registry_info is not failed %}
       MongoDB CAS Ticket Registry initialized
@@ -81,6 +82,7 @@
 
 - name: "Database validation: Display MongoDB cas-service-registry status"
   debug:
+    verbosity: 2
     msg: |
       {% if service_registry_info is not failed %}
       MongoDB CAS Service Registry initialized
@@ -112,6 +114,7 @@
 
 - name: "Database validation: Display OIDC services status"
   debug:
+    verbosity: 2
     msg: |
       {% if oidc_services is not failed %}
       OIDC Services registered: {{ oidc_services.stdout | default('0') }}
@@ -142,6 +145,7 @@
 
 - name: "Database validation: Display MongoDB cas-audit-repository status"
   debug:
+    verbosity: 2
     msg: |
       {% if audit_repository_info is not failed %}
       MongoDB CAS Audit Repository initialized
@@ -173,6 +177,7 @@
 
 - name: "Database validation: Display MongoDB spring-sessions status"
   debug:
+    verbosity: 2
     msg: |
       {% if spring_session_info is not failed %}
       MongoDB Spring Sessions initialized

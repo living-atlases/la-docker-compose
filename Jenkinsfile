@@ -746,7 +746,7 @@ EOF
                         ansible-playbook --version
                         
                         echo "Running playbook against docker_compose group (all hosts)..."
-                        ansible-playbook ${playbook} ${inventoryArg} --limit docker_compose --extra-vars "auto_deploy=${params.AUTO_DEPLOY}"${skipArg} -vv
+                        ansible-playbook ${playbook} ${inventoryArg} --limit docker_compose --extra-vars "auto_deploy=${params.AUTO_DEPLOY}"${skipArg} -v
                     """
                 }
             }
@@ -900,7 +900,7 @@ EOF
                         export ANSIBLE_STDOUT_CALLBACK=yaml
                         export ANSIBLE_HOST_KEY_CHECKING=False
                         echo "[redeploy-test] Re-running site.yml over the live stack (no clean)..."
-                        ansible-playbook playbooks/site.yml ${inventoryArg} --limit docker_compose --extra-vars "auto_deploy=true"${skipArg} -vv
+                        ansible-playbook playbooks/site.yml ${inventoryArg} --limit docker_compose --extra-vars "auto_deploy=true"${skipArg} -v
                     """
 
                     // --- Phase C: assert canaries intact, zero probe failures, stable containers ---

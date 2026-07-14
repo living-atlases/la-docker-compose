@@ -374,17 +374,34 @@ collect_diagnostics() {
         done <<< "$mounts"
     done <<< "$cnames"
 
+    # Only dump logs for services that are NOT cleanly healthy/exited — a partial
+    # failure has 1-2 broken services among ~20 healthy ones, and the healthy ones'
+    # logs are pure noise. Same "non-healthy" criterion as the main.yml rescue block.
     echo ""
-    log_info "=== Recent Container Logs (last 50 lines per service) ==="
+    log_info "=== Recent logs (last 40 lines, non-healthy services only) ==="
     local services
     services=$(docker compose -f "$compose_dir/docker-compose.yml" ps --services 2>/dev/null || echo "")
-    
+
+    local dumped=0
     while read -r service; do
         if [[ -z "$service" ]]; then continue; fi
+        local cid state health exitc
+        cid=$(docker compose -f "$compose_dir/docker-compose.yml" ps -q "$service" 2>/dev/null | head -1)
+        if [[ -z "$cid" ]]; then continue; fi
+        read -r state health exitc < <(docker inspect \
+            --format '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} {{.State.ExitCode}}' \
+            "$cid" 2>/dev/null)
+        # Skip cleanly-running (healthy or no healthcheck) and cleanly-exited (rc 0)
+        if { [[ "$state" == "running" ]] && [[ "$health" == "healthy" || "$health" == "none" ]]; } \
+           || { [[ "$state" == "exited" ]] && [[ "$exitc" == "0" ]]; }; then
+            continue
+        fi
         echo ""
-        echo "--- Logs for $service ---"
-        docker compose -f "$compose_dir/docker-compose.yml" logs --tail 50 "$service" 2>/dev/null || true
+        echo "--- Logs for $service (state=$state health=$health exit=$exitc) ---"
+        docker compose -f "$compose_dir/docker-compose.yml" logs --tail 40 "$service" 2>/dev/null || true
+        dumped=$((dumped + 1))
     done <<< "$services"
+    [[ "$dumped" -eq 0 ]] && echo "(all services healthy/cleanly-exited — no per-service logs dumped)"
 }
 
 # Converge-by-retry for cross-host startup races. Some apps (e.g. biocache-service

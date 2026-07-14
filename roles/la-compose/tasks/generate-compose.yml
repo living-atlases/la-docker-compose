@@ -355,6 +355,7 @@
 
 - name: Debug - Docker user configuration
   debug:
+    verbosity: 2
     msg: |
       Container UID/GID: {{ docker_compose_userid }}/{{ docker_compose_usergid }}
       Service users - tomcat: {{ tomcat_user }}, nginx: {{ nginx_user }}, cas: {{ cas_user | default('N/A') }}, collectory: {{ collectory_user | default('N/A') }}, userdetails: {{ userdetails_user | default('N/A') }}, apikey: {{ apikey_user | default('N/A') }}
@@ -467,6 +468,7 @@
 
     - name: Display fetched i18n version
       debug:
+        verbosity: 2
         msg: "Latest ala-i18n version from apt.gbif.es: {{ i18n_version | default('unable to fetch') }}"
   tags:
     - docker-compose
@@ -474,6 +476,7 @@
 
 - name: DEBUG - Show physical server groups
   debug:
+    verbosity: 2
     msg:
       - "Physical Server: {{ hostvars[inventory_hostname].get('ansible_host', inventory_hostname) }}"
       - "Groups on this server: {{ physical_server_groups }}"
@@ -483,6 +486,7 @@
 
 - name: DEBUG - Inspect services detection
   debug:
+    verbosity: 2
     msg:
       - "Host: {{ inventory_hostname }}"
       - "Group Names: {{ group_names }}"
@@ -497,6 +501,7 @@
 # Debug after detecting services
 - name: "DEBUG: Show services_enabled after detection"
   debug:
+    verbosity: 2
     msg: |
       Services detected after Detect enabled services task:
       {{ services_enabled }}
@@ -514,6 +519,7 @@
 
 - name: Debug - Show services configuration
   debug:
+    verbosity: 2
     msg: "Services enabled: {{ services_enabled }}"
   tags:
     - always
@@ -562,6 +568,7 @@
 
 - name: Debug - Show services to build
   debug:
+    verbosity: 2
     msg: "Services to build on this host: {{ services_to_build }}"
   tags:
     - always
@@ -1942,6 +1949,7 @@
 
 - name: Debug - Show service_extra_params (extra JVM parameters defined per service)
   debug:
+    verbosity: 2
     msg: |
       Services with extra_params that will be concatenated in .env:
       {% for service, extras in service_extra_params.items() %}
@@ -1954,6 +1962,7 @@
 
 - name: Debug - Show generated JAVA_OPTS for services (BASE - extras added in template)
   debug:
+    verbosity: 2
     msg: "{{ service_java_opts_dict }}"
   tags:
     - docker-compose
@@ -2082,6 +2091,7 @@
 
 - name: Debug branding source path
   debug:
+    verbosity: 2
     msg: "Branding source path: [{{ branding_source_path }}]"
   when: "'branding' in services_to_build"
   tags:

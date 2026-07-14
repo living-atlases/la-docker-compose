@@ -34,6 +34,7 @@
 
     - name: Warn if not all services running yet
       debug:
+        verbosity: 2
         msg: |
           Some services not yet in running state.
           Full output:
@@ -114,6 +115,7 @@
 
                 - name: Display biocache dependency check result
                   debug:
+                    verbosity: 2
                     msg: "{{ biocache_deps_result.stdout_lines | default(['(no output captured)']) }}"
 
             # Health gate failed -> probe cross-host datastore ports so the diagnostics

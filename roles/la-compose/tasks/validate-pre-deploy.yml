@@ -92,6 +92,7 @@
 
     - name: Display Docker version
       debug:
+        verbosity: 2
         msg: "Docker version: {{ docker_version.stdout }}"
 
     - name: Check available disk space
@@ -218,6 +219,7 @@
 
     - name: Report services to be deployed
       debug:
+        verbosity: 2
         msg: "Services ready for deployment: {{ compose_services.keys() | list | join(', ') }}"
 
     - name: Validate service name format
