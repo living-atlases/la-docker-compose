@@ -864,14 +864,18 @@ EOF
                             #                                nginx not listening = real downtime)
                             #   rc 28 (timeout)     -> SLOW (host saturated but nginx still up; informational)
                             # --max-time 5 gives a wide margin so a slow-but-served request is not miscounted.
+                            # Each sample is stamped 'HH:MM:SS CLASS rc' so Phase C can pinpoint WHEN the
+                            # refusals happen (during compose up? nginx reload? converge restarts?) and
+                            # cross-reference with the playbook timeline.
                             sudo rm -f /tmp/redeploy-probe.stop /tmp/redeploy-probe.log
                             if sudo docker ps --format '{{.Names}}' | grep -qx la_nginx; then
                                 nohup bash -c 'while [ ! -f /tmp/redeploy-probe.stop ]; do
                                     curl -sk -o /dev/null --max-time 5 https://127.0.0.1/; rc=\$?
+                                    ts=\$(date -u +%H:%M:%S)
                                     case "\$rc" in
-                                        0)  echo OK ;;
-                                        28) echo SLOW ;;
-                                        *)  echo "DOWN rc=\$rc" ;;
+                                        0)  echo "\$ts OK 0" ;;
+                                        28) echo "\$ts SLOW 28" ;;
+                                        *)  echo "\$ts DOWN \$rc" ;;
                                     esac
                                     sleep 1
                                 done >> /tmp/redeploy-probe.log' >/dev/null 2>&1 &
@@ -933,6 +937,14 @@ EOF
                                 down=\$(grep -c DOWN /tmp/redeploy-probe.log || true)
                                 slow=\$(grep -c SLOW /tmp/redeploy-probe.log || true)
                                 echo "nginx probe: \$down down (refused/reset) / \$slow slow (>5s) / \$total samples"
+                                # Diagnostic: show WHEN the refusals happened (collapsed to contiguous
+                                # windows) so we can line them up against the playbook timeline.
+                                if [ "\$down" -gt 0 ]; then
+                                    echo "-- DOWN samples (ts CLASS rc) --"
+                                    grep DOWN /tmp/redeploy-probe.log
+                                    echo "-- probe head/tail --"
+                                    head -1 /tmp/redeploy-probe.log; tail -1 /tmp/redeploy-probe.log
+                                fi
                                 # Only connection refusal/reset counts as downtime — nginx stopped accepting
                                 # connections (a recreate/stop). SLOW = host saturated but nginx still serving.
                                 if [ "\$down" -gt 0 ]; then echo "FAIL: nginx refused connections during redeploy (\$down samples)"; rc=1; fi
