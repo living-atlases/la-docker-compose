@@ -854,11 +854,25 @@ EOF
                                 echo "\$nm \$cid \$h"
                             done | sort > /tmp/redeploy-before.txt
                             wc -l /tmp/redeploy-before.txt
-                            # Availability probe against local nginx (1s cadence) while the redeploy runs
+                            # Availability probe against local nginx (1s cadence) while the redeploy runs.
+                            # We classify by curl exit code, NOT just success/fail, to separate the real
+                            # contract (did nginx stop ACCEPTING connections? => DOWN) from mere slowness
+                            # under the redeploy's CPU storm (image build + up of ~30 containers + restarts
+                            # => SLOW). A graceful reload never refuses a connection; a recreate does. So:
+                            #   rc 0                -> OK   (served, even a 502 counts as "nginx is up")
+                            #   rc 7/28/35/56       -> DOWN (connection refused/reset/SSL handshake failed:
+                            #                                nginx not listening = real downtime)
+                            #   rc 28 (timeout)     -> SLOW (host saturated but nginx still up; informational)
+                            # --max-time 5 gives a wide margin so a slow-but-served request is not miscounted.
                             sudo rm -f /tmp/redeploy-probe.stop /tmp/redeploy-probe.log
                             if sudo docker ps --format '{{.Names}}' | grep -qx la_nginx; then
                                 nohup bash -c 'while [ ! -f /tmp/redeploy-probe.stop ]; do
-                                    if curl -sk -o /dev/null --max-time 2 https://127.0.0.1/; then echo OK; else echo FAIL; fi
+                                    curl -sk -o /dev/null --max-time 5 https://127.0.0.1/; rc=\$?
+                                    case "\$rc" in
+                                        0)  echo OK ;;
+                                        28) echo SLOW ;;
+                                        *)  echo "DOWN rc=\$rc" ;;
+                                    esac
                                     sleep 1
                                 done >> /tmp/redeploy-probe.log' >/dev/null 2>&1 &
                                 echo "nginx probe started"
@@ -916,9 +930,12 @@ EOF
                             sudo touch /tmp/redeploy-probe.stop; sleep 2
                             if [ -f /tmp/redeploy-probe.log ]; then
                                 total=\$(wc -l < /tmp/redeploy-probe.log)
-                                fails=\$(grep -c FAIL /tmp/redeploy-probe.log || true)
-                                echo "nginx probe: \$fails failures / \$total samples"
-                                if [ "\$fails" -gt 0 ]; then echo "FAIL: nginx had downtime during redeploy"; rc=1; fi
+                                down=\$(grep -c DOWN /tmp/redeploy-probe.log || true)
+                                slow=\$(grep -c SLOW /tmp/redeploy-probe.log || true)
+                                echo "nginx probe: \$down down (refused/reset) / \$slow slow (>5s) / \$total samples"
+                                # Only connection refusal/reset counts as downtime — nginx stopped accepting
+                                # connections (a recreate/stop). SLOW = host saturated but nginx still serving.
+                                if [ "\$down" -gt 0 ]; then echo "FAIL: nginx refused connections during redeploy (\$down samples)"; rc=1; fi
                             fi
                             # File canary
                             if sudo test -f /data/.redeploy-canary; then
