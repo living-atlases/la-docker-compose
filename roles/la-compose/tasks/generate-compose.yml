@@ -1020,6 +1020,45 @@
     - config
     - bulk-load
 
+# The upstream biocache-hub role copies these via `template: src=config/{{ var }}`,
+# which only resolves a BARE FILENAME under roles/biocache-hub/templates/config/.
+# An inventory that (mis)sets one to a path or file:// URI — e.g. the runtime
+# biocache_grouped_facets_url value — makes src=config/file:///... and the deploy
+# dies with "Could not find or access". Normalize to basename so a stray path/URL
+# degrades gracefully. Covers both config-file vars biocache-hub consumes this way.
+- name: "Normalize hub config-file vars to basename (tolerate path/URL in inventory)"
+  set_fact:
+    "{{ item }}": "{{ lookup('vars', item) | regex_replace('^.*/', '') }}"
+  loop:
+    - grouped_facets_json
+    - overlays_json
+  when:
+    - lookup('vars', item, default='') is string
+    - "'/' in lookup('vars', item, default='')"
+  loop_control:
+    label: "{{ item }}"
+  tags:
+    - biocache-hub
+    - config
+
+# A portal may ship a custom grouped_facets_<pkg>.json in its inventory files/ dir
+# (not bundled with the role). Stage it into the role's template search path on the
+# controller so the upstream copy delivers the real file. No-op when the inventory
+# provides no such file (default portals). Mirrors gbif-es/deploy-hub.sh's rsync.
+- name: "Stage inventory grouped_facets file into biocache-hub role search path"
+  copy:
+    src: "{{ inventory_dir }}/files/{{ grouped_facets_json }}"
+    dest: "{{ playbook_dir }}/../ala-install/ansible/roles/biocache-hub/templates/config/{{ grouped_facets_json }}"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  when:
+    - grouped_facets_json is defined
+    - (inventory_dir ~ '/files/' ~ grouped_facets_json) is exists
+  tags:
+    - biocache-hub
+    - config
+
 - name: Run biocache-hub configuration generation
   include_role:
     name: biocache-hub
