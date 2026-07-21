@@ -2136,6 +2136,38 @@
   tags:
     - branding
 
+# Fail fast (before the submodule/synchronize steps below) when a LOCAL branding_source resolves
+# to a path that does not exist on the controller — otherwise the synchronize step dies with a raw
+# `rsync ... change_dir ... failed (code 23)` that hides the real cause (typically a dir-name typo,
+# e.g. gbif.es-branding vs gbif-es-branding). The git-URL case is skipped here (it is cloned below).
+# Stat on localhost/run_once like the skin-detect stat above: branding_source_path is a controller-side
+# path (inventory_dir/..), so an undelegated stat on remote hosts would spuriously report exists:false.
+- name: Verify local branding source exists (controller)
+  stat:
+    path: "{{ branding_source_path }}"
+  register: branding_src_stat
+  delegate_to: localhost
+  run_once: true
+  when:
+    - "'branding' in services_to_build"
+    - not (branding_is_git_url | default(false) | bool)
+  tags:
+    - branding
+
+- name: Fail early with an actionable message if local branding is missing
+  fail:
+    msg: >-
+      Branding enabled (branding_source={{ branding_source }}) but the resolved local path
+      {{ branding_source_path }} does not exist. Check the branding dir name matches the project
+      (<project>-branding, e.g. gbif-es-branding, not gbif.es-branding), or set branding_source
+      to a git URL (https://… or git@…) to have it auto-cloned.
+  when:
+    - "'branding' in services_to_build"
+    - not (branding_is_git_url | default(false) | bool)
+    - not (branding_src_stat.stat.exists | default(false))
+  tags:
+    - branding
+
 - name: Ensure branding build directory exists
   file:
     path: "{{ docker_compose_data_dir }}/dockerfiles/branding"
