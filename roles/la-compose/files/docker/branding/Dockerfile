@@ -105,12 +105,17 @@ RUN --mount=type=cache,target=/root/.npm \
 # ============================================
 FROM dependencies AS builder-production
 
+# Detect the build system the same way base-branding's deploy.sh does: brunch projects
+# build with `brunch build --production` (output: public/), everything else is treated as
+# Vite and uses the package.json build script (output: dist/, normalized below). This is
+# resilient to a stale/half-migrated package.json "build" script (e.g. a brunch checkout
+# whose build script was edited to `vite build` without vite installed).
 RUN echo "🔨 Building for production..." && \
-    if [ -f "package-lock.json" ]; then \
-    npm run build; \
-    elif [ -f "yarn.lock" ]; then \
-    yarn build; \
+    if grep -q '"brunch"' package.json; then \
+    echo "🔧 Brunch detected -> brunch build --production"; \
+    npx brunch build --production; \
     else \
+    echo "🔧 Vite/other detected -> npm run build"; \
     npm run build; \
     fi && \
     echo "✅ Build completed" && \
