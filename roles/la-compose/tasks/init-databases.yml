@@ -160,6 +160,75 @@
   tags:
     - db-init
 
+# CAS queries the audit repository on every authentication attempt (the throttle
+# interceptor) and neither CAS nor ala-install ever index that collection, so it
+# degrades into a COLLSCAN that times out `/cas/login` once it grows. See the header
+# of cas-audit-indexes.js.j2. Diagnosis and original fix: @CodenameGreyFox.
+#
+# This lives here rather than in init-cas-admin.yml on purpose: the indexes must exist
+# *before* CAS starts querying. docker-entrypoint-initdb.d is not an option either —
+# la_mongodb-data is `external` and already populated, so mongo never re-runs it (same
+# reason the CAS users above are created via docker exec).
+- name: "DB Init: Ensure cas-setup output directory exists"
+  file:
+    path: "{{ docker_compose_data_dir }}/cas-setup"
+    state: directory
+    mode: "0755"
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  become: true
+  when: "'cas-servers' in physical_server_groups"
+  tags:
+    - db-init
+
+- name: "DB Init: Render CAS audit index script"
+  template:
+    src: cas-setup/cas-audit-indexes.js.j2
+    dest: "{{ docker_compose_data_dir }}/cas-setup/cas-audit-indexes.js"
+    mode: "0644"
+  become: true
+  when: "'cas-servers' in physical_server_groups"
+  tags:
+    - db-init
+
+# The redirect is resolved on the target host, which is why the template above has to
+# land there first.
+- name: "DB Init: Create/refresh MongoDB CAS audit indexes (idempotent)"
+  shell: >
+    docker exec -i la_mongodb mongosh --quiet
+    --username "{{ mongodb_root_username }}"
+    --password "{{ mongodb_root_password }}"
+    --authenticationDatabase admin
+    "{{ cas_audit_db | default('cas-audit-repository') }}"
+    < {{ docker_compose_data_dir }}/cas-setup/cas-audit-indexes.js
+  become: true
+  register: mongo_audit_indexes
+  changed_when: "'CAS_AUDIT_INDEXES_CHANGED' in (mongo_audit_indexes.stdout | default(''))"
+  failed_when: mongo_audit_indexes.rc != 0
+  when: "'cas-servers' in physical_server_groups"
+  tags:
+    - db-init
+
+- name: "DB Init: Report CAS audit index count"
+  vars:
+    audit_index_count: >-
+      {{ mongo_audit_indexes.stdout | default('')
+         | regex_findall('CAS_AUDIT_INDEX_COUNT=([0-9]+)')
+         | first | default('unknown') }}
+  debug:
+    msg: >-
+      CAS audit repository indexes on
+      {{ cas_audit_collection | default('MongoDbCasAuditRepository') }}:
+      {{ audit_index_count }}
+      (retention: {{ 'none' if (cas_audit_retention_days | default(0) | int) == 0
+                     else (cas_audit_retention_days | int ~ 'd') }})
+  when:
+    - "'cas-servers' in physical_server_groups"
+    - mongo_audit_indexes is defined
+    - mongo_audit_indexes.stdout is defined
+  tags:
+    - db-init
+
 - name: "DB Init: Check if MySQL databases exist"
   command: >
     docker exec la_mysql mysql -N

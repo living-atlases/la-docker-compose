@@ -67,6 +67,14 @@ cas_spring_session_host: la_mongodb
 cas_tickets_host: la_mongodb
 cas_services_host: la_mongodb
 
+# Audit trail collection, as fixed by Apereo's AuditMongoDbProperties constructor.
+cas_audit_collection: MongoDbCasAuditRepository
+# Days to keep CAS audit records; 0 disables the TTL index entirely. Off by default:
+# the audit trail is personal data and the retention period is each institution's
+# policy to set, not ours to impose on the Atlases inheriting this. Enabling it on an
+# already-large collection purges the backlog in the background — do it off-peak.
+cas_audit_retention_days: 0
+
 # ============================================
 # Docker Users
 # ============================================

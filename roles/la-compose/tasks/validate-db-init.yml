@@ -143,6 +143,28 @@
     - db-init
     - db-validation
 
+# Without an index on the audit collection every login is a COLLSCAN that eventually
+# times out /cas/login, so leave a trace of which indexes a deploy actually left behind
+# (see cas-audit-indexes.js.j2). Diagnosis and original fix: @CodenameGreyFox.
+- name: "Database validation: Validate MongoDB cas-audit-repository indexes"
+  command: >
+    docker exec la_mongodb mongosh --quiet
+    --username {{ mongodb_root_username }}
+    --password {{ mongodb_root_password }}
+    --authenticationDatabase admin
+    --eval "db.getCollection('{{ cas_audit_collection | default('MongoDbCasAuditRepository') }}')
+    .getIndexes()
+    .map(i => i.name + (i.expireAfterSeconds !== undefined ? ' ttl=' + i.expireAfterSeconds + 's' : ''))
+    .join(', ')"
+    {{ cas_audit_db | default('cas-audit-repository') }}
+  register: audit_repository_indexes
+  become: true
+  ignore_errors: true
+  changed_when: false
+  tags:
+    - db-init
+    - db-validation
+
 - name: "Database validation: Display MongoDB cas-audit-repository status"
   debug:
     verbosity: 2
@@ -150,6 +172,7 @@
       {% if audit_repository_info is not failed %}
       MongoDB CAS Audit Repository initialized
       Collections: {{ audit_repository_info.stdout | default('') }}
+      Indexes on {{ cas_audit_collection | default('MongoDbCasAuditRepository') }}: {{ audit_repository_indexes.stdout | default('(unknown)') }}
       {% else %}
       MongoDB CAS Audit Repository validation skipped
       Reason: {{ audit_repository_info.stderr | default('Connection failed') }}
