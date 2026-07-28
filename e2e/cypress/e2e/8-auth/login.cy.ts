@@ -1,11 +1,12 @@
 import { serviceUrl, hasService } from "../../support/services";
+import { authTestsEnabled } from "../../support/checks";
 
 // GATED spec: CAS/OIDC login. Off by default (login is the most fragile flow and needs demo
 // credentials). Enable with CYPRESS_ENABLE_AUTH_TESTS=true plus CYPRESS_LADEMO_USERNAME /
 // CYPRESS_LADEMO_PASSWORD (a Jenkins secret in CI). See cy.login in support/commands.ts.
 describe("Authentication (CAS/OIDC)", () => {
   before(function () {
-    if (Cypress.env("ENABLE_AUTH_TESTS") !== "true") {
+    if (!authTestsEnabled()) {
       this.skip();
     }
   });

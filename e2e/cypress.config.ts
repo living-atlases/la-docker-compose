@@ -33,6 +33,10 @@ module.exports = defineConfig({
       LADEMO_USERNAME: process.env.CYPRESS_LADEMO_USERNAME,
       LADEMO_PASSWORD: process.env.CYPRESS_LADEMO_PASSWORD,
       ENABLE_AUTH_TESTS: process.env.CYPRESS_ENABLE_AUTH_TESTS,
+      // Offline downloads: the address biocache-service must resolve in userdetails
+      // (getDownloadUser route 3). Defaults to the auth-test account at spec level.
+      DOWNLOAD_EMAIL: process.env.CYPRESS_DOWNLOAD_EMAIL,
+      DOWNLOAD_TIMEOUT_MS: process.env.CYPRESS_DOWNLOAD_TIMEOUT_MS,
     },
     setupNodeEvents(on) {
       // Delete videos of specs that fully passed, to keep artifacts small (vlaams pattern).

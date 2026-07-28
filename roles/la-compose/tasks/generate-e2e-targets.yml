@@ -28,6 +28,19 @@
       regions: "{{ ((regions_base_url | default('')) ~ (regions_context_path | default(''))) | regex_replace('/+$', '') }}"
       # gatus_url is a bare hostname in the inventory (no scheme) — add https:// when missing.
       gatus: "{{ (('https://' ~ gatus_url) if (gatus_url is defined and gatus_url and not (gatus_url is match('^https?://'))) else (gatus_url | default(''))) | regex_replace('/+$', '') }}"
+      # Dev mail catcher. Only emitted when docker_mail_development_mode is on (i.e. the
+      # `mail`/`full` compose profile actually runs mailhog); otherwise the key is absent and
+      # the mail-dependent e2e checks skip themselves via hasService('mailhog'). Same
+      # bare-hostname handling as gatus_url — docker_mail_development_url carries no scheme.
+      mailhog: >-
+        {{ ('' if not (docker_mail_development_mode | default(false) | bool)
+            else (docker_mail_development_url | default(''))
+                 if (docker_mail_development_url | default('') is match('^https?://'))
+                 else ('https://' ~ docker_mail_development_url) if (docker_mail_development_url | default(''))
+                 else '') | regex_replace('/+$', '') }}
+      # Where finished offline downloads are served from (biocache download.url). Lets the
+      # download spec fetch the produced ZIP without reconstructing the URL itself.
+      recordsDownload: "{{ (download_url | default('')) | regex_replace('/+$', '') }}"
   tags:
     - docker-compose
     - e2e-targets

@@ -1066,8 +1066,15 @@ EOF
                         sh """
                             set -eu
                             set +x
+                            PWFILE="${INVENTORY_DIR}/lademo-local-passwords.ini"
+                            # The offline-download smoke (2-biocache/download.cy.ts) only needs a
+                            # REGISTERED address, not a login, so export it regardless of
+                            # ENABLE_AUTH_TESTS — otherwise that spec self-skips on every
+                            # auth-tests-off build and we lose the download coverage entirely.
+                            if [ -f "\$PWFILE" ]; then
+                                export CYPRESS_DOWNLOAD_EMAIL="\$(sed -nE 's/^[[:space:]]*cas_first_admin_email[[:space:]]*=[[:space:]]*([^[:space:]]+).*/\\1/p' "\$PWFILE" | head -1)"
+                            fi
                             if [ "${params.ENABLE_AUTH_TESTS}" = "true" ]; then
-                                PWFILE="${INVENTORY_DIR}/lademo-local-passwords.ini"
                                 if [ -f "\$PWFILE" ]; then
                                     export CYPRESS_LADEMO_USERNAME="\$(sed -nE 's/^[[:space:]]*cas_first_admin_email[[:space:]]*=[[:space:]]*([^[:space:]]+).*/\\1/p' "\$PWFILE" | head -1)"
                                     export CYPRESS_LADEMO_PASSWORD="\$(sed -nE 's/.*random password:[[:space:]]*([^[:space:]]+).*/\\1/p' "\$PWFILE" | head -1)"
@@ -1081,7 +1088,7 @@ EOF
                             # user can't rm them, so otherwise junit republishes the last good run's stale
                             # results and freezes the same failures at an ever-growing age. Then run fresh, so
                             # junit reflects THIS build (or empty -> honest -> UNSTABLE, not stale-green).
-                            docker run --rm -v "${WORKSPACE}/e2e:/e2e" -w /e2e -e CYPRESS_TARGET_ENV=lademo -e CYPRESS_TARGETS_FILE=/e2e/e2e-targets.json -e CYPRESS_LADEMO_USERNAME -e CYPRESS_LADEMO_PASSWORD -e CYPRESS_ENABLE_AUTH_TESTS=${params.ENABLE_AUTH_TESTS} cypress/browsers:latest sh -c 'rm -rf /e2e/results; npm ci && npx cypress run'
+                            docker run --rm -v "${WORKSPACE}/e2e:/e2e" -w /e2e -e CYPRESS_TARGET_ENV=lademo -e CYPRESS_TARGETS_FILE=/e2e/e2e-targets.json -e CYPRESS_LADEMO_USERNAME -e CYPRESS_LADEMO_PASSWORD -e CYPRESS_DOWNLOAD_EMAIL -e CYPRESS_ENABLE_AUTH_TESTS=${params.ENABLE_AUTH_TESTS} cypress/browsers:latest sh -c 'rm -rf /e2e/results; npm ci && npx cypress run'
                         """
                     }
                     if (params.E2E_BLOCKING) {

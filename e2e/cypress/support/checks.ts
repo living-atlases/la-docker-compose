@@ -29,6 +29,17 @@ export function pageRenders(): void {
   });
 }
 
+/**
+ * True when the gated authentication specs are enabled (CYPRESS_ENABLE_AUTH_TESTS=true).
+ *
+ * Compare stringified: Cypress auto-imports CYPRESS_-prefixed environment variables and
+ * COERCES them, so `Cypress.env("ENABLE_AUTH_TESTS")` is the boolean `true`, not the string
+ * `"true"`. A bare `!== "true"` check therefore skips the spec even when the flag is on.
+ */
+export function authTestsEnabled(): boolean {
+  return String(Cypress.env("ENABLE_AUTH_TESTS")) === "true";
+}
+
 /** Skip the enclosing spec if the service isn't present in this inventory's manifest. */
 export function skipIfMissing(key: string, ctx: Mocha.Context): void {
   if (!hasService(key)) {

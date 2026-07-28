@@ -54,6 +54,49 @@ CYPRESS_LADEMO_USERNAME=support@l-a.site CYPRESS_LADEMO_PASSWORD='<from local-pa
 CYPRESS_TARGET_ENV=lademo npm run cypress:run
 ```
 
+### Occurrence download tests (partially gated)
+
+`cypress/e2e/2-biocache/download.cy.ts` exercises biocache offline downloads in four steps,
+least → most coupled:
+
+| Step | What it covers | Gating |
+|---|---|---|
+| a | `/occurrences/offline/download` with an `email` param (`getDownloadUser` route 3/4) | needs `DOWNLOAD_EMAIL` (falls back to `LADEMO_USERNAME`) |
+| b | the same download started by a **logged-in** user via the hub (route 1, JWT/OIDC) | `ENABLE_AUTH_TESTS=true`, like `8-auth` |
+| c | polls `statusUrl` to a terminal state and fetches the produced ZIP | needs (a) to pass |
+| d | the notification mail arrives, checked through the Mailhog API | auto-skips unless the deployment runs Mailhog |
+
+The point of the spec is the **failure taxonomy**, not the happy path. `DownloadController`
+refuses in two very different ways and the assertions never conflate them:
+
+- **400 "No valid email"** — `AuthServiceImpl.getDownloadUser()` returned `Optional.empty()`:
+  *no user principal reached biocache-service at all*. Neither a JWT/OIDC principal
+  (`security.jwt.*`) nor a `userdetails`-resolvable `email` query param.
+- **412** — a principal *did* arrive but carries no email: *principal without email*, i.e. an
+  incomplete claim / attribute release, not a broken handshake.
+
+Any other status is reported verbatim, because a download that clears auth and then dies
+downstream (queue directory, Solr, storage) is a different bug.
+
+```bash
+CYPRESS_TARGET_ENV=lademo \
+CYPRESS_DOWNLOAD_EMAIL=support@l-a.site \
+CYPRESS_ENABLE_AUTH_TESTS=true \
+CYPRESS_LADEMO_USERNAME=support@l-a.site CYPRESS_LADEMO_PASSWORD='<from local-passwords.ini>' \
+npm run cypress:run -- --spec cypress/e2e/2-biocache/download.cy.ts
+```
+
+`CYPRESS_DOWNLOAD_EMAIL` must be a **registered, activated** account: route 3 verifies it
+against userdetails and answers 400 when it does not resolve. `CYPRESS_DOWNLOAD_TIMEOUT_MS`
+(default 240000) bounds the queue polling in step (c).
+
+#### Mailhog
+
+Step (d) reads the Mailhog API and needs no extra flag: the deployment already runs Mailhog
+whenever the inventory sets `docker_mail_development_mode=true` (the `mail`/`full` compose
+profile), and `generate-e2e-targets.yml` then emits a `mailhog` entry in the manifest. When
+that entry is absent the step skips itself — there is nothing to enable per-test.
+
 ## In CI (Jenkins)
 
 Both layers run as report-only post-deploy stages, gated behind the `RUN_E2E` build parameter
@@ -69,6 +112,7 @@ credentials from `lademo-local-passwords.ini` — no secret or inventory change 
 cypress/e2e/
   1-homepage/    branding renders (blank-page / null-branding canary)
   2-biocache/    occurrence search returns records (API + hub)
+                 offline downloads: auth routes, queue, ZIP, notification mail
   3-species/     BIE species search (API + hub)
   4-collections/ collectory loads
   5-spatial/     spatial hub loads with a map
@@ -77,7 +121,8 @@ cypress/e2e/
   8-auth/        CAS/OIDC login (GATED)
 cypress/support/
   services.ts    manifest loader + serviceUrl()
-  checks.ts      shared data-robust assertions
+  checks.ts      shared data-robust assertions + gating helpers
+  downloads.ts   download helpers: the 400-vs-412 discriminator, queue polling, mailhog
   commands.ts    cy.login() for CAS/OIDC
   e2e.ts         setup + benign-error suppression
 ```
