@@ -84,8 +84,11 @@
     - db-init
 
 - name: "DB Init: Verify MySQL is accepting connections (via docker exec)"
+  # Over TCP, for the same reason as the container healthcheck (see mysql.yml.j2): the
+  # temporary mysqld the entrypoint runs during first-boot initialisation listens on the
+  # unix socket only, so a socket ping passes while the server is about to be shut down.
   command: >
-    docker exec la_mysql mysqladmin ping -h localhost -u root -p{{ mysql_root_password }} --silent
+    docker exec la_mysql mysqladmin ping --protocol=TCP -h 127.0.0.1 -u root -p{{ mysql_root_password }} --silent
   register: mysql_ping
   until: mysql_ping.rc == 0
   retries: 10
@@ -215,6 +218,14 @@
     -e "CREATE DATABASE IF NOT EXISTS {{ cas_db_name | default('emmet') }} CHARACTER SET {{ cas_db_encoding | default('utf8mb4') }} COLLATE {{ cas_db_collation | default('utf8mb4_unicode_ci') }};
         CREATE DATABASE IF NOT EXISTS {{ apikey_db_name | default('apikey') }} CHARACTER SET {{ cas_db_encoding | default('utf8mb4') }};"
   become: true
+  # Belt and braces alongside the TCP healthcheck: this is the FIRST unguarded task after
+  # the readiness gates, so if MySQL is still settling it fails hard and takes the whole
+  # host out of the play (no ignore_errors here, unlike the two checks above) — which then
+  # cascades into CAS never coming up and the other hosts timing out on the health gate.
+  register: mysql_create_dbs
+  until: mysql_create_dbs.rc == 0
+  retries: 10
+  delay: 6
   when:
     - "'cas-servers' in physical_server_groups"
     - needs_db_init | default(false) | bool

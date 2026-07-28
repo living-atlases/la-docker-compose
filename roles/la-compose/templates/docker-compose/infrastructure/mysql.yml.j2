@@ -41,7 +41,15 @@ services:
 {% endif %}
           - la_mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p{{ mysql_root_password }}"]
+      # Probe over TCP, NOT the unix socket. On a first boot with an empty datadir the
+      # official entrypoint starts a TEMPORARY mysqld with --skip-networking to run the
+      # initialisation, then shuts it down and starts the real one. A socket ping answers
+      # during that window, so `-h localhost` (which selects the socket) reports healthy
+      # ~10s in, the playbook proceeds, and the very next `docker exec ... mysql` hits
+      # ERROR 2002 because the temporary server is gone — dropping the host mid-play.
+      # --skip-networking means the temporary server never answers on TCP, so this only
+      # goes healthy once the real server is up.
+      test: ["CMD", "mysqladmin", "ping", "--protocol=TCP", "-h", "127.0.0.1", "-u", "root", "-p{{ mysql_root_password }}"]
       interval: 10s
       timeout: 5s
       retries: 5
