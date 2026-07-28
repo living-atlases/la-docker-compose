@@ -36,6 +36,17 @@ services:
       # Without /data/biocache, cassandra.hosts silently defaults to localhost.
       - {{ data_dir }}/biocache:/data/biocache
       - {{ data_dir }}/biocache:/data/biocache-service
+      # Offline downloads need TWO more host dirs, both already created (owner uid 1000, the
+      # container's user) by ala-install's biocache3-service "ensure target directories exist":
+      #   /data/cache/downloads  -> JsonPersistentQueueDAOImpl's `download.cache.dir`, where the
+      #                             queued download's offline<ts>.json is persisted. Without it
+      #                             EVERY offline download dies with 500 "(No such file or
+      #                             directory)" AFTER passing auth — which reads like an auth bug.
+      #   /data/biocache-download -> `download.dir`, where the produced ZIP lands (and which
+      #                             nginx serves as /biocache-download; see nginx.yml.j2).
+      # Container-only: on VMs the app runs on the host and already sees these paths.
+      - {{ data_dir }}/cache:/data/cache
+      - {{ data_dir }}/biocache-download:/data/biocache-download
 {% include '_i18n_volumes.yml.j2' %}
     restart: unless-stopped
     expose:

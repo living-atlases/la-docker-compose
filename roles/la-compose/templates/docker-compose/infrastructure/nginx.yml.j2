@@ -96,6 +96,14 @@ services:
       # into the sensitive-data-service container).
       - "{{ data_dir }}/sds:{{ data_dir }}/sds:ro"
 {% endif %}
+{% if 'biocache-service' in ((group_names | union(physical_server_groups | default([]))) | reject('in', skip_services | default([])) | list) %}
+      # Finished offline downloads. The biocache-service vhost declares
+      # `location /biocache-download { alias /data/biocache-download; }` (ala-install
+      # biocache3-service), but that path only ever existed in the biocache-service
+      # container — nginx served 404 for every produced ZIP. Same class of gap as the SDS
+      # mount above: static alias in the vhost, no read access in nginx.
+      - "{{ data_dir }}/biocache-download:/data/biocache-download:ro"
+{% endif %}
 {% if use_la_site_certs %}
       - la-site-certs:/etc/letsencrypt/live:ro
 {% else %}
