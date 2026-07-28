@@ -88,22 +88,38 @@ services:
       # Mount srv directory only if no branding (branding uses volume instead)
       - ../srv:/srv:ro
 {% endif %}
-{% set sds_serving_groups = (group_names | union(physical_server_groups | default([]))) | reject('in', skip_services | default([])) | list %}
-{% if 'sds-static-home' in sds_serving_groups or 'sensitive-data-service' in sds_serving_groups %}
-      # SDS XML files (sensitive-species-data.xml, sensitivity-*.xml) are served as
-      # static aliases by the sds.<domain> / sensitive-data-service vhosts, so nginx
-      # itself needs read access to them ({{ data_dir }}/sds is otherwise mounted only
-      # into the sensitive-data-service container).
-      - "{{ data_dir }}/sds:{{ data_dir }}/sds:ro"
+{# ---- Static `alias` locations declared by ala-install's nginx_vhost role ----------------
+   Several roles register an `alias:` entry in `nginx_paths` (grep '^\s*alias:' over
+   ala-install/ansible/roles/*/tasks/*.yml). nginx_vhost renders them verbatim as
+   `alias <host path>;` inside that service's vhost. On a VM nginx runs on the host and reads
+   those paths directly; in a container it sees NOTHING unless the directory is bind-mounted
+   at the SAME path the alias names — otherwise every such location silently 404s, which
+   reads as "the file was never produced" rather than "nginx cannot see it". That is how
+   biocache's finished download ZIPs were lost.
+
+   So: one map, kept in sync with ala-install, instead of a per-service patch each time
+   somebody trips over it. Mounted read-only at the identical path, and only for services
+   co-located with this nginx (same union-of-groups check the branding/vhost logic uses;
+   a non-co-located entry would bind-mount a non-existent dir and Docker would create it
+   root-owned). Only services that have a la-compose template are listed. #}
+{% set nginx_serving_groups = (group_names | union(physical_server_groups | default([]))) | reject('in', skip_services | default([])) | list %}
+{% set nginx_alias_dirs = {
+     'sensitive-data-service': [data_dir ~ '/sds'],
+     'sds-static-home':        [data_dir ~ '/sds'],
+     'biocache-service':       [download_dir | default(data_dir ~ '/biocache-download')],
+     'spatial-service':        [data_dir ~ '/ala/runtime/files'],
+     'biocollect':             [biocollect_pwa_app_path | default('/data/biocollect/mobile-app')],
+   } %}
+{% set nginx_alias_mounted = [] %}
+{% for alias_service, alias_dirs in nginx_alias_dirs | dictsort %}
+{% if alias_service in nginx_serving_groups %}
+{% for alias_dir in alias_dirs if alias_dir not in nginx_alias_mounted %}
+{% set _ = nginx_alias_mounted.append(alias_dir) %}
+      # {{ alias_service }}: static alias location in its vhost
+      - "{{ alias_dir }}:{{ alias_dir }}:ro"
+{% endfor %}
 {% endif %}
-{% if 'biocache-service' in ((group_names | union(physical_server_groups | default([]))) | reject('in', skip_services | default([])) | list) %}
-      # Finished offline downloads. The biocache-service vhost declares
-      # `location /biocache-download { alias /data/biocache-download; }` (ala-install
-      # biocache3-service), but that path only ever existed in the biocache-service
-      # container — nginx served 404 for every produced ZIP. Same class of gap as the SDS
-      # mount above: static alias in the vhost, no read access in nginx.
-      - "{{ data_dir }}/biocache-download:/data/biocache-download:ro"
-{% endif %}
+{% endfor %}
 {% if use_la_site_certs %}
       - la-site-certs:/etc/letsencrypt/live:ro
 {% else %}

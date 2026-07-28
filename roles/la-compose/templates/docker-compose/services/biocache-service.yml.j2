@@ -45,8 +45,11 @@ services:
       #   /data/biocache-download -> `download.dir`, where the produced ZIP lands (and which
       #                             nginx serves as /biocache-download; see nginx.yml.j2).
       # Container-only: on VMs the app runs on the host and already sees these paths.
+      # /data/cache is the container-side default (download.cache.dir is not emitted by the
+      # biocache3-properties template), so the host dir maps onto that fixed path. download.dir
+      # IS emitted from `download_dir`, so mount it at whatever path the config names.
       - {{ data_dir }}/cache:/data/cache
-      - {{ data_dir }}/biocache-download:/data/biocache-download
+      - {{ download_dir | default(data_dir ~ '/biocache-download') }}:{{ download_dir | default(data_dir ~ '/biocache-download') }}
 {% include '_i18n_volumes.yml.j2' %}
     restart: unless-stopped
     expose:
