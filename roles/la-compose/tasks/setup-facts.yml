@@ -108,6 +108,23 @@
     - always
     - docker-compose
 
+# Is SolrCloud deployed inside THIS docker stack, or external (VMs)?
+# Deployment-wide test (NOT per-host physical_server_groups): true iff any host in the
+# [solrcloud]/[solr] groups is also a docker_compose host. This matters for multi-host
+# docker where biocache and solr may live on different docker hosts yet still reach each
+# other via the `zookeeper`/`la_solr` aliases (extra_hosts + published ports) — the test
+# must be true on ALL docker hosts to preserve that behavior. When solr lives only on
+# external VMs (mixed VM+Docker), the intersection is empty -> false, so biocache/bie-index
+# keep the inventory-provided VM endpoints instead of being repointed at a docker-local Solr.
+- name: Determine if SolrCloud is deployed inside this docker stack (vs external VMs)
+  set_fact:
+    solr_docker_local: >-
+      {{ (((groups['solrcloud'] | default([])) + (groups['solr'] | default([])))
+          | intersect(groups['docker_compose'] | default([])) | length) > 0 }}
+  tags:
+    - always
+    - docker-compose
+
 # Calculate service aliases for explicit variable loading
 # Maps each service group to its corresponding inventory hostname alias (e.g., 'cas-servers' -> 'test-host.cas')
 # Used in generate-compose.yml to load service-specific variables via hostvars[]
