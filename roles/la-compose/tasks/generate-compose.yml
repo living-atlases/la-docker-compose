@@ -3481,8 +3481,35 @@
   # untouched — a plain `up -d nginx` here would recreate nginx and re-run its
   # service_completed_successfully one-shots, causing a downtime window before the
   # main up, breaking the non-destructive redeploy contract (TEST_REDEPLOY).
+  #
+  # But --no-recreate also STARTS A STALE CONTAINER: it keeps the bind mounts the
+  # container was created with, so after the certificate mount changed, gbif-es kept
+  # validating against a cert-validator created a day earlier, which still mounted the
+  # old (empty) directory and could never succeed — the validation reported "nginx is
+  # not running" forever, for a certificate that was sitting right there on the host.
+  # So drop only the services whose DEFINITION drifted (same config-hash comparison as
+  # the post-up drift check in main.yml) and let the `up` below recreate those; an
+  # up-to-date nginx is still left alone, and cert-validator is a one-shot with
+  # `restart: "no"` — there is no uptime to protect there.
   shell: |
-    cd "{{ docker_compose_data_dir }}" && docker compose up -d --no-recreate nginx
+    cd "{{ docker_compose_data_dir }}"
+    drift=""
+    while read -r svc want; do
+      case "$svc" in nginx|cert-validator) ;; *) continue ;; esac
+      cid=$(docker compose ps -aq "$svc" 2>/dev/null | head -1)
+      [ -n "$cid" ] || continue
+      have=$(docker inspect -f '{{ '{{' }} index .Config.Labels "com.docker.compose.config-hash" {{ '}}' }}' "$cid" 2>/dev/null)
+      if [ -n "$have" ] && [ "$have" != "$want" ]; then
+        drift="$drift $svc"
+      fi
+    done < <(docker compose config --hash '*' 2>/dev/null)
+    if [ -n "$drift" ]; then
+      echo "Recreating services whose definition changed:$drift"
+      docker compose rm -sf $drift
+    fi
+    docker compose up -d --no-recreate nginx
+  args:
+    executable: /bin/bash
   environment:
     DOCKER_HOST: "{{ docker_socket }}"
   become: true
