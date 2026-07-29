@@ -79,6 +79,27 @@ else
   fi
 fi
 
+# ── Check 1b: free-form shell/command bodies split into arguments ─────────────
+# Cheap, and it catches what neither yamllint nor --syntax-check does: an odd quote
+# anywhere in a `shell:` body — an apostrophe in a COMMENT is enough — aborts the play
+# with "failed at splitting arguments", pointing at the first line of the block as if it
+# were a YAML error. A deploy died that way after both of those passed.
+section "Check 1b: free-form shell/command arguments"
+if [[ -x "$VENV_MOLECULE/bin/python" ]]; then
+  FREEFORM_PY="$VENV_MOLECULE/bin/python"
+else
+  FREEFORM_PY="python3"
+fi
+if "$FREEFORM_PY" -c 'import ansible.parsing.splitter' 2>/dev/null; then
+  if "$FREEFORM_PY" scripts/check-freeform-args.py; then
+    pass "Every free-form shell/command splits cleanly"
+  else
+    fail "A free-form shell/command cannot be split into arguments"
+  fi
+else
+  warn "ansible not importable from $FREEFORM_PY; skipping free-form argument check."
+fi
+
 # ── Validate inventory exists ─────────────────────────────────────────────────
 if [[ ! -e "$INVENTORY" ]]; then
   echo -e "${RED}ERROR: Inventory path not found: $INVENTORY${RESET}" >&2
