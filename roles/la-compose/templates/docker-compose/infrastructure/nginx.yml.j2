@@ -1,7 +1,20 @@
+{# ---- Site-provided certificates (use_la_site_certs=false) --------------------------------
+   The certs live on the DOCKER HOST, not on the Ansible controller. This template used to bind
+   the role's inventory_dir + /certs/, a controller-side path that does not exist on a remote
+   docker host: Docker then created it EMPTY and mounted it over the cert dir, so cert-validator found
+   no certificate and exited non-zero, and nginx (depends_on: service_completed_successfully)
+   never started. Mount the host's own tree at the identical path instead -- the same files
+   nginx reads when it runs on a VM.
+   Let's Encrypt's `live/<domain>/*.pem` are symlinks into `../../archive/<domain>/`, so mounting
+   only the leaf directory would leave dangling links inside the container; mount /etc/letsencrypt
+   whole in that case. Set ssl_certs_host_mount_dir to override for other layouts. #}
+{% set ssl_certs_host_mount = ssl_certs_host_mount_dir | default('', true)
+     or ('/etc/letsencrypt' if ssl_certificate_server_dir is match('^/etc/letsencrypt(/.*)?$')
+         else ssl_certificate_server_dir) %}
 services:
   # Certificate initialization service (only if using Docker image certs) to allow demo sites using SSL from test
   # domain l-a.site
-  # if not using this, mount your own certs from <inventories_dir>/certs/ into <ssl_certificate_server_dir>
+  # if not using this, your own certs are mounted from the docker host at <ssl_certificate_server_dir>
 {% if use_la_site_certs %}
 {# Volume la-site-certs is mounted at /etc/letsencrypt/live for nginx/cert-validator; paths must match ssl_certificate_server_dir. #}
 {% if ssl_certificate_server_dir is match('^/etc/letsencrypt/live(/.*)?$') %}
@@ -43,7 +56,7 @@ services:
 {% if use_la_site_certs %}
       - la-site-certs:/etc/letsencrypt/live:ro
 {% else %}
-      - "{{ inventory_dir }}/certs/:{{ ssl_certificate_server_dir }}:ro"
+      - "{{ ssl_certs_host_mount }}:{{ ssl_certs_host_mount }}:ro"
 {% endif %}
       - ../cert-validator:/scripts:ro
     environment:
@@ -123,7 +136,7 @@ services:
 {% if use_la_site_certs %}
       - la-site-certs:/etc/letsencrypt/live:ro
 {% else %}
-      - "{{ inventory_dir }}/certs/:{{ ssl_certificate_server_dir }}:ro"
+      - "{{ ssl_certs_host_mount }}:{{ ssl_certs_host_mount }}:ro"
 {% endif %}
     depends_on:
 {% if use_la_site_certs %}

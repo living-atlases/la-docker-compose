@@ -310,6 +310,13 @@ ssl_certificate_server_dir: "/etc/letsencrypt/live"
 ssl_cert_file: "fullchain.pem"
 ssl_key_file: "privkey.pem"
 
+# Host directory bind-mounted into nginx/cert-validator when the site provides its own
+# certificates (use_la_site_certs=false). Empty means "derive it": /etc/letsencrypt when
+# ssl_certificate_server_dir lives under it -- so the `live/<domain>/*.pem` symlinks into
+# ../../archive/ still resolve inside the container -- and ssl_certificate_server_dir itself
+# otherwise. Set it explicitly only for layouts neither rule covers.
+ssl_certs_host_mount_dir: ""
+
 # ============================================
 # Nginx / Webserver
 # ============================================

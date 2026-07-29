@@ -1,0 +1,42 @@
+---
+# Molecule unit scenario for the SSL certificate mounts of nginx.yml.j2.
+# Same localhost-only setup as the 'unit' scenario: renders the template, asserts on the
+# result, no containers involved.
+#
+# Setup: scripts/setup-molecule.sh  (creates .venv-molecule with molecule installed)
+# Run:   molecule test -s certs      (from project root)
+
+dependency:
+  name: galaxy
+
+driver:
+  name: default
+  options:
+    managed: false
+
+platforms:
+  - name: localhost
+
+provisioner:
+  name: ansible
+  inventory:
+    hosts:
+      all:
+        hosts:
+          localhost:
+            ansible_connection: local
+            ansible_python_interpreter: "{{ ansible_playbook_python }}"
+
+verifier:
+  name: ansible
+
+scenario:
+  name: certs
+  test_sequence:
+    - syntax
+    - converge
+    - verify
+  create_sequence:
+    - create
+  destroy_sequence:
+    - destroy

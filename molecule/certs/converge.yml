@@ -1,0 +1,125 @@
+---
+# Unit tests for the SSL certificate mounts in
+# roles/la-compose/templates/docker-compose/infrastructure/nginx.yml.j2
+#
+# Regression: with use_la_site_certs=false the template used to bind-mount
+# `<inventory_dir>/certs/`, a path on the ANSIBLE CONTROLLER. On a remote docker host that
+# path does not exist, so Docker created it empty and mounted it over the certificate
+# directory; cert-validator then found no certificate and exited non-zero, and nginx —
+# which waits on it with service_completed_successfully — never started. The deploy only
+# reported "la_nginx is not running". Certificates must come from the docker host itself.
+#
+# Covers:
+#   1. Site-provided certs under /etc/letsencrypt → mount the whole tree (live/*.pem are
+#      symlinks into ../../archive/, a leaf-only mount would leave them dangling)
+#   2. Site-provided certs elsewhere (/etc/ssl) → mount that directory
+#   3. ssl_certs_host_mount_dir overrides the derivation
+#   4. use_la_site_certs=true → the l-a.site volume, unchanged
+#   5. No rendering ever mounts a controller-side path
+
+- name: Unit test the SSL certificate mounts of nginx.yml.j2
+  hosts: all
+  gather_facts: false
+
+  vars:
+    nginx_template: "../../roles/la-compose/templates/docker-compose/infrastructure/nginx.yml.j2"
+
+    # Minimum var set nginx.yml.j2 needs to render, plus a deliberately wrong inventory_dir:
+    # if it shows up in any mount, the controller-path bug is back.
+    inventory_dir: "/CONTROLLER-ONLY"
+    group_names: []
+    physical_server_groups: []
+    skip_services: []
+    services_enabled: []
+    data_dir: "/data"
+    nginx_conf_dir: "/data/docker-compose/nginx"
+    branding_url: "branding"
+    docker_network: "internal"
+    docker_nginx_version: "1.25"
+    docker_extra_hosts_dict: {}
+    nginx_docker_internal_aliases: false
+    server_tz: "Europe/Madrid"
+    ssl_cert_file: "fullchain.pem"
+    ssl_key_file: "privkey.pem"
+
+  tasks:
+
+    # ── Test case 1: Let's Encrypt layout → mount /etc/letsencrypt whole ──────
+
+    - name: "[TC1] Render with certs under /etc/letsencrypt/live/<domain>"
+      ansible.builtin.set_fact:
+        tc1_rendered: "{{ lookup('template', nginx_template) }}"
+      vars:
+        use_la_site_certs: false
+        ssl_certificate_server_dir: "/etc/letsencrypt/live/datos.gbif.es"
+
+    - name: "[TC1] Assert the whole /etc/letsencrypt tree is mounted from the host"
+      ansible.builtin.assert:
+        that:
+          - '"- \"/etc/letsencrypt:/etc/letsencrypt:ro\"" in tc1_rendered'
+          # cert-validator and nginx both need it
+          - tc1_rendered | regex_findall('/etc/letsencrypt:/etc/letsencrypt:ro') | length == 2
+        fail_msg: "Let's Encrypt certs are not mounted from the docker host"
+
+    # ── Test case 2: certs outside /etc/letsencrypt → mount that dir ─────────
+
+    - name: "[TC2] Render with certs under /etc/ssl"
+      ansible.builtin.set_fact:
+        tc2_rendered: "{{ lookup('template', nginx_template) }}"
+      vars:
+        use_la_site_certs: false
+        ssl_certificate_server_dir: "/etc/ssl"
+        ssl_cert_file: "certs/ssl-cert-snakeoil.pem"
+        ssl_key_file: "private/ssl-cert-snakeoil.key"
+
+    - name: "[TC2] Assert /etc/ssl is mounted from the host at the same path"
+      ansible.builtin.assert:
+        that:
+          - '"- \"/etc/ssl:/etc/ssl:ro\"" in tc2_rendered'
+        fail_msg: "System certs are not mounted from the docker host"
+
+    # ── Test case 3: explicit override wins ──────────────────────────────────
+
+    - name: "[TC3] Render with ssl_certs_host_mount_dir set"
+      ansible.builtin.set_fact:
+        tc3_rendered: "{{ lookup('template', nginx_template) }}"
+      vars:
+        use_la_site_certs: false
+        ssl_certificate_server_dir: "/etc/letsencrypt/live/datos.gbif.es"
+        ssl_certs_host_mount_dir: "/srv/certs"
+
+    - name: "[TC3] Assert the override is used instead of the derived directory"
+      ansible.builtin.assert:
+        that:
+          - '"- \"/srv/certs:/srv/certs:ro\"" in tc3_rendered'
+          - '"/etc/letsencrypt:/etc/letsencrypt:ro" not in tc3_rendered'
+        fail_msg: "ssl_certs_host_mount_dir did not override the derived mount"
+
+    # ── Test case 4: l-a.site demo certs are untouched ───────────────────────
+
+    - name: "[TC4] Render with use_la_site_certs=true"
+      ansible.builtin.set_fact:
+        tc4_rendered: "{{ lookup('template', nginx_template) }}"
+      vars:
+        use_la_site_certs: true
+        ssl_certificate_server_dir: "/etc/letsencrypt/live/l-a.site"
+
+    - name: "[TC4] Assert the l-a.site volume is still used"
+      ansible.builtin.assert:
+        that:
+          - '"la-site-certs:/etc/letsencrypt/live:ro" in tc4_rendered'
+          - '"container_name: la_certs-init" in tc4_rendered'
+        fail_msg: "The use_la_site_certs=true path changed"
+
+    # ── Test case 5: no controller-side path ever reaches a mount ────────────
+
+    - name: "[TC5] Assert no rendering mounts a controller-only path"
+      ansible.builtin.assert:
+        that:
+          - '"/CONTROLLER-ONLY" not in tc1_rendered'
+          - '"/CONTROLLER-ONLY" not in tc2_rendered'
+          - '"/CONTROLLER-ONLY" not in tc3_rendered'
+          - '"/CONTROLLER-ONLY" not in tc4_rendered'
+        fail_msg: >-
+          nginx.yml.j2 bind-mounts an inventory_dir path. That directory only exists on the
+          Ansible controller; on a remote docker host Docker creates it empty.

@@ -974,6 +974,21 @@
     - config
     - bulk-load
 
+# Capture the inventory-provided bie-index Solr URLs BEFORE the include_role vars below
+# can shadow them. Used only when Solr is external (solr_docker_local=false) so bie-index
+# keeps the VM endpoints. Separate fact names avoid self-referential recursion in the
+# include_role `vars:` block.
+- name: Capture inventory bie-index Solr URLs (external-solr fallback)
+  set_fact:
+    bie_index_admin_url_ext: "{{ index_admin_url | default('http://solr:8983/solr') }}"
+    bie_index_live_url_ext: "{{ index_live_url | default('http://solr:8983/solr/bie') }}"
+    bie_index_offline_url_ext: "{{ index_offline_url | default('http://solr:8983/solr/bie-offline') }}"
+  when: service_aliases.get('bie-index') is defined
+  tags:
+    - bie-index
+    - config
+    - docker-compose
+
 - name: Run bie-index configuration generation
   include_role:
     name: bie-index
@@ -986,12 +1001,16 @@
     bie_index_upstream_host: la_bie-index
     # docker: bie-index talks to Solr over HTTP (index_*_url). The generated inventory
     # points these at solr.l-a.site:8983 (public hostname, NOT routable in-cluster) ->
-    # taxon/search pages fail with IOException. Repoint to the in-cluster Solr container
-    # (la_solr, resolvable cross-host via extra_hosts; verified reachable). Overrides the
-    # inventory value only for the container deploy; VM/bare-metal use their own inventory.
-    index_admin_url: "http://la_solr:8983/solr"
-    index_live_url: "http://la_solr:8983/solr/bie"
-    index_offline_url: "http://la_solr:8983/solr/bie-offline"
+    # taxon/search pages fail with IOException. When Solr runs in THIS docker stack,
+    # repoint to the in-cluster Solr container (la_solr, resolvable cross-host via
+    # extra_hosts). In a mixed VM+Docker deployment (solr_docker_local=false) Solr lives
+    # on external VMs, so keep the inventory endpoints (bie_index_*_url_ext).
+    index_admin_url: >-
+      {{ 'http://la_solr:8983/solr' if (solr_docker_local | default(true)) else bie_index_admin_url_ext }}
+    index_live_url: >-
+      {{ 'http://la_solr:8983/solr/bie' if (solr_docker_local | default(true)) else bie_index_live_url_ext }}
+    index_offline_url: >-
+      {{ 'http://la_solr:8983/solr/bie-offline' if (solr_docker_local | default(true)) else bie_index_offline_url_ext }}
     nginx_vhost_fast_mode: false  # bie-index has is_websocket paths; fast_mode skips the map directive
   when:
     - "'bie_index' in services_enabled"
@@ -1100,6 +1119,22 @@
     - config
     - normalize
 
+# Capture the inventory-provided Solr/ZK ensemble BEFORE biocache3-properties runs
+# ala-install's solrcloud/docker-facts.yml, which overrides solr_url with the docker-local
+# swarm names (la_solrcloud_zoo_*). Used by the repoint task below to restore the VM
+# ensemble when Solr is external (solr_docker_local=false). Separate fact name so it is
+# not clobbered by the override.
+- name: Capture inventory Solr/ZK ensemble (external-solr fallback)
+  set_fact:
+    solr_url_ext: "{{ solr_url | default('zookeeper:2181') }}"
+  when:
+    - "'biocache_service' in services_enabled"
+    - "service_aliases.get('biocache-service-clusterdb') is defined"
+  tags:
+    - biocache-service
+    - config
+    - docker-compose
+
 - name: Run biocache-service properties generation
   include_role:
     name: biocache3-properties
@@ -1118,20 +1153,20 @@
     - only
     - docker-compose
 
-- name: Repoint biocache-service at la-compose's own ZooKeeper (la_zookeeper)
+- name: Repoint biocache-service Solr/ZK away from the legacy swarm ensemble name
   # biocache3-properties includes ala-install solrcloud/docker-facts.yml, which sets
-  # solr_url/zookeeper.address to the LEGACY swarm ensemble name la_solrcloud_zoo_1:2181.
-  # That solrcloud stack is NOT deployed in container mode (site.yml only runs the
-  # docker + la-compose roles); the running SolrCloud is la-compose's own la_solr +
-  # la_zookeeper (published cross-host via publish_db_ports_clusterwide, collection
-  # created idempotently by init-solr.yml). Rewrite the rendered config so biocache
-  # uses zookeeper:2181 — the la_zookeeper service alias, which is in extra_hosts and
-  # published on the host private IP. Idempotent + only fires when the legacy name is
-  # present, so single-host/standalone (already zookeeper:2181) is unaffected.
+  # solr.home/zookeeper.address to the LEGACY swarm ensemble name la_solrcloud_zoo_N:2181.
+  # That swarm solrcloud stack is never deployed here, so rewrite the rendered config:
+  #  - solr_docker_local (Solr runs in THIS docker stack): -> zookeeper:2181, the la_zookeeper
+  #    service alias (extra_hosts + published on the host private IP; collection created by
+  #    init-solr.yml). Single-host/standalone already zookeeper:2181, so unaffected.
+  #  - external Solr (mixed VM+Docker): -> the inventory VM ZK ensemble captured in
+  #    solr_url_ext, so biocache talks to the real SolrCloud on the VMs.
+  # Idempotent: only fires when the legacy name is present; the replacement never contains it.
   replace:
     path: "{{ data_dir }}/biocache/config/biocache-config.properties"
     regexp: '^(\s*(?:solr\.home|zookeeper\.address)\s*=\s*).*la_solrcloud_zoo_.*$'
-    replace: '\1zookeeper:2181'
+    replace: '\1{{ "zookeeper:2181" if (solr_docker_local | default(true)) else solr_url_ext }}'
   become: true
   when:
     - "'biocache_service' in services_enabled"
@@ -3400,6 +3435,46 @@
   tags:
     - docker-compose
 
+# Site-provided certificates live on THIS host (the docker host), and that is where
+# nginx/cert-validator bind-mount them from — see ssl_certs_host_mount in nginx.yml.j2.
+# Check them here, before starting nginx: cert-validator is a one-shot that nginx waits on
+# with service_completed_successfully, so a missing certificate never surfaces as "cert
+# missing", only as "nginx never started".
+- name: "SSL Certificates: Stat certificate and key on the docker host"
+  stat:
+    path: "{{ ssl_certificate_server_dir }}/{{ item }}"
+  loop:
+    - "{{ ssl_cert_file }}"
+    - "{{ ssl_key_file }}"
+  register: ssl_local_certs_stat
+  when:
+    - not use_la_site_certs | bool
+    - auto_deploy | default(true) | bool
+  tags:
+    - nginx-validation
+
+- name: "SSL Certificates: Assert certificate and key exist on the docker host"
+  assert:
+    that:
+      - item.stat.exists or ansible_check_mode
+    fail_msg: |
+      SSL certificate not found on {{ inventory_hostname }}: {{ ssl_certificate_server_dir }}/{{ item.item }}
+
+      This host serves its own certificates (use_la_site_certs=false), and nginx and
+      cert-validator bind-mount them from THIS host, so they have to exist here. Either copy
+      the certificates over — resolving symlinks (`cp -L`) if they come from a Let's Encrypt
+      live/ directory — or point ssl_certificate_server_dir / ssl_cert_file / ssl_key_file
+      at where they really are.
+    success_msg: "Certificate present: {{ ssl_certificate_server_dir }}/{{ item.item }}"
+  loop: "{{ ssl_local_certs_stat.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item | default('') }}"
+  when:
+    - not use_la_site_certs | bool
+    - auto_deploy | default(true) | bool
+  tags:
+    - nginx-validation
+
 - name: "SSL Certificates: Start nginx to validate local certificates"
   # --no-recreate: on a first deploy this creates nginx; on a redeploy nginx is
   # already running (cert validation still works against it) and must be left
@@ -3407,68 +3482,76 @@
   # service_completed_successfully one-shots, causing a downtime window before the
   # main up, breaking the non-destructive redeploy contract (TEST_REDEPLOY).
   shell: |
-    cd "{{ docker_compose_data_dir }}" && docker compose up -d --no-recreate nginx 2>&1 || true
+    cd "{{ docker_compose_data_dir }}" && docker compose up -d --no-recreate nginx
   environment:
     DOCKER_HOST: "{{ docker_socket }}"
   become: true
+  register: nginx_start
+  # Not fatal on its own: the next task decides, and the diagnostics task below reports
+  # WHY. Swallowing this with `|| true` is what used to leave the failure undiagnosable.
+  failed_when: false
+  changed_when: nginx_start.rc == 0
   when:
     - not use_la_site_certs | bool
     - auto_deploy | default(true) | bool
   tags:
     - nginx-validation
 
-- name: "SSL Certificates: Wait briefly and check nginx is running"
-  shell: |
-    sleep 5 && docker ps | grep -q la_nginx && echo "nginx running"
+- name: "SSL Certificates: Wait for nginx to be running"
+  command: docker ps --filter "name=^la_nginx$" --filter "status=running" -q
+  environment:
+    DOCKER_HOST: "{{ docker_socket }}"
   become: true
-  when:
-    - not use_la_site_certs | bool
-    - auto_deploy | default(true) | bool
-  register: nginx_check
-  tags:
-    - nginx-validation
-
-- name: "SSL Certificates: Verify certificate file exists in host"
-  stat:
-    path: "{{ inventory_dir }}/certs/letsencrypt/live/l-a.site/{{ ssl_cert_file }}"
-  register: cert_file_stat
+  register: nginx_running
+  until: nginx_running.stdout | length > 0
+  retries: 12
+  delay: 5
+  failed_when: false
+  changed_when: false
   when:
     - not use_la_site_certs | bool
     - auto_deploy | default(true) | bool
   tags:
     - nginx-validation
 
-- name: "SSL Certificates: Assert certificate file exists"
-  assert:
-    that:
-      - cert_file_stat.stat.exists or ansible_check_mode
-    fail_msg: "Certificate file not found: {{ inventory_dir }}/certs/letsencrypt/live/l-a.site/{{ ssl_cert_file }}"
-    success_msg: "Certificate file exists: {{ ssl_cert_file }}"
+- name: "SSL Certificates: Collect diagnostics when nginx did not start"
+  shell: |
+    cd "{{ docker_compose_data_dir }}"
+    echo "==== docker compose ps ===="
+    docker compose ps --all nginx cert-validator 2>&1
+    echo "==== cert-validator logs ===="
+    docker compose logs --no-color --tail 50 cert-validator 2>&1
+  environment:
+    DOCKER_HOST: "{{ docker_socket }}"
+  become: true
+  register: nginx_diagnostics
+  changed_when: false
+  failed_when: false
   when:
     - not use_la_site_certs | bool
     - auto_deploy | default(true) | bool
+    - nginx_running.stdout | default('') | length == 0
   tags:
     - nginx-validation
 
-- name: "SSL Certificates: Verify key file exists in host"
-  stat:
-    path: "{{ inventory_dir }}/certs/letsencrypt/live/l-a.site/{{ ssl_key_file }}"
-  register: key_file_stat
-  when:
-    - not use_la_site_certs | bool
-    - auto_deploy | default(true) | bool
-  tags:
-    - nginx-validation
+- name: "SSL Certificates: Fail with the reason nginx did not start"
+  fail:
+    msg: |
+      la_nginx is not running after 60s.
 
-- name: "SSL Certificates: Assert key file exists"
-  assert:
-    that:
-      - key_file_stat.stat.exists or ansible_check_mode
-    fail_msg: "Key file not found: {{ inventory_dir }}/certs/letsencrypt/live/l-a.site/{{ ssl_key_file }}"
-    success_msg: "Key file exists: {{ ssl_key_file }}"
+      Its cert-validator dependency (service_completed_successfully) is the usual culprit:
+      it exits non-zero when the certificate is missing, empty, expired or does not match
+      the key, and nginx is then never started.
+
+      docker compose up said:
+      {{ nginx_start.stderr | default('') | trim }}
+      {{ nginx_start.stdout | default('') | trim }}
+
+      {{ nginx_diagnostics.stdout | default('(no diagnostics)') }}
   when:
     - not use_la_site_certs | bool
     - auto_deploy | default(true) | bool
+    - nginx_running.stdout | default('') | length == 0
   tags:
     - nginx-validation
 
@@ -3478,14 +3561,14 @@
       ✅ SSL Local Certificates Validated Successfully!
 
       Configuration:
-      - Source: Local inventory directory
+      - Source: certificates on the docker host ({{ inventory_hostname }})
       - Certificate directory: {{ ssl_certificate_server_dir }}
       - Certificate file: {{ ssl_cert_file }}
       - Key file: {{ ssl_key_file }}
 
       Status:
-      ✓ Certificate file found in nginx
-      ✓ Key file found in nginx
+      ✓ Certificate and key found on the host
+      ✓ cert-validator completed successfully
       ✓ Nginx container running with SSL enabled
   when:
     - not use_la_site_certs | bool

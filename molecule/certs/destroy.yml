@@ -1,0 +1,9 @@
+---
+# Delegated driver: nothing to destroy.
+- name: Destroy
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Delegated driver - no instance destruction needed
+      ansible.builtin.debug:
+        msg: "Using delegated driver on localhost - skipping destroy"
