@@ -326,6 +326,13 @@ webserver_nginx: true
 # Suppress warning about undefined nginx_vhost_fragments_to_clear (not needed for docker).
 nginx_vhost_fragments_to_clear_no_warning: true
 
+# Docker bridge networks have no IPv6 unless the daemon is explicitly configured for it,
+# and nginx does not degrade gracefully: `listen [::]:80` makes it abort at startup with
+# "socket() [::]:80 failed (97: Address family not supported by protocol)" and crash-loop.
+# The nginx image only strips that line from its own default.conf, not from the vhosts
+# nginx_vhost renders. On a VM nginx listens on the host stack and this stays true.
+nginx_listen_ipv6: false
+
 # ============================================
 # Redeploy safety (production)
 # ============================================

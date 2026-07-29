@@ -3548,6 +3548,11 @@
     docker compose ps --all nginx cert-validator 2>&1
     echo "==== cert-validator logs ===="
     docker compose logs --no-color --tail 50 cert-validator 2>&1
+    # nginx's own log matters just as much: once the certificates validate, whatever
+    # still stops nginx (a bad directive, an unresolvable upstream, no IPv6 on the
+    # docker network) is only visible here.
+    echo "==== nginx logs ===="
+    docker compose logs --no-color --tail 50 nginx 2>&1
   environment:
     DOCKER_HOST: "{{ docker_socket }}"
   become: true
