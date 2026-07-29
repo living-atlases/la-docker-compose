@@ -1,0 +1,17 @@
+all:
+  vars:
+    hosts_entries: |
+      10.77.0.1 la-mh-1 
+      10.77.0.2 la-mh-2 
+      10.77.0.3 la-mh-3 
+    # previously ubuntu without quotes:
+    def_ansible_user: 'ubuntu'
+    sudo_defaults:
+      - name: 'ubuntu'
+        # https://docs.ansible.com/ansible/2.3/intro_configuration.html#pipelining
+        defaults: '!requiretty'
+    sudo_users:
+      - name: 'ubuntu'
+        nopasswd: yes
+    ssh_keys: [ '~/.ssh/gbif-es-2026.pub' ]
+    ansible_python_interpreter: /usr/bin/python3
