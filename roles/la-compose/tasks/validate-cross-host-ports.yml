@@ -41,7 +41,7 @@
   when: datastore_endpoints is defined
   block:
     - name: "Cross-host ports: build remote (non-colocated) datastore target list"
-      set_fact:
+      ansible.builtin.set_fact:
         _xhost_targets: >-
           {%- set out = [] -%}
           {%- for ds, ep in datastore_endpoints.items() -%}
@@ -83,7 +83,7 @@
       changed_when: false
 
     - name: "Cross-host ports: classify results (open / refused / filtered)"
-      set_fact:
+      ansible.builtin.set_fact:
         _xhost_open: "{{ _xhost_probe.results | default([]) | selectattr('stdout', 'equalto', 'OPEN') | list }}"
         _xhost_refused: "{{ _xhost_probe.results | default([]) | selectattr('stdout', 'equalto', 'REFUSED') | list }}"
         _xhost_filtered: "{{ _xhost_probe.results | default([]) | selectattr('stdout', 'equalto', 'FILTERED') | list }}"

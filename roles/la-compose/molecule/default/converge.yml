@@ -9,9 +9,9 @@
     # Fake some vars to pass syntax checks if roles aren't present
   tasks:
     - name: Create docker-compose volumes
-      import_role:
+      ansible.builtin.import_role:
         name: la-volumes
 
     - name: Generate docker-compose deployment files
-      import_role:
+      ansible.builtin.import_role:
         name: la-compose

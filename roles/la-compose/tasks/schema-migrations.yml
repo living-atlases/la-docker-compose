@@ -20,7 +20,7 @@
 # on the old collation (emmet is small; the conversion is quick).
 
 - name: "DB Migration: emmet — check current database default collation"
-  command: >
+  ansible.builtin.command: >
     docker exec la_mysql mysql -N -u root -p{{ mysql_root_password }}
     -e "SELECT DEFAULT_COLLATION_NAME FROM information_schema.SCHEMATA
         WHERE SCHEMA_NAME='{{ cas_db_name | default('emmet') }}';"
@@ -32,7 +32,7 @@
   tags: [db-init, db-migrations]
 
 - name: "DB Migration: emmet — set database default collation to utf8mb4_unicode_ci"
-  command: >
+  ansible.builtin.command: >
     docker exec la_mysql mysql -u root -p{{ mysql_root_password }}
     -e "ALTER DATABASE {{ cas_db_name | default('emmet') }}
         CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
@@ -44,7 +44,7 @@
   tags: [db-init, db-migrations]
 
 - name: "DB Migration: emmet — list tables on a different collation"
-  command: >
+  ansible.builtin.command: >
     docker exec la_mysql mysql -N -u root -p{{ mysql_root_password }}
     -e "SELECT TABLE_NAME FROM information_schema.TABLES
         WHERE TABLE_SCHEMA='{{ cas_db_name | default('emmet') }}'
@@ -59,7 +59,7 @@
   tags: [db-init, db-migrations]
 
 - name: "DB Migration: emmet — convert stray tables to utf8mb4_unicode_ci"
-  command: >
+  ansible.builtin.command: >
     docker exec la_mysql mysql -u root -p{{ mysql_root_password }}
     -e "ALTER TABLE {{ cas_db_name | default('emmet') }}.{{ item }}
         CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
@@ -70,7 +70,7 @@
   tags: [db-init, db-migrations]
 
 - name: "DB Migration: emmet collation — report"
-  debug:
+  ansible.builtin.debug:
     msg: >-
       emmet collation: db default was
       '{{ emmet_db_collation.stdout | default('n/a') | trim }}'

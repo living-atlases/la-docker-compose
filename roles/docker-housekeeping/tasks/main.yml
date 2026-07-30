@@ -6,7 +6,7 @@
 # role — see defaults/main.yml.
 
 - name: housekeeping | logrotate is present
-  package:
+  ansible.builtin.package:
     name: logrotate
     state: present
   when: docker_housekeeping_logrotate_enabled | bool
@@ -15,7 +15,7 @@
     - logrotate
 
 - name: housekeeping | rotate container json logs
-  template:
+  ansible.builtin.template:
     src: docker-containers.logrotate.j2
     dest: /etc/logrotate.d/docker-containers
     owner: root
@@ -27,7 +27,7 @@
     - logrotate
 
 - name: housekeeping | journald drop-in directory exists
-  file:
+  ansible.builtin.file:
     path: /etc/systemd/journald.conf.d
     state: directory
     owner: root
@@ -39,7 +39,7 @@
     - journald
 
 - name: housekeeping | cap the systemd journal
-  template:
+  ansible.builtin.template:
     src: journald-99-la.conf.j2
     dest: /etc/systemd/journald.conf.d/99-la.conf
     owner: root
@@ -54,7 +54,7 @@
 # Restarting journald is not disruptive to the stack (it is not in the request
 # path); the cap only takes effect on the next rotation otherwise.
 - name: housekeeping | apply the journal cap
-  systemd:
+  ansible.builtin.systemd:
     name: systemd-journald
     state: restarted
   when:
@@ -65,7 +65,7 @@
     - journald
 
 - name: housekeeping | install the image GC script
-  template:
+  ansible.builtin.template:
     src: containerd-gc.sh.j2
     dest: /usr/local/bin/containerd-gc.sh
     owner: root
@@ -77,7 +77,7 @@
     - containerd-gc
 
 - name: housekeeping | install the image GC systemd units
-  template:
+  ansible.builtin.template:
     src: "containerd-gc.{{ item }}.j2"
     dest: "/etc/systemd/system/containerd-gc.{{ item }}"
     owner: root
@@ -93,7 +93,7 @@
     - containerd-gc
 
 - name: housekeeping | reload systemd for the GC units
-  systemd:
+  ansible.builtin.systemd:
     daemon_reload: true
   when:
     - docker_housekeeping_gc_enabled | bool
@@ -106,7 +106,7 @@
 # systemd cannot resolve containerd-gc.timer and the whole dry-run fails on a
 # host where nothing is actually wrong.
 - name: housekeeping | enable the daily image GC
-  systemd:
+  ansible.builtin.systemd:
     name: containerd-gc.timer
     enabled: true
     state: started
@@ -118,7 +118,7 @@
     - containerd-gc
 
 - name: housekeeping | metrics directory exists
-  file:
+  ansible.builtin.file:
     path: "{{ docker_housekeeping_metrics_dir }}"
     state: directory
     owner: root
@@ -130,7 +130,7 @@
     - disk-metrics
 
 - name: housekeeping | install the disk metric publisher
-  template:
+  ansible.builtin.template:
     src: disk-metrics.sh.j2
     dest: /usr/local/bin/disk-metrics.sh
     owner: root
@@ -142,7 +142,7 @@
     - disk-metrics
 
 - name: housekeeping | install the disk metric systemd units
-  template:
+  ansible.builtin.template:
     src: "disk-metrics.{{ item }}.j2"
     dest: "/etc/systemd/system/disk-metrics.{{ item }}"
     owner: root
@@ -158,7 +158,7 @@
     - disk-metrics
 
 - name: housekeeping | reload systemd for the metric units
-  systemd:
+  ansible.builtin.systemd:
     daemon_reload: true
   when:
     - docker_housekeeping_metrics_enabled | bool
@@ -168,7 +168,7 @@
     - disk-metrics
 
 - name: housekeeping | enable the disk metric timer
-  systemd:
+  ansible.builtin.systemd:
     name: disk-metrics.timer
     enabled: true
     state: started
@@ -181,7 +181,7 @@
 
 # Write it once now rather than leaving Gatus red until the first timer tick.
 - name: housekeeping | publish the disk metric immediately
-  command: /usr/local/bin/disk-metrics.sh
+  ansible.builtin.command: /usr/local/bin/disk-metrics.sh
   changed_when: false
   when:
     - docker_housekeeping_metrics_enabled | bool
@@ -194,7 +194,7 @@
 # got worse; the preflight assert in validate-pre-deploy.yml is what stops the
 # deploy. This is here so the operator sees the number in the play output.
 - name: housekeeping | measure root filesystem usage
-  command: df --output=pcent /
+  ansible.builtin.command: df --output=pcent /
   register: root_usage
   changed_when: false
   # Read-only, and the warning below is the main reason to dry-run this role at
@@ -205,7 +205,7 @@
     - docker-housekeeping
 
 - name: housekeeping | warn when the root filesystem is filling up
-  debug:
+  ansible.builtin.debug:
     msg: >-
       WARNING: / on {{ inventory_hostname }} is at
       {{ root_usage.stdout_lines | last | trim }} — container logs and image

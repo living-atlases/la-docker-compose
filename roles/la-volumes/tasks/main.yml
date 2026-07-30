@@ -3,14 +3,14 @@
 # This prevents accidental deletion of database data
 
 - name: "Database volumes: Set Docker socket path"
-  set_fact:
+  ansible.builtin.set_fact:
     docker_socket: "{{ lookup('env', 'DOCKER_HOST') | default('unix:///var/run/docker.sock', true) }}"
   tags:
     - db-init
     - docker-volumes
 
 - name: "Database volumes: Create MySQL external volume"
-  docker_volume:
+  community.docker.docker_volume:
     name: la_mysql-data
     driver: local
     docker_host: "{{ docker_socket }}"
@@ -22,7 +22,7 @@
   when: enable_mysql | default(false) | bool
 
 - name: "Database volumes: Create PostgreSQL external volume"
-  docker_volume:
+  community.docker.docker_volume:
     name: la_postgres-data
     driver: local
     docker_host: "{{ docker_socket }}"
@@ -34,7 +34,7 @@
   when: enable_postgres | default(false) | bool
 
 - name: "Database volumes: Create MongoDB external volume"
-  docker_volume:
+  community.docker.docker_volume:
     name: la_mongodb-data
     driver: local
     docker_host: "{{ docker_socket }}"
@@ -46,7 +46,7 @@
   when: enable_mongo | default(false) | bool
 
 - name: "Database volumes: Create Gatus external volume"
-  docker_volume:
+  community.docker.docker_volume:
     name: la_gatus-data
     driver: local
     docker_host: "{{ docker_socket }}"
@@ -58,7 +58,7 @@
   when: "'gatus' in (physical_server_groups | default([]))"
 
 - name: "Database volumes: Create Solr external volume"
-  docker_volume:
+  community.docker.docker_volume:
     name: la_solr-data
     driver: local
     docker_host: "{{ docker_socket }}"
@@ -70,7 +70,7 @@
   when: "'solrcloud' in (physical_server_groups | default([])) or 'solr' in (physical_server_groups | default([]))"
 
 - name: "Database volumes: Create Cassandra external volume"
-  docker_volume:
+  community.docker.docker_volume:
     name: la_cassandra-data
     driver: local
     docker_host: "{{ docker_socket }}"
@@ -85,7 +85,7 @@
     or 'cassandra' in (physical_server_groups | default([]))
 
 - name: "Database volumes: Create Elasticsearch external volume"
-  docker_volume:
+  community.docker.docker_volume:
     name: la_elasticsearch-data
     driver: local
     docker_host: "{{ docker_socket }}"
@@ -100,7 +100,7 @@
     or 'ecodata' in (physical_server_groups | default([]))
 
 - name: "Database volumes: Create doi-service Elasticsearch (ES 7.x sidecar) external volume"
-  docker_volume:
+  community.docker.docker_volume:
     name: la_doi-elasticsearch-data
     driver: local
     docker_host: "{{ docker_socket }}"
@@ -112,7 +112,7 @@
   when: "'doi-service' in (physical_server_groups | default([]))"
 
 - name: "Database volumes: Create SSL certificates external volume"
-  docker_volume:
+  community.docker.docker_volume:
     name: la-site-certs
     driver: local
     docker_host: "{{ docker_socket }}"
@@ -123,7 +123,7 @@
     - docker-volumes
 
 - name: "Database volumes: Create Branding external volume"
-  docker_volume:
+  community.docker.docker_volume:
     name: la_branding-assets
     driver: local
     docker_host: "{{ docker_socket }}"

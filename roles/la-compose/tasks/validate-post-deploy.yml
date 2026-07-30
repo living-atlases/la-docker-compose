@@ -13,30 +13,30 @@
 - name: Post-Deployment Validation Block
   block:
     - name: Wait for docker-compose to settle
-      pause:
+      ansible.builtin.pause:
         seconds: 5
       when: wait_for_settle | default(true)
 
     - name: Verify all docker-compose services are running
-      command: |
+      ansible.builtin.command: |
         docker compose -f "{{ docker_compose_data_dir }}/docker-compose.yml" ps
       register: compose_ps
       changed_when: false
 
     - name: List running service names
-      command: |
+      ansible.builtin.command: |
         docker compose -f "{{ docker_compose_data_dir }}/docker-compose.yml" ps --services --filter status=running
       register: compose_running_services
       changed_when: false
 
     - name: Parse service status
-      set_fact:
+      ansible.builtin.set_fact:
         running_services: "{{ (compose_ps.stdout_lines | select('search', ' Up ') | list) | length }}"
         expected_services: "{{ compose_services.keys() | length }}"
         down_service_names: "{{ compose_services.keys() | difference(compose_running_services.stdout_lines) | list }}"
 
     - name: Display service status
-      debug:
+      ansible.builtin.debug:
         msg: |
           Service Status: {{ running_services }} running / {{ expected_services }} expected
           {% if down_service_names | length > 0 %}
@@ -44,7 +44,7 @@
           {% endif %}
 
     - name: Warn if not all services running yet
-      debug:
+      ansible.builtin.debug:
         verbosity: 2
         msg: |
           Some services not yet in running state.
@@ -56,7 +56,7 @@
     - name: Run health check script with timeout
       block:
         - name: Copy wait-for-health.sh script to target
-          copy:
+          ansible.builtin.copy:
             src: "{{ role_path }}/../../scripts/wait-for-health.sh"
             dest: "{{ docker_compose_data_dir }}/wait-for-health.sh"
             mode: "0755"
@@ -83,7 +83,7 @@
         # injected from role defaults here, and the budget below is DERIVED from the same three
         # variables, so wrapper and script cannot drift apart again.
         - name: Run health check with custom timeout
-          command: |
+          ansible.builtin.command: |
             timeout -k 30 {{ health_gate_budget }} \
             "{{ docker_compose_data_dir }}/wait-for-health.sh" \
               --compose-dir "{{ docker_compose_data_dir }}" \
@@ -107,7 +107,7 @@
         - name: Health check failed - collecting diagnostics
           block:
             - name: Copy diagnose script to target
-              copy:
+              ansible.builtin.copy:
                 src: "{{ role_path }}/../../scripts/diagnose-failure.sh"
                 dest: "{{ docker_compose_data_dir }}/diagnose-failure.sh"
                 mode: "0755"
@@ -116,7 +116,7 @@
               become: true
 
             - name: Run diagnostic collection
-              command: |
+              ansible.builtin.command: |
                 "{{ docker_compose_data_dir }}/diagnose-failure.sh" \
                   --output-dir "{{ data_dir }}/diagnostics" \
                   {% if verbose_health_check | default(false) %}--verbose{% endif %}
@@ -134,7 +134,7 @@
               when: "'biocache_service' in (services_enabled | default([]))"
               block:
                 - name: Copy biocache dependency validator to target
-                  copy:
+                  ansible.builtin.copy:
                     src: "{{ role_path }}/../../scripts/validate-biocache-deps.sh"
                     dest: "{{ docker_compose_data_dir }}/validate-biocache-deps.sh"
                     mode: "0755"
@@ -143,7 +143,7 @@
                   become: true
 
                 - name: Run biocache dependency validation
-                  command: >
+                  ansible.builtin.command: >
                     "{{ docker_compose_data_dir }}/validate-biocache-deps.sh"
                     --container la_biocache-service
                     --output "{{ data_dir }}/diagnostics/biocache-deps.txt"
@@ -153,7 +153,7 @@
                   ignore_errors: true
 
                 - name: Display biocache dependency check result
-                  debug:
+                  ansible.builtin.debug:
                     verbosity: 2
                     msg: "{{ biocache_deps_result.stdout_lines | default(['(no output captured)']) }}"
 
@@ -162,11 +162,11 @@
             # not just "unhealthy". Report-only here (ignore_errors) — never mask the
             # original failure. This is the signal that caught the #195/#196 ufw block.
             - name: Validate cross-host datastore port reachability (firewall)
-              include_tasks: validate-cross-host-ports.yml
+              ansible.builtin.include_tasks: validate-cross-host-ports.yml
               ignore_errors: true
 
             - name: Display diagnostic location
-              debug:
+              ansible.builtin.debug:
                 msg: |
                   ✗ Health check FAILED - Diagnostics collected
 
@@ -180,7 +180,7 @@
                   - {service}-logs.txt (service logs)
 
             - name: Fail deployment with diagnostic link
-              fail:
+              ansible.builtin.fail:
                 msg: |
                   ✗ Post-deployment health check FAILED
 
@@ -197,14 +197,14 @@
     - name: Verify critical services are healthy
       block:
         - name: Check MySQL health
-          docker_container_info:
+          community.docker.docker_container_info:
             name: "la_{{ instance_name | lower }}_mysql_1"
           register: mysql_info
           when: "'mysql' in compose_services"
           ignore_errors: true
 
         - name: Verify MySQL status
-          assert:
+          ansible.builtin.assert:
             that:
               - mysql_info.exists | default(false)
               - mysql_info.container.state.running | default(false)
@@ -221,7 +221,7 @@
     - name: Validate port accessibility
       block:
         - name: Check if ports are listening
-          wait_for:
+          ansible.builtin.wait_for:
             host: "{{ inventory_hostname }}"
             port: "{{ item }}"
             timeout: 10
@@ -238,7 +238,7 @@
             - 9200   # Elasticsearch
 
         - name: Report port status
-          debug:
+          ansible.builtin.debug:
             msg: |
               Port Accessibility:
               {% for result in port_check.results %}
@@ -252,17 +252,17 @@
     - name: Check for critical errors in logs
       block:
         - name: Search for ERROR patterns in recent logs
-          command: |
+          ansible.builtin.command: |
             docker compose -f "{{ docker_compose_data_dir }}/docker-compose.yml" logs --tail 100
           register: recent_logs
           changed_when: false
 
         - name: Check for fatal errors
-          set_fact:
+          ansible.builtin.set_fact:
             has_fatal_errors: "{{ 'FATAL' in recent_logs.stdout or 'Fatal' in recent_logs.stdout }}"
 
         - name: Warn if fatal errors found
-          debug:
+          ansible.builtin.debug:
             msg: |
               ⚠ WARNING: Potential fatal errors detected in logs.
               Please review with: docker compose logs
@@ -273,7 +273,7 @@
         - logs
 
     - name: Display post-deployment summary
-      debug:
+      ansible.builtin.debug:
         msg: |
           ✓ Post-deployment validation PASSED
 
@@ -295,7 +295,7 @@
 
   rescue:
     - name: Post-deployment validation FAILED
-      fail:
+      ansible.builtin.fail:
         msg: |
           ✗ Post-deployment validation FAILED
 
@@ -311,7 +311,7 @@
 
   always:
     - name: Collect final service status
-      command: docker compose ps -q
+      ansible.builtin.command: docker compose ps -q
       args:
         chdir: "{{ docker_compose_data_dir }}"
       register: final_status
@@ -319,7 +319,7 @@
       ignore_errors: true
 
     - name: Log post-deployment status
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: "{{ data_dir }}/logs/deployment.log"
         line: "{{ ansible_date_time.iso8601 }} - Post-deployment validation completed. Services running: {{ final_status.stdout_lines | length }}/{{ expected_services | default('?') }}"
         create: true
@@ -330,7 +330,7 @@
         - logs
 
     - name: Display deployment report
-      debug:
+      ansible.builtin.debug:
         msg: |
           ╔════════════════════════════════════════════════════════════╗
           ║           DEPLOYMENT REPORT - {{ inventory_hostname }}     ║

@@ -13,7 +13,7 @@
 # Pattern mirrors init-databases.yml and reuses ala-install solrcloud_config logic.
 
 - name: "Solr Init: Detect running solr container"
-  command: docker ps --filter name=la_solr --format '{{ "{{" }}.Names{{ "}}" }}'
+  ansible.builtin.command: docker ps --filter name=la_solr --format '{{ "{{" }}.Names{{ "}}" }}'
   register: solr_container_check
   become: true
   changed_when: false
@@ -21,7 +21,7 @@
     - solr-init
 
 - name: "Solr Init: Skip if Solr is not part of this profile"
-  debug:
+  ansible.builtin.debug:
     msg: "la_solr container not running — skipping Solr collection init."
   when: "'la_solr' not in solr_container_check.stdout_lines"
   tags:
@@ -34,7 +34,7 @@
     - solr-init
   block:
     - name: "Solr Init: Wait for la_solr to be healthy"
-      shell: |
+      ansible.builtin.shell: |
         docker inspect --format='{{ "{{" }}.State.Health.Status{{ "}}" }}' la_solr
       register: solr_health
       until: 'solr_health.stdout == "healthy"'
@@ -60,7 +60,7 @@
     # guaranteed whatever /tmp is. The `test -d` guards fail loudly if staging did not
     # land, so we never silently proceed to a failing upconfig. Idempotent every run.
     - name: "Solr Init: Stage configsets into the la_solr container (tar via exec, mount-safe)"
-      shell: |
+      ansible.builtin.shell: |
         set -euo pipefail
         docker exec la_solr rm -rf /tmp/solr-init
         docker exec la_solr mkdir -p /tmp/solr-init
@@ -74,7 +74,7 @@
       changed_when: true
 
     - name: "Solr Init: Upload configsets to ZooKeeper (upconfig — idempotent overwrite)"
-      command: >
+      ansible.builtin.command: >
         docker exec la_solr
         /opt/solr/server/scripts/cloud-scripts/zkcli.sh
         -cmd upconfig -zkhost zookeeper:2181
@@ -88,7 +88,7 @@
         - bie
 
     - name: "Solr Init: List existing collections"
-      command: >
+      ansible.builtin.command: >
         docker exec la_solr curl -s
         "http://localhost:8983/solr/admin/collections?action=LIST&wt=json"
       register: solr_collections
@@ -96,7 +96,7 @@
       changed_when: false
 
     - name: "Solr Init: Create SolrCloud collections if missing"
-      command: >
+      ansible.builtin.command: >
         docker exec la_solr curl -s -X POST
         "http://localhost:8983/solr/admin/collections?action=CREATE&name={{ item.name }}&collection.configName={{ item.config }}&numShards=1&replicationFactor=1"
       register: solr_create
@@ -111,7 +111,7 @@
         - solr_create.rc != 0 or '"failure"' in solr_create.stdout
 
     - name: "Solr Init: Verify biocache collection now exists"
-      command: >
+      ansible.builtin.command: >
         docker exec la_solr curl -s
         "http://localhost:8983/solr/admin/collections?action=LIST&wt=json"
       register: solr_collections_post

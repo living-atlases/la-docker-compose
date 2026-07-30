@@ -11,7 +11,7 @@
 # passes allow_service_removal=true.
 
 - name: "Pre-up: Services defined in the new compose file"
-  command: docker compose config --services
+  ansible.builtin.command: docker compose config --services
   args:
     chdir: "{{ docker_compose_data_dir }}"
   register: new_compose_services
@@ -23,7 +23,7 @@
 # later `up`), so it also lists services that are no longer in the compose file
 # (the would-be orphans) — exactly the set we need to protect.
 - name: "Pre-up: Services of currently running compose containers"
-  command: docker compose ps --services --status=running
+  ansible.builtin.command: docker compose ps --services --status=running
   args:
     chdir: "{{ docker_compose_data_dir }}"
   register: running_compose_services
@@ -32,12 +32,12 @@
   tags: [docker-compose, deploy]
 
 - name: "Pre-up: Compute services that --remove-orphans would delete"
-  set_fact:
+  ansible.builtin.set_fact:
     services_to_be_removed: "{{ running_compose_services.stdout_lines | difference(new_compose_services.stdout_lines) }}"
   tags: [docker-compose, deploy]
 
 - name: "Pre-up: ABORT — running services missing from the new compose file"
-  fail:
+  ansible.builtin.fail:
     msg: |
       SAFETY GATE: `docker compose up --remove-orphans` would DELETE these
       currently-running services, which are missing from the newly generated
@@ -57,7 +57,7 @@
   tags: [docker-compose, deploy]
 
 - name: "Pre-up: Service removal explicitly allowed — proceeding"
-  debug:
+  ansible.builtin.debug:
     msg: "allow_service_removal=true — compose up will remove: {{ services_to_be_removed | join(', ') }}"
   when:
     - services_to_be_removed | length > 0

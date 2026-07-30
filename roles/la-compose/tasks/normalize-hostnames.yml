@@ -9,7 +9,7 @@
 #     tags: [config, normalize]
 
 - name: Re-normalize database hostnames for Docker network (post bulk-load)
-  set_fact:
+  ansible.builtin.set_fact:
     # MySQL hostnames (cas, userdetails, apikey, collectory, species-list, logger, alerts)
     cas_db_hostname: "{{ 'mysql' if (cas_db_hostname | default('localhost') in ['localhost', '127.0.0.1']) else cas_db_hostname }}"
     collectory_db_host_address: >-

@@ -4,14 +4,14 @@
 # Pure docker-exec flow: no host ports, no host mysql/mongo client required.
 
 - name: "CAS Admin: Load CAS variables"
-  include_vars:
+  ansible.builtin.include_vars:
     file: "{{ playbook_dir }}/../ala-install/ansible/roles/cas5/vars/main.yml"
   when: "'cas-servers' in hostvars[inventory_hostname].service_aliases"
   tags:
     - cas-admin
 
 - name: "CAS Admin: Wait for CAS to be healthy"
-  shell: |
+  ansible.builtin.shell: |
     docker inspect --format='{{ "{{" }}.State.Health.Status{{ "}}" }}' la_cas
   register: cas_health
   until: 'cas_health.stdout == "healthy"'
@@ -29,7 +29,7 @@
   block:
 
     - name: "CAS Admin: Ensure cas-setup output directory exists"
-      file:
+      ansible.builtin.file:
         path: "{{ docker_compose_data_dir }}/cas-setup"
         state: directory
         mode: "0755"
@@ -45,7 +45,7 @@
     # idempotent (INSERT...WHERE NOT EXISTS) so re-runs are no-ops.
 
     - name: "CAS Admin: Render role-editor.sql"
-      template:
+      ansible.builtin.template:
         src: "{{ playbook_dir }}/../ala-install/ansible/roles/cas5/templates/sql/role-editor.sql"
         dest: "{{ docker_compose_data_dir }}/cas-setup/role-editor.sql"
         mode: "0644"
@@ -57,7 +57,7 @@
         - cas-admin
 
     - name: "CAS Admin: Render admin-add.sql"
-      template:
+      ansible.builtin.template:
         src: "{{ playbook_dir }}/../ala-install/ansible/roles/cas5/templates/sql/admin-add.sql"
         dest: "{{ docker_compose_data_dir }}/cas-setup/admin-add.sql"
         mode: "0644"
@@ -69,7 +69,7 @@
         - cas-admin
 
     - name: "CAS Admin: Apply role-editor.sql via docker exec mysql"
-      shell: >
+      ansible.builtin.shell: >
         docker exec -i la_mysql mysql
         -u root -p{{ mysql_root_password }}
         {{ cas_db_name | default('emmet') }}
@@ -85,7 +85,7 @@
         - cas-admin
 
     - name: "CAS Admin: Apply admin-add.sql via docker exec mysql"
-      shell: >
+      ansible.builtin.shell: >
         docker exec -i la_mysql mysql
         -u root -p{{ mysql_root_password }}
         {{ cas_db_name | default('emmet') }}
@@ -107,7 +107,7 @@
     # by the render template and the pre-apply validation.
 
     - name: "CAS Admin: Build OIDC service list (single source of truth)"
-      set_fact:
+      ansible.builtin.set_fact:
         cas_oidc_services:
           - name: collectory
             client_id: "{{ collectory_client_id | default('') }}"
@@ -194,7 +194,7 @@
     # Only active when OIDC is enabled, so the base inventory (oidc_enabled=false)
     # is unaffected.
     - name: "CAS Admin: Validate format of provided OIDC client credentials"
-      assert:
+      ansible.builtin.assert:
         that:
           - "svc.client_id is match('^[a-f0-9-]{36}$')"
           - "svc.client_secret is match('^[a-f0-9-]{36}$')"
@@ -214,7 +214,7 @@
     # deployed core portal whose OIDC client_id is empty/malformed (login would
     # break) — without failing when a core app simply isn't part of this demo.
     - name: "CAS Admin: Require deployed core login services to have a valid OIDC client_id"
-      assert:
+      ansible.builtin.assert:
         that:
           - "svc.client_id is match('^[a-f0-9-]{36}$')"
         fail_msg: "OIDC is enabled and core portal '{{ item }}' is deployed (url={{ svc.url }}) but its client_id is empty/invalid — login would fail with 'Application not authorized to use CAS'. Set {{ item }}_client_id / _client_secret."
@@ -230,7 +230,7 @@
         - oidc
 
     - name: "CAS Admin: Render OIDC services Mongo script"
-      template:
+      ansible.builtin.template:
         src: cas-setup/oidc-services.js.j2
         dest: "{{ docker_compose_data_dir }}/cas-setup/oidc-services.js"
         mode: "0644"
@@ -241,7 +241,7 @@
     # failed_when:false so a mongosh hiccup never produces a censored (no_log)
     # failure; the read-back assert below is the visible, authoritative gate.
     - name: "CAS Admin: Apply OIDC services via docker exec mongosh"
-      shell: >
+      ansible.builtin.shell: >
         docker exec -i la_mongodb mongosh --quiet
         --username "{{ mongodb_root_username }}"
         --password "{{ mongodb_root_password }}"
@@ -258,7 +258,7 @@
         - oidc
 
     - name: "CAS Admin: Read back registered OIDC services from Mongo"
-      shell: >
+      ansible.builtin.shell: >
         docker exec -i la_mongodb mongosh --quiet
         --username "{{ mongodb_root_username }}"
         --password "{{ mongodb_root_password }}"
@@ -275,7 +275,7 @@
         - oidc
 
     - name: "CAS Admin: Compute OIDC render/registry counts"
-      set_fact:
+      ansible.builtin.set_fact:
         oidc_expected: "{{ (oidc_apply.stdout | default('') | regex_findall('OIDC_EXPECTED=([0-9]+)') | first | default('-1')) | int }}"
         oidc_db_count: "{{ (oidc_registry.stdout | default('') | regex_findall('OIDC_DB_COUNT=([0-9]+)') | first | default('-1')) | int }}"
       tags:
@@ -283,7 +283,7 @@
         - oidc
 
     - name: "CAS Admin: Verify every intended OIDC service is registered (read-back)"
-      assert:
+      ansible.builtin.assert:
         that:
           - "oidc_expected | int >= 0"
           - "oidc_db_count | int == oidc_expected | int"
@@ -300,7 +300,7 @@
         - oidc
 
     - name: "CAS Admin: Initialization completed successfully"
-      debug:
+      ansible.builtin.debug:
         msg: "CAS admin account and {{ oidc_db_count }} OIDC services configured and verified via docker exec."
       tags:
         - cas-admin

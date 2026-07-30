@@ -3,7 +3,7 @@
 # Orchestrates docker-compose generation and deployment for Living Atlas
 
 - name: Set container user UID/GID for file ownership
-  set_fact:
+  ansible.builtin.set_fact:
     docker_compose_userid: "{{ docker_container_uid }}"
     docker_compose_usergid: "{{ docker_container_gid }}"
   tags:
@@ -35,7 +35,7 @@
     # ~20s (CI #316). Default true when unset (e.g. la-compose run standalone) so
     # a first install still configures Docker.
     - name: Ensure Docker is installed
-      import_role:
+      ansible.builtin.import_role:
         name: docker
       when:
         - auto_deploy | default(true) | bool
@@ -44,7 +44,7 @@
         - docker
 
     - name: Ensure docker_compose_data_dir exists early
-      file:
+      ansible.builtin.file:
         path: "{{ docker_compose_data_dir }}"
         state: directory
         mode: "0755"
@@ -57,7 +57,7 @@
         - build
 
     - name: Create dockerfiles subdirectory in output
-      file:
+      ansible.builtin.file:
         path: "{{ docker_compose_data_dir }}/dockerfiles"
         state: directory
         mode: "0755"
@@ -71,7 +71,7 @@
         - build
 
     - name: Copy static docker files to output (builders)
-      copy:
+      ansible.builtin.copy:
         src: "docker/"
         dest: "{{ docker_compose_data_dir }}/dockerfiles/"
         mode: preserve
@@ -85,7 +85,7 @@
         - build
 
     - name: "Deployment preparation: Ensure log directories"
-      file:
+      ansible.builtin.file:
         path: "{{ data_dir }}/logs"
         state: directory
         mode: "0755"
@@ -96,7 +96,7 @@
         - docker-compose
 
     - name: "Deployment preparation: Setup deployment facts"
-      include_tasks: setup-facts.yml
+      ansible.builtin.include_tasks: setup-facts.yml
       tags:
         - always
         - docker-compose
@@ -104,34 +104,34 @@
     # Fails fast if a destructive flag reaches a production inventory
     # (la_env=production). See enforce-production-safety.yml.
     - name: "LAYER 0: Production safety gate"
-      include_tasks: enforce-production-safety.yml
+      ansible.builtin.include_tasks: enforce-production-safety.yml
       tags:
         - always
         - safety
 
     - name: Load variables from collectory role if present on this server
-      include_vars:
+      ansible.builtin.include_vars:
         file: "{{ playbook_dir }}/../ala-install/ansible/roles/collectory/vars/main.yml"
       when: "'collectory' in physical_server_groups"
       tags:
         - always
 
     - name: Load variables from cas group role if present on this server
-      include_vars:
+      ansible.builtin.include_vars:
         file: "{{ playbook_dir }}/../ala-install/ansible/roles/cas5/vars/main.yml"
       when: "'cas-servers' in physical_server_groups"
       tags:
         - always
 
     - name: Calculate collectory_app based on version
-      set_fact:
+      ansible.builtin.set_fact:
         collectory_app: "{{ 'collectory' if collectory_version | default('3') is version('3', '>=') else 'ala-collectory' }}"
       when: "'collectory' in physical_server_groups"
       tags:
         - always
 
     - name: "Deployment preparation: Ensure database volumes exist (external)"
-      include_role:
+      ansible.builtin.include_role:
         name: la-volumes
       tags:
         - always
@@ -175,7 +175,7 @@
         - docker-compose
 
     - name: Include generate-compose tasks
-      include_tasks: generate-compose.yml
+      ansible.builtin.include_tasks: generate-compose.yml
       tags:
         - always
         - only
@@ -184,7 +184,7 @@
     # Emit e2e-targets.json (inventory-driven public URL manifest) alongside the compose
     # output. Consumed by the e2e suite (Cypress) and scripts/verify-deployment.sh.
     - name: Generate e2e-targets.json manifest
-      include_tasks: generate-e2e-targets.yml
+      ansible.builtin.include_tasks: generate-e2e-targets.yml
       tags:
         - docker-compose
         - e2e-targets
@@ -197,7 +197,7 @@
     # re-introduces the bad perms) — placing it before would let the role's
     # copy override the chmod. Docker-only path; ala-install untouched.
     - name: Fix biocache-service config perms (works around ala-install role bug)
-      file:
+      ansible.builtin.file:
         path: "{{ data_dir }}/biocache/config/{{ item }}"
         mode: "0644"
       loop:
@@ -232,7 +232,7 @@
     # via services_enabled). recurse:true both creates the dir and fixes root-owned
     # files copied by the upstream role. Idempotent; ala-install untouched.
     - name: "Ensure container-mode service config dirs exist and are owned by container uid"
-      file:
+      ansible.builtin.file:
         path: "{{ item.path }}"
         state: directory
         owner: "{{ docker_container_uid }}"
@@ -294,7 +294,7 @@
     # (collectory, biocache-hub, bie-hub, bie-index, species-list) have no analogous
     # second-level external-config hook — see docs/configuration.md.
     - name: "Seed application-local-config.yml placeholder for Spring services (once, never overwritten)"
-      template:
+      ansible.builtin.template:
         src: application-local-config.yml.j2
         dest: "{{ item.path }}/application-local-config.yml"
         force: no
@@ -326,7 +326,7 @@
     # it (see spatial-{hub,service}.yml.j2). doi-service has an equivalent logback.xml from its own
     # ala-install role, so it is not in this list. Idempotent; ala-install untouched.
     - name: "Deploy spatial Logback config (spatial-hub / spatial-service)"
-      template:
+      ansible.builtin.template:
         src: docker-compose/spatial-logback.xml
         dest: "{{ item.path }}/spatial-logback.xml"
         owner: "{{ docker_container_uid }}"
@@ -343,7 +343,7 @@
         - docker-compose
 
     - name: "LAYER 2: Pre-deployment validation"
-      include_tasks: validate-pre-deploy.yml
+      ansible.builtin.include_tasks: validate-pre-deploy.yml
       when: auto_deploy | default(true) | bool
       tags:
         - always
@@ -356,7 +356,7 @@
     # ala-install's db-backup role). Default: on in production (la_env), off in
     # CI. Self-gating per host: only dumps datastores actually running here.
     - name: "Pre-deploy: Backup existing databases (production restore point)"
-      include_tasks: pre-deploy-backup.yml
+      ansible.builtin.include_tasks: pre-deploy-backup.yml
       when:
         - auto_deploy | default(true) | bool
         - pre_deploy_backup | default(false) | bool
@@ -368,7 +368,7 @@
     - name: Clean up existing containers and networks before redeployment
       block:
         - name: Remove Docker Compose state metadata files
-          command: find "{{ docker_compose_data_dir }}" -maxdepth 1 -name ".docker-compose*.yml" -delete
+          ansible.builtin.command: find "{{ docker_compose_data_dir }}" -maxdepth 1 -name ".docker-compose*.yml" -delete
           become: true
           changed_when: false
           ignore_errors: true
@@ -379,7 +379,7 @@
         # recreated, so host ports 80/443 are never freed-and-rebound (which on
         # Docker Desktop causes "address already in use" on the nginx rebind).
         - name: Stop and remove existing docker compose deployment (force-recreate only)
-          command: docker compose down --remove-orphans
+          ansible.builtin.command: docker compose down --remove-orphans
           args:
             chdir: "{{ docker_compose_data_dir }}"
           become: true
@@ -398,7 +398,7 @@
         - deploy
 
     - name: Initialize databases (if CAS server or image-service on this host)
-      include_tasks: init-databases.yml
+      ansible.builtin.include_tasks: init-databases.yml
       when:
         - auto_deploy | default(true) | bool
         - "'cas-servers' in physical_server_groups or 'image-service' in physical_server_groups"
@@ -415,7 +415,7 @@
     # whole site down. The old force-remove survives as an opt-in Docker
     # Desktop workaround (docker_desktop_workaround).
     - name: "Pre-deploy: Clean unhealthy la_* containers (surgical, production-safe)"
-      include_tasks: pre-deploy-container-cleanup.yml
+      ansible.builtin.include_tasks: pre-deploy-container-cleanup.yml
       when: auto_deploy | default(true) | bool
       tags:
         - docker-compose
@@ -425,7 +425,7 @@
     # deploy (compose up alone never picks that up); they are restarted after
     # the up in config-restart-apply.yml.
     - name: "Pre-deploy: Detect bind-mounted config changes"
-      include_tasks: config-restart-detect.yml
+      ansible.builtin.include_tasks: config-restart-detect.yml
       when: auto_deploy | default(true) | bool
       tags:
         - docker-compose
@@ -435,7 +435,7 @@
     # Abort if `up --remove-orphans` would delete a running service that
     # disappeared from the generated compose (generation bug / SKIP_SERVICES).
     - name: "Pre-up: Validate service consistency (no accidental removals)"
-      include_tasks: validate-service-consistency.yml
+      ansible.builtin.include_tasks: validate-service-consistency.yml
       when: auto_deploy | default(true) | bool
       tags:
         - docker-compose
@@ -468,7 +468,7 @@
         # enforce-production-safety already forbids docker_force_recreate — a
         # deliberate full recreate stays available in CI/staging via that flag.
         - name: Start Docker Compose services
-          command: >
+          ansible.builtin.command: >
             docker compose up -d --remove-orphans
             {{ '--force-recreate' if docker_force_recreate | default(false) | bool else '--no-recreate' }}
           args:
@@ -484,7 +484,7 @@
         # --no-recreate left the container stale. WARN only (apply deliberately via
         # docker_force_recreate in CI/staging). Never fails the deploy.
         - name: "Post-up: warn on service-definition drift not applied by --no-recreate"
-          shell: |
+          ansible.builtin.shell: |
             set +e
             drift=""
             while read -r svc want; do
@@ -512,7 +512,7 @@
           when: not (docker_force_recreate | default(false) | bool)
 
         - name: "Post-up: surface the --no-recreate drift warning"
-          debug:
+          ansible.builtin.debug:
             msg: "{{ nrec_drift.stdout_lines | default([]) }}"
           when:
             - nrec_drift is defined
@@ -520,7 +520,7 @@
 
       rescue:
         - name: "Deploy failure: capture container diagnostics to /tmp/la-docker-deploy-failure.log"
-          shell: |
+          ansible.builtin.shell: |
             set +e
             FULL=/tmp/la-docker-deploy-failure.log
             ROOT=/tmp/la-docker-deploy-failure.root.log
@@ -587,7 +587,7 @@
           register: deploy_failure_diag
 
         - name: "Deploy failure: print captured root-cause to ansible output"
-          debug:
+          ansible.builtin.debug:
             msg: |
               ===== DEPLOY FAILED =====
               Full diagnostic: /tmp/la-docker-deploy-failure.log
@@ -595,7 +595,7 @@
               {{ deploy_failure_diag.stdout | default('(no diagnostic captured)') }}
 
         - name: "Deploy failure: re-raise with pointer to log"
-          fail:
+          ansible.builtin.fail:
             msg: |
               docker compose up failed. See /tmp/la-docker-deploy-failure.log for full diagnostic.
               First root-cause line(s):
@@ -605,7 +605,7 @@
     # vhosts) + restart of only the services whose bind-mounted config changed
     # (detected pre-up); persists the new hash snapshot.
     - name: "Post-up: Apply config changes (nginx reload + selective restarts)"
-      include_tasks: config-restart-apply.yml
+      ansible.builtin.include_tasks: config-restart-apply.yml
       when: auto_deploy | default(true) | bool
       tags:
         - docker-compose
@@ -638,14 +638,14 @@
         - deploy
       block:
         - name: "Airflow: check the pipelines-airflow submodule (DAGs) is present on the controller"
-          stat:
+          ansible.builtin.stat:
             path: "{{ playbook_dir }}/../pipelines-airflow/dags"
           delegate_to: localhost
           become: false
           register: airflow_dags_src
 
         - name: "Airflow: overlay skipped — pipelines-airflow submodule not initialized"
-          debug:
+          ansible.builtin.debug:
             msg: >-
               Airflow overlay skipped (best-effort): DAGs not found at
               {{ playbook_dir }}/../pipelines-airflow/dags on the controller.
@@ -655,7 +655,7 @@
         # copy: src is controller-side, dest is on the remote host. mode: preserve keeps
         # seed.sh executable (airflow-init runs `bash -c /opt/overlay/compose/seed.sh`).
         - name: "Airflow: stage the overlay tree onto the pipelines host"
-          copy:
+          ansible.builtin.copy:
             src: "{{ playbook_dir }}/../overlay/pipelines-airflow/"
             dest: "{{ docker_compose_data_dir }}/overlay/pipelines-airflow/"
             mode: preserve
@@ -663,7 +663,7 @@
           when: airflow_dags_src.stat.exists
 
         - name: "Airflow: stage the pipelines-airflow DAGs onto the pipelines host"
-          copy:
+          ansible.builtin.copy:
             src: "{{ playbook_dir }}/../pipelines-airflow/dags/"
             dest: "{{ docker_compose_data_dir }}/pipelines-airflow/dags/"
           become: true
@@ -676,7 +676,7 @@
         # The docker group's gid is host-specific (999 on Ubuntu, 998/other elsewhere), so
         # read it from the target host rather than hardcoding it.
         - name: "Airflow: read the docker socket's group id on the pipelines host"
-          stat:
+          ansible.builtin.stat:
             path: "{{ docker_socket | regex_replace('^unix://', '') }}"
           become: true
           register: airflow_docker_sock
@@ -688,7 +688,7 @@
         # host and reach solr/zookeeper — instead of hitting the local nginx (404).
         # The same override carries the docker-socket group (above).
         - name: "Airflow: render cross-host extra_hosts override"
-          template:
+          ansible.builtin.template:
             src: docker-compose.airflow.override.yml.j2
             dest: "{{ docker_compose_data_dir }}/overlay/pipelines-airflow/compose/docker-compose.airflow.override.yml"
           become: true
@@ -706,7 +706,7 @@
         # WS: /occurrences/search -> 200). registry_url/collectory is only used by
         # Load_dataset (different path, /ws nuance unverified) and is left for that work.
         - name: "Airflow: render Variables override (public service URLs from inventory)"
-          copy:
+          ansible.builtin.copy:
             content: "{{ _airflow_var_override | to_nice_json }}\n"
             dest: "{{ docker_compose_data_dir }}/overlay/pipelines-airflow/variables/airflow-variables.override.json"
           vars:
@@ -720,7 +720,7 @@
             - (biocache_service_base_url | default('')) != ''
 
         - name: "Airflow: start the NO-AWS overlay on the pipelines host (best-effort)"
-          command: >
+          ansible.builtin.command: >
             docker compose -f docker-compose.airflow.yml -f docker-compose.airflow.override.yml up -d --build
           args:
             chdir: "{{ docker_compose_data_dir }}/overlay/pipelines-airflow/compose"
@@ -743,7 +743,7 @@
           when: airflow_dags_src.stat.exists
 
         - name: "Airflow: report overlay start result (never blocks CI)"
-          debug:
+          ansible.builtin.debug:
             msg: >-
               {{ 'Airflow overlay started (docker compose up ok).'
                  if airflow_overlay_up.rc == 0
@@ -754,7 +754,7 @@
             - airflow_overlay_up is defined
 
     - name: "Solr: Initialize collections (idempotent: LIST then CREATE if missing)"
-      include_tasks: init-solr.yml
+      ansible.builtin.include_tasks: init-solr.yml
       when:
         - auto_deploy | default(true) | bool
       tags:
@@ -763,7 +763,7 @@
         - solr-init
 
     - name: "CAS: Initialize admin account and OIDC services"
-      include_tasks: init-cas-admin.yml
+      ansible.builtin.include_tasks: init-cas-admin.yml
       when:
         - auto_deploy | default(true) | bool
         - "'cas-servers' in hostvars[inventory_hostname].service_aliases"
@@ -773,7 +773,7 @@
         - cas-admin
 
     - name: "Geoserver: Initialize ALA workspace, LayersDB datastore, styles, feature types"
-      include_tasks: init-geoserver.yml
+      ansible.builtin.include_tasks: init-geoserver.yml
       when:
         - auto_deploy | default(true) | bool
         - "'geoserver' in services_enabled"
@@ -783,7 +783,7 @@
         - geoserver-init
 
     - name: "LAYER 3 & 4: Post-deployment validation and health check"
-      include_tasks: validate-post-deploy.yml
+      ansible.builtin.include_tasks: validate-post-deploy.yml
       when: auto_deploy | default(true) | bool
       tags:
         - always
@@ -799,7 +799,7 @@
     # check also runs inside validate-post-deploy's rescue so a FAILED build surfaces
     # the blocked port as the root cause. Run standalone with --tags cross-host-ports.
     - name: "LAYER 4b: Cross-host datastore port reachability (firewall sanity)"
-      include_tasks: validate-cross-host-ports.yml
+      ansible.builtin.include_tasks: validate-cross-host-ports.yml
       when: auto_deploy | default(true) | bool
       tags:
         - always

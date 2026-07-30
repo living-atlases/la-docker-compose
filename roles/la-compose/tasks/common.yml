@@ -1,6 +1,6 @@
 ---
 - name: ensure gatus configuration directory exists
-  file:
+  ansible.builtin.file:
     path: "{{ gatus_config_dir }}"
     state: directory
     owner: "{{ docker_compose_userid }}"
@@ -12,7 +12,7 @@
     - gatus
 
 - name: ensure nginx directories exist for docker vhost generation
-  file:
+  ansible.builtin.file:
     path: "{{ item }}"
     state: directory
     owner: "{{ docker_compose_userid }}"

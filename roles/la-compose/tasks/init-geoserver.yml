@@ -11,7 +11,7 @@
 # (healthcheck + spatial-service depends_on), so a transient REST/DB hiccup never fails the deploy.
 
 - name: "Geoserver init: Wait for geoserver to be healthy"
-  shell: |
+  ansible.builtin.shell: |
     docker inspect --format='{{ "{{" }}.State.Health.Status{{ "}}" }}' {{ geoserver_docker_host | default('la_geoserver') }}
   register: geoserver_health
   until: 'geoserver_health.stdout == "healthy"'
@@ -30,7 +30,7 @@
   block:
 
     - name: "Geoserver init: Ensure host staging dir exists"
-      file:
+      ansible.builtin.file:
         path: "{{ docker_compose_data_dir }}/geoserver-init"
         state: directory
         mode: "0755"
@@ -45,7 +45,7 @@
     # in, so the container needs no outbound internet. Best-effort: a missing asset just means the
     # init script skips its PUT (the workspace/datastore still get created).
     - name: "Geoserver init: Stage SLD / icon / layout assets (best-effort)"
-      get_url:
+      ansible.builtin.get_url:
         url: "{{ spatial_database_raw_base | default('https://github.com/AtlasOfLivingAustralia/spatial-database/raw/master') }}/{{ item }}"
         dest: "{{ docker_compose_data_dir }}/geoserver-init/{{ item }}"
         mode: "0644"
@@ -65,7 +65,7 @@
     # ala-install geoserver role templates (single source of truth — same pattern as init-cas-admin
     # reading cas5 SQL templates). geoserver_url is only used for the informational namespace href.
     - name: "Geoserver init: Render feature type definitions from ala-install"
-      template:
+      ansible.builtin.template:
         src: "{{ playbook_dir }}/../ala-install/ansible/roles/geoserver/templates/{{ item }}"
         dest: "{{ docker_compose_data_dir }}/geoserver-init/{{ item }}"
         mode: "0644"
@@ -82,7 +82,7 @@
         - geoserver-init
 
     - name: "Geoserver init: Render init script"
-      template:
+      ansible.builtin.template:
         src: geoserver-init.sh.j2
         dest: "{{ docker_compose_data_dir }}/geoserver-init/geoserver-init.sh"
         mode: "0755"
@@ -92,7 +92,7 @@
         - geoserver-init
 
     - name: "Geoserver init: Stage assets inside the geoserver container"
-      shell: |
+      ansible.builtin.shell: |
         docker exec {{ geoserver_docker_host | default('la_geoserver') }} mkdir -p /tmp/geoserver-init
         docker cp {{ docker_compose_data_dir }}/geoserver-init/. {{ geoserver_docker_host | default('la_geoserver') }}:/tmp/geoserver-init/
       become: true
@@ -101,7 +101,7 @@
         - geoserver-init
 
     - name: "Geoserver init: Run REST init script inside the container"
-      shell: |
+      ansible.builtin.shell: |
         docker exec {{ geoserver_docker_host | default('la_geoserver') }} sh /tmp/geoserver-init/geoserver-init.sh
       become: true
       register: geoserver_init_run
@@ -111,7 +111,7 @@
         - geoserver-init
 
     - name: "Geoserver init: Report result"
-      debug:
+      ansible.builtin.debug:
         msg: "{{ geoserver_init_run.stdout_lines | default(['(no output)']) | select('match', '^(==|RESULT)') | list }}"
       tags:
         - geoserver-init

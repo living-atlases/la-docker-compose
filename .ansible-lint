@@ -14,6 +14,15 @@
 # `import_role: name: docker` in roles/la-compose/tasks/main.yml resolves;
 # validate-local.sh sets it. Without it, two unskippable syntax-check[specific]
 # failures make a green run impossible.
+#
+# fqcn is enforced: every module action carries an explicit collection name.
+# Two traps if you ever re-run the autofix. With a rule in skip_list,
+# `ansible-lint --fix=<that rule>` applies none of its changes but still reflows
+# every file through ansible-lint's YAML writer — ~615 lines of quote-style and
+# flow-spacing churn for zero benefit. And `--fix=fqcn` cannot reach tasks
+# nested inside a `block:`, so it leaves 8 behind in validate-post-deploy.yml.
+# The prefixes were applied from the linter's own JSON findings, keyed on
+# path/line/column, so the diff is exactly the renamed module keys.
 
 exclude_paths:
   # Upstream ALA roles: on the roles path for resolution, but not ours to
@@ -29,12 +38,6 @@ exclude_paths:
 # Silenced: style-only, no behavioural risk.
 # ─────────────────────────────────────────────────────────────────────────────
 skip_list:
-  # ~487 findings. Rewriting every `copy:` to `ansible.builtin.copy:` across ~93
-  # task files of a production deployment repo is a large purely cosmetic diff
-  # with real review cost. Doable in one mechanical `ansible-lint --fix` commit
-  # if we ever need collection-name disambiguation.
-  - fqcn
-
   # ~54 findings. Variables are shared with ala-install on purpose
   # (docker_compose_data_dir, cas_hostname, …). Prefixing them with the role
   # name would break the contract with upstream roles and with the inventories

@@ -14,19 +14,19 @@
 - name: Pre-Deployment Validation Block
   block:
     - name: Verify docker-compose.yml exists
-      stat:
+      ansible.builtin.stat:
         path: "{{ docker_compose_data_dir }}/docker-compose.yml"
       register: compose_yml_stat
       failed_when: not compose_yml_stat.stat.exists
 
     - name: Verify .env file exists
-      stat:
+      ansible.builtin.stat:
         path: "{{ docker_compose_data_dir }}/.env"
       register: compose_env_stat
       failed_when: not compose_env_stat.stat.exists
 
     - name: Verify docker-compose.yml syntax
-      command:
+      ansible.builtin.command:
         cmd: docker compose -f "{{ docker_compose_data_dir }}/docker-compose.yml" config -q
       register: compose_syntax_check
       changed_when: false
@@ -43,7 +43,7 @@
     # (healthchecks run INSIDE the container, so localhost there is correct),
     # builder dirs, image artefacts.
     - name: "Validate: no localhost in DB connection strings (MongoDB / MySQL / Postgres)"
-      shell: |
+      ansible.builtin.shell: |
         grep -RInE "(mongodb://|jdbc:(mysql|postgresql)://|mysql://|postgresql://)[^\"'[:space:]]*(localhost|127\.0\.0\.1)" \
           --include='*.properties' --include='*.yml' --include='*.yaml' \
           --include='*.conf' --include='*.json' --include='*.xml' \
@@ -62,7 +62,7 @@
     # fragment files named after their service (elasticsearch.yml, solr.yml),
     # causing false-positive blocks. Same exclude-dir treatment as solr/builders.
     - name: "Validate: no localhost for cluster dependencies (ZK 2181, Solr 8983, ES 9200/9300, Cassandra 9042, Redis 6379)"
-      shell: |
+      ansible.builtin.shell: |
         grep -RInE "(localhost|127\.0\.0\.1):(2181|8983|9200|9300|9042|6379)\b" \
           --include='*.properties' --include='*.yml' --include='*.yaml' \
           --include='*.conf' --include='*.json' --include='*.xml' \
@@ -75,7 +75,7 @@
       failed_when: cluster_localhost_check.stdout | length > 0
 
     - name: "Validate: no localhost in nginx upstream / proxy_pass blocks"
-      shell: |
+      ansible.builtin.shell: |
         find "{{ docker_compose_data_dir }}" -path '*/nginx/*' -name '*.conf' -print0 2>/dev/null \
           | xargs -0 -r grep -InE "(upstream[[:space:]]|proxy_pass[[:space:]]).*(localhost|127\.0\.0\.1)" \
           || true
@@ -84,14 +84,14 @@
       failed_when: nginx_localhost_check.stdout | length > 0
 
     - name: Verify Docker daemon is responsive
-      command: docker version --format "{%raw%}{{.Server.Version}}{%endraw%}"
+      ansible.builtin.command: docker version --format "{%raw%}{{.Server.Version}}{%endraw%}"
       register: docker_version
       changed_when: false
       retries: 3
       delay: 5
 
     - name: Display Docker version
-      debug:
+      ansible.builtin.debug:
         verbosity: 2
         msg: "Docker version: {{ docker_version.stdout }}"
 
@@ -103,18 +103,18 @@
     # bytes and Ansible could not even create ~/.ansible/tmp, so this task never
     # got the chance to run.
     - name: Check available disk space
-      command: df --output=avail -B1 -- "{{ docker_compose_data_dir }}"
+      ansible.builtin.command: df --output=avail -B1 -- "{{ docker_compose_data_dir }}"
       register: disk_available
       changed_when: false
       failed_when: false
 
     - name: Record available disk space in GB
-      set_fact:
+      ansible.builtin.set_fact:
         disk_available_gb: "{{ (disk_available.stdout_lines | last | trim | int / 1024 / 1024 / 1024) | round(1) }}"
       when: disk_available.rc == 0
 
     - name: Warn if low disk space
-      debug:
+      ansible.builtin.debug:
         msg: >-
           WARNING: only {{ disk_available_gb }} GB free on
           {{ docker_compose_data_dir }} (want >= {{ disk_warn_gb }} GB). Container
@@ -127,7 +127,7 @@
     # Hard stop in production only. CI runs on freshly wiped disposable hosts
     # where a tighter margin is normal and a hard fail would just be noise.
     - name: Fail if critically low disk space
-      fail:
+      ansible.builtin.fail:
         msg: >-
           CRITICAL: {{ disk_available_gb }} GB free on {{ docker_compose_data_dir }},
           {{ disk_fail_gb }} GB needed. Refusing to deploy — a deploy that runs out
@@ -142,7 +142,7 @@
         - (disk_available_gb | float) < (disk_fail_gb | float)
 
     - name: Check if required configuration directories exist
-      stat:
+      ansible.builtin.stat:
         path: "{{ item }}"
       register: config_dir_stats
       with_items:
@@ -151,14 +151,14 @@
       ignore_errors: true
 
     - name: Report missing configuration directories
-      debug:
+      ansible.builtin.debug:
         msg: "Warning: Configuration directory not found: {{ item.item }}"
       loop: "{{ config_dir_stats.results }}"
       when:
         - not item.stat.exists | default(false)
 
     - name: Verify volumes directory structure
-      file:
+      ansible.builtin.file:
         path: "{{ item }}"
         state: directory
         mode: "0755"
@@ -177,7 +177,7 @@
         - volumes
 
     - name: Check if database volumes are mounted
-      command: mountpoint -q "{{ item }}"
+      ansible.builtin.command: mountpoint -q "{{ item }}"
       register: volume_mount_check
       with_items:
         - "{{ data_dir }}/mysql"
@@ -186,7 +186,7 @@
       changed_when: false
 
     - name: Report unmounted volumes
-      debug:
+      ansible.builtin.debug:
         msg: "INFO: Volume not mounted as separate filesystem: {{ item.item }} (OK if on root filesystem)"
       loop: "{{ volume_mount_check.results }}"
       when:
@@ -195,19 +195,19 @@
         - volumes
 
     - name: Verify environment file is readable
-      command: head -1 "{{ docker_compose_data_dir }}/.env"
+      ansible.builtin.command: head -1 "{{ docker_compose_data_dir }}/.env"
       register: env_file_read
       changed_when: false
 
     - name: Check for required environment variables in .env
-      shell: |
+      ansible.builtin.shell: |
         grep -E "^(INSTANCE_NAME|DEPLOYMENT_ID)=" "{{ docker_compose_data_dir }}/.env" | wc -l
       register: required_env_count
       changed_when: false
       ignore_errors: true
 
     - name: Warn if required environment variables missing
-      debug:
+      ansible.builtin.debug:
         msg: |
           WARNING: INSTANCE_NAME and/or DEPLOYMENT_ID not found in .env file.
           These variables may be required by some services.
@@ -216,21 +216,21 @@
         - required_env_count.stdout | default('0') | int < 2
 
     - name: Verify pwe.properties exists for CAS
-      stat:
+      ansible.builtin.stat:
         path: "{{ data_dir }}/config/pwe.properties"
       register: pwe_properties_stat
       when: "'cas-servers' in physical_server_groups"
       ignore_errors: true
 
     - name: Warn if pwe.properties missing (CAS will use defaults)
-      debug:
+      ansible.builtin.debug:
         msg: "INFO: pwe.properties not found - CAS will use default configuration"
       when:
         - "'cas-servers' in physical_server_groups"
         - not pwe_properties_stat.stat.exists | default(false)
 
     - name: Check docker-compose project consistency
-      command: |
+      ansible.builtin.command: |
         docker compose -f "{{ docker_compose_data_dir }}/docker-compose.yml" \
           --project-name "la_{{ instance_name | lower }}" config --format json
       register: compose_config
@@ -239,16 +239,16 @@
         INSTANCE_NAME: "{{ instance_name }}"
 
     - name: Parse docker-compose configuration
-      set_fact:
+      ansible.builtin.set_fact:
         compose_services: "{{ (compose_config.stdout | from_json).services | default({}) }}"
 
     - name: Report services to be deployed
-      debug:
+      ansible.builtin.debug:
         verbosity: 2
         msg: "Services ready for deployment: {{ compose_services.keys() | list | join(', ') }}"
 
     - name: Validate service name format
-      assert:
+      ansible.builtin.assert:
         that:
           - item is match('^[a-z0-9_-]+$')
         fail_msg: "Invalid service name format: {{ item }}"
@@ -257,7 +257,7 @@
     - name: Clean up stale docker compose state
       block:
         - name: Remove stale metadata files
-          file:
+          ansible.builtin.file:
             path: "{{ item }}"
             state: absent
           become: true
@@ -266,14 +266,14 @@
           ignore_errors: true
 
         - name: Prune dangling containers (if any)
-          command: docker container prune -f --filter "label!=com.docker.compose.project"
+          ansible.builtin.command: docker container prune -f --filter "label!=com.docker.compose.project"
           become: true
           register: prune_result
           changed_when: "'Deleted' in prune_result.stdout"
           ignore_errors: true
 
         - name: Prune dangling networks
-          command: docker network prune -f --filter "label!=com.docker.compose.project"
+          ansible.builtin.command: docker network prune -f --filter "label!=com.docker.compose.project"
           become: true
           register: network_prune
           changed_when: "'Deleted' in network_prune.stdout"
@@ -283,7 +283,7 @@
         - cleanup
 
     - name: Display pre-deployment summary
-      debug:
+      ansible.builtin.debug:
         msg: |
           ✓ Pre-deployment validation PASSED
           
@@ -298,7 +298,7 @@
 
   rescue:
     - name: Pre-deployment validation FAILED
-      fail:
+      ansible.builtin.fail:
         msg: |
           ✗ Pre-deployment validation FAILED
 
@@ -315,7 +315,7 @@
 
   always:
     - name: Log validation status
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: "{{ data_dir }}/logs/deployment.log"
         line: "{{ ansible_date_time.iso8601 }} - Pre-deployment validation completed with status: {{ 'PASS' if not validation_failed | default(false) else 'FAIL' }}"
         create: true

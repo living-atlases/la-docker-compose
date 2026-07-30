@@ -3,7 +3,7 @@
 # Called from main.yml before starting all Docker Compose services
 
 - name: "DB Init: Define logger SQL files to import (first-run schema/reference data)"
-  set_fact:
+  ansible.builtin.set_fact:
     logger_db_sql_files:
       - schema.sql
       - eventLogType.sql
@@ -18,7 +18,7 @@
     - db-init
 
 - name: "DB Init: Load CAS variables for database configuration"
-  include_vars:
+  ansible.builtin.include_vars:
     file: "{{ playbook_dir }}/../ala-install/ansible/roles/cas5/vars/main.yml"
   when: "'cas-servers' in physical_server_groups"
   tags:
@@ -32,7 +32,7 @@
 # host). Gate every mysql/mongodb step on the service actually being present on this
 # host (same idea as the postgres provisioning below, gated to image-service hosts).
 - name: "DB Init: List services defined in this host's compose"
-  command: docker compose config --services
+  ansible.builtin.command: docker compose config --services
   args:
     chdir: "{{ docker_compose_data_dir }}"
   register: db_compose_services
@@ -42,7 +42,7 @@
     - db-init
 
 - name: "DB Init: Start MySQL container (only where defined)"
-  command: docker compose up -d mysql
+  ansible.builtin.command: docker compose up -d mysql
   args:
     chdir: "{{ docker_compose_data_dir }}"
   become: true
@@ -51,7 +51,7 @@
     - db-init
 
 - name: "DB Init: Start MongoDB container (only where defined)"
-  command: docker compose up -d mongodb
+  ansible.builtin.command: docker compose up -d mongodb
   args:
     chdir: "{{ docker_compose_data_dir }}"
   become: true
@@ -60,7 +60,7 @@
     - db-init
 
 - name: "DB Init: Wait for MySQL to be healthy"
-  shell: |
+  ansible.builtin.shell: |
     docker inspect --format='{{ "{{" }}.State.Health.Status{{ "}}" }}' la_mysql
   register: mysql_health
   until: 'mysql_health.stdout == "healthy"'
@@ -72,7 +72,7 @@
     - db-init
 
 - name: "DB Init: Wait for MongoDB to be healthy"
-  shell: |
+  ansible.builtin.shell: |
     docker inspect --format='{{ "{{" }}.State.Health.Status{{ "}}" }}' la_mongodb
   register: mongodb_health
   until: 'mongodb_health.stdout == "healthy"'
@@ -87,7 +87,7 @@
   # Over TCP, for the same reason as the container healthcheck (see mysql.yml.j2): the
   # temporary mysqld the entrypoint runs during first-boot initialisation listens on the
   # unix socket only, so a socket ping passes while the server is about to be shut down.
-  command: >
+  ansible.builtin.command: >
     docker exec la_mysql mysqladmin ping --protocol=TCP -h 127.0.0.1 -u root -p{{ mysql_root_password }} --silent
   register: mysql_ping
   until: mysql_ping.rc == 0
@@ -100,7 +100,7 @@
     - db-init
 
 - name: "DB Init: Verify MongoDB is accepting connections (via docker exec)"
-  command: >
+  ansible.builtin.command: >
     docker exec la_mongodb mongosh --quiet --eval "db.adminCommand('ping').ok" --username {{ mongodb_root_username }} --password {{ mongodb_root_password }}
   register: mongo_ping
   until: mongo_ping.rc == 0
@@ -117,7 +117,7 @@
 # otherwise never exist -> la_cas stays unhealthy. Create/refresh them every
 # deploy via docker exec (idempotent), mirroring roles/cas5-dbs user list.
 - name: "DB Init: Create/refresh MongoDB CAS users (idempotent)"
-  command:
+  ansible.builtin.command:
     argv:
       - docker
       - exec
@@ -170,7 +170,7 @@
 # la_mongodb-data is `external` and already populated, so mongo never re-runs it (same
 # reason the CAS users above are created via docker exec).
 - name: "DB Init: Ensure cas-setup output directory exists"
-  file:
+  ansible.builtin.file:
     path: "{{ docker_compose_data_dir }}/cas-setup"
     state: directory
     mode: "0755"
@@ -182,7 +182,7 @@
     - db-init
 
 - name: "DB Init: Render CAS audit index script"
-  template:
+  ansible.builtin.template:
     src: cas-setup/cas-audit-indexes.js.j2
     dest: "{{ docker_compose_data_dir }}/cas-setup/cas-audit-indexes.js"
     mode: "0644"
@@ -198,7 +198,7 @@
 # next line, still exiting 0. That is how CI #309 created the index yet reported
 # changed=false, and it would have stayed green had createIndex failed outright.
 - name: "DB Init: Create/refresh MongoDB CAS audit indexes (idempotent)"
-  shell: >
+  ansible.builtin.shell: >
     docker exec -i la_mongodb mongosh --quiet
     --username "{{ mongodb_root_username }}"
     --password "{{ mongodb_root_password }}"
@@ -224,7 +224,7 @@
       {{ mongo_audit_indexes.stdout | default('')
          | regex_findall('CAS_AUDIT_INDEX_COUNT=([0-9]+)')
          | first | default('unknown') }}
-  debug:
+  ansible.builtin.debug:
     msg: >-
       CAS audit repository indexes on
       {{ cas_audit_collection | default('MongoDbCasAuditRepository') }}:
@@ -239,7 +239,7 @@
     - db-init
 
 - name: "DB Init: Check if MySQL databases exist"
-  command: >
+  ansible.builtin.command: >
     docker exec la_mysql mysql -N
     -u root -p{{ mysql_root_password }}
     -e "SELECT SCHEMA_NAME FROM information_schema.SCHEMATA
@@ -258,7 +258,7 @@
     - db-init
 
 - name: "DB Init: Check if CAS MySQL users exist"
-  command: >
+  ansible.builtin.command: >
     docker exec la_mysql mysql -N
     -u root -p{{ mysql_root_password }}
     -e "SELECT COUNT(*) FROM mysql.user
@@ -274,7 +274,7 @@
     - db-init
 
 - name: "DB Init: Determine if initialization is needed"
-  set_fact:
+  ansible.builtin.set_fact:
     needs_db_init: >-
       {{
         mysql_databases_exist is failed
@@ -291,7 +291,7 @@
     - db-init
 
 - name: "DB Init: Create MySQL CAS databases via docker exec"
-  command: >
+  ansible.builtin.command: >
     docker exec la_mysql mysql -u root -p{{ mysql_root_password }}
     -e "CREATE DATABASE IF NOT EXISTS {{ cas_db_name | default('emmet') }} CHARACTER SET {{ cas_db_encoding | default('utf8mb4') }} COLLATE {{ cas_db_collation | default('utf8mb4_unicode_ci') }};
         CREATE DATABASE IF NOT EXISTS {{ apikey_db_name | default('apikey') }} CHARACTER SET {{ cas_db_encoding | default('utf8mb4') }};"
@@ -311,7 +311,7 @@
     - db-init
 
 - name: "DB Init: Create MySQL CAS users and grants via docker exec"
-  command: >
+  ansible.builtin.command: >
     docker exec la_mysql mysql -u root -p{{ mysql_root_password }} -e "
     CREATE USER IF NOT EXISTS '{{ cas_flyway_username | default('cas_flyway') }}'@'%' IDENTIFIED WITH mysql_native_password BY '{{ cas_flyway_password }}';
     GRANT ALL PRIVILEGES ON {{ cas_db_name | default('emmet') }}.* TO '{{ cas_flyway_username | default('cas_flyway') }}'@'%';
@@ -333,7 +333,7 @@
 # CAS gets `Access denied for user 'flyway'@'...'`. ALTER USER IF EXISTS makes
 # it safe to run even on a fresh MySQL where users don't exist yet.
 - name: "DB Init: Sync MySQL CAS user passwords (idempotent — handles rotations)"
-  command: >
+  ansible.builtin.command: >
     docker exec la_mysql mysql -u root -p{{ mysql_root_password }} -e "
     ALTER USER IF EXISTS '{{ cas_flyway_username | default('cas_flyway') }}'@'%' IDENTIFIED WITH mysql_native_password BY '{{ cas_flyway_password }}';
     ALTER USER IF EXISTS '{{ cas_db_username | default('cas') }}'@'%' IDENTIFIED WITH mysql_native_password BY '{{ cas_db_password }}';
@@ -351,7 +351,7 @@
 # PRIVILEGES finishes propagating, surfacing as a transient Hikari
 # "Access denied for user 'flyway'@..." during CAS first connect.
 - name: "DB Init: Verify cas_flyway can authenticate (closes FLUSH PRIVILEGES race)"
-  command: >
+  ansible.builtin.command: >
     docker exec la_mysql mysql
     -u {{ cas_flyway_username | default('cas_flyway') }}
     -p{{ cas_flyway_password }}
@@ -377,7 +377,7 @@
 # CREATE IF NOT EXISTS + ALTER IF EXISTS makes this idempotent on both fresh
 # and aged volumes (same pattern as the CAS block above).
 - name: "DB Init: Create/sync collectory MySQL user and grants"
-  command: >
+  ansible.builtin.command: >
     docker exec la_mysql mysql -u root -p{{ mysql_root_password }} -e "
     CREATE DATABASE IF NOT EXISTS {{ collectory_db_name | default('collectory') }} CHARACTER SET utf8mb4;
     CREATE USER IF NOT EXISTS '{{ collectory_db_user | default('collectory') }}'@'%' IDENTIFIED WITH mysql_native_password BY '{{ collectory_db_password }}';
@@ -392,7 +392,7 @@
     - db-password-sync
 
 - name: "DB Init: Verify collectory MySQL user can authenticate (closes FLUSH PRIVILEGES race)"
-  command: >
+  ansible.builtin.command: >
     docker exec la_mysql mysql
     -u {{ collectory_db_user | default('collectory') }}
     -p{{ collectory_db_password }}
@@ -414,7 +414,7 @@
 # init-databases never set it up either, so specieslist-webapp restart-loops
 # from day one with "Access denied for user 'specieslists'@...".
 - name: "DB Init: Create/sync specieslists MySQL user and grants"
-  command: >
+  ansible.builtin.command: >
     docker exec la_mysql mysql -u root -p{{ mysql_root_password }} -e "
     CREATE DATABASE IF NOT EXISTS {{ specieslist_db_name | default('specieslists') }} CHARACTER SET utf8mb4;
     CREATE USER IF NOT EXISTS '{{ specieslist_db_username | default('specieslists') }}'@'%' IDENTIFIED WITH mysql_native_password BY '{{ specieslist_db_password }}';
@@ -429,7 +429,7 @@
     - db-password-sync
 
 - name: "DB Init: Verify specieslists MySQL user can authenticate (closes FLUSH PRIVILEGES race)"
-  command: >
+  ansible.builtin.command: >
     docker exec la_mysql mysql
     -u {{ specieslist_db_username | default('specieslists') }}
     -p{{ specieslist_db_password }}
@@ -451,7 +451,7 @@
 # init-databases never provisioned it, so logger-service restart-loops with
 # "Access denied for user 'logger_user'@...". Provision idempotently.
 - name: "DB Init: Create/sync logger MySQL user and grants"
-  command: >
+  ansible.builtin.command: >
     docker exec la_mysql mysql -u root -p{{ mysql_root_password }} -e "
     CREATE DATABASE IF NOT EXISTS {{ logger_db_name | default('logger') }} CHARACTER SET utf8mb4;
     CREATE USER IF NOT EXISTS '{{ logger_db_username | default('logger_user') }}'@'%' IDENTIFIED WITH mysql_native_password BY '{{ logger_db_password }}';
@@ -466,7 +466,7 @@
     - db-password-sync
 
 - name: "DB Init: Verify logger MySQL user can authenticate (closes FLUSH PRIVILEGES race)"
-  command: >
+  ansible.builtin.command: >
     docker exec la_mysql mysql
     -u {{ logger_db_username | default('logger_user') }}
     -p{{ logger_db_password }}
@@ -489,7 +489,7 @@
 # way as logger/specieslists. alerts restart-loops with "Access denied"/"Unknown database"
 # otherwise.
 - name: "DB Init: Create/sync alerts MySQL database, user and grants"
-  command: >
+  ansible.builtin.command: >
     docker exec la_mysql mysql -u root -p{{ mysql_root_password }} -e "
     CREATE DATABASE IF NOT EXISTS {{ alerts_db_name | default('alerts') }} CHARACTER SET utf8mb4;
     CREATE USER IF NOT EXISTS '{{ alerts_db_username | default('alerts') }}'@'%' IDENTIFIED WITH mysql_native_password BY '{{ alerts_db_password }}';
@@ -504,7 +504,7 @@
     - db-password-sync
 
 - name: "DB Init: Verify alerts MySQL user can authenticate (closes FLUSH PRIVILEGES race)"
-  command: >
+  ansible.builtin.command: >
     docker exec la_mysql mysql
     -u {{ alerts_db_username | default('alerts') }}
     -p{{ alerts_db_password }}
@@ -527,7 +527,7 @@
 # "Table 'logger.log_event' doesn't exist". Import schema + reference data once,
 # guarded on log_event absence so re-runs don't DROP/recreate (data loss).
 - name: "DB Init: Check whether logger schema is already loaded"
-  command: >
+  ansible.builtin.command: >
     docker exec la_mysql mysql -u root -p{{ mysql_root_password }} -N -e
     "SELECT COUNT(*) FROM information_schema.tables
      WHERE table_schema='{{ logger_db_name | default('logger') }}' AND table_name='log_event';"
@@ -545,7 +545,7 @@
 # SQL files to the target with `copy` (mirrors the upstream VM logger-service
 # role), then import from the now-local /tmp path.
 - name: "DB Init: Stage logger SQL files on target host (first run only)"
-  copy:
+  ansible.builtin.copy:
     src: "{{ playbook_dir }}/../ala-install/ansible/roles/logger-service/files/db/{{ item }}"
     dest: "/tmp/logger-{{ item }}"
   loop: "{{ logger_db_sql_files }}"
@@ -557,7 +557,7 @@
     - db-init
 
 - name: "DB Init: Import logger schema, stored procs and reference data (first run only)"
-  shell: >
+  ansible.builtin.shell: >
     docker exec -i la_mysql mysql -u root -p{{ mysql_root_password }}
     {{ logger_db_name | default('logger') }}
     < "/tmp/logger-{{ item }}"
@@ -580,7 +580,7 @@
 # doi-service (doi), data-quality (data-quality), spatial-service (layersdb) and geonetwork
 # (geonetwork) all run against la_postgres; start it wherever any of them is co-located.
 - name: "DB Init: Define postgres-consumer presence fact"
-  set_fact:
+  ansible.builtin.set_fact:
     postgres_consumer_here: >-
       {{ ('image-service' in physical_server_groups)
          or ('doi-service' in physical_server_groups)
@@ -592,7 +592,7 @@
     - db-init
 
 - name: "DB Init: Start postgres container (for in-container DB provisioning)"
-  command: docker compose up -d postgres
+  ansible.builtin.command: docker compose up -d postgres
   args:
     chdir: "{{ docker_compose_data_dir }}"
   become: true
@@ -601,7 +601,7 @@
     - db-init
 
 - name: "DB Init: Wait for postgres to be healthy"
-  shell: |
+  ansible.builtin.shell: |
     docker inspect --format='{{ "{{" }}.State.Health.Status{{ "}}" }}' la_postgres
   register: postgres_health
   until: 'postgres_health.stdout == "healthy"'
@@ -619,7 +619,7 @@
 # `password_encryption=md5` (postgres command), the role-password tasks below store md5, which
 # both modern JDBC drivers and the old libpq authenticate. Verified locally: geonetwork connects.
 - name: "DB Init: Switch postgres host auth to md5 (geonetwork old libpq can't do SCRAM)"
-  shell: |
+  ansible.builtin.shell: |
     docker exec -u postgres la_postgres sh -c 'sed -i "s/scram-sha-256/md5/g" "${PGDATA:-/var/lib/postgresql/data}/pg_hba.conf"'
     docker exec -u postgres la_postgres psql -tAc "SELECT pg_reload_conf();"
   become: true
@@ -629,7 +629,7 @@
     - db-init
 
 - name: "DB Init: Create/sync image-service postgres login role (idempotent)"
-  command: >
+  ansible.builtin.command: >
     docker exec -u postgres la_postgres psql -v ON_ERROR_STOP=1 -c
     "DO $$ BEGIN
        IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='{{ image_service_db_username | default('images') }}') THEN
@@ -646,7 +646,7 @@
     - db-password-sync
 
 - name: "DB Init: Check if image-service postgres database exists"
-  command: >
+  ansible.builtin.command: >
     docker exec -u postgres la_postgres psql -tAc
     "SELECT 1 FROM pg_database WHERE datname='{{ image_service_db_name | default('images') }}'"
   register: image_db_exists
@@ -657,7 +657,7 @@
     - db-init
 
 - name: "DB Init: Create image-service postgres database owned by its role"
-  command: >
+  ansible.builtin.command: >
     docker exec -u postgres la_postgres psql -v ON_ERROR_STOP=1 -c
     "CREATE DATABASE {{ image_service_db_name | default('images') }}
      OWNER {{ image_service_db_username | default('images') }}"
@@ -669,7 +669,7 @@
     - db-init
 
 - name: "DB Init: Verify image-service postgres user can authenticate (closes provisioning race)"
-  command: >
+  ansible.builtin.command: >
     docker exec -e PGPASSWORD={{ image_service_db_password }} la_postgres
     psql -h localhost -U {{ image_service_db_username | default('images') }}
     -d {{ image_service_db_name | default('images') }} -tAc "SELECT 1;"
@@ -689,7 +689,7 @@
 # doi uses jdbc:postgresql://{{doi_db_hostname}}/{{doi_db_name}} (normalize-hostnames maps
 # localhost -> postgres). Same aged-volume gap as image-service: provision role + DB idempotently.
 - name: "DB Init: Create/sync doi-service postgres login role (idempotent)"
-  command: >
+  ansible.builtin.command: >
     docker exec -u postgres la_postgres psql -v ON_ERROR_STOP=1 -c
     "DO $$ BEGIN
        IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='{{ doi_db_user | default('doi') }}') THEN
@@ -704,7 +704,7 @@
   tags: [db-init, db-password-sync]
 
 - name: "DB Init: Check if doi postgres database exists"
-  command: >
+  ansible.builtin.command: >
     docker exec -u postgres la_postgres psql -tAc
     "SELECT 1 FROM pg_database WHERE datname='{{ doi_db_name | default('doi') }}'"
   register: doi_db_exists
@@ -714,7 +714,7 @@
   tags: [db-init]
 
 - name: "DB Init: Create doi postgres database owned by its role"
-  command: >
+  ansible.builtin.command: >
     docker exec -u postgres la_postgres psql -v ON_ERROR_STOP=1 -c
     "CREATE DATABASE {{ doi_db_name | default('doi') }} OWNER {{ doi_db_user | default('doi') }}"
   become: true
@@ -728,7 +728,7 @@
 # data_quality_db_host=la_mysql is an unused var (the role reads dq_db_*). dq_db_url points at
 # localhost; the role invocation in generate-compose overrides the host to postgres for docker.
 - name: "DB Init: Create/sync data-quality postgres login role (idempotent)"
-  command: >
+  ansible.builtin.command: >
     docker exec -u postgres la_postgres psql -v ON_ERROR_STOP=1 -c
     "DO $$ BEGIN
        IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='{{ dq_db_user | default('data-quality') }}') THEN
@@ -743,7 +743,7 @@
   tags: [db-init, db-password-sync]
 
 - name: "DB Init: Check if data-quality postgres database exists"
-  command: >
+  ansible.builtin.command: >
     docker exec -u postgres la_postgres psql -tAc
     "SELECT 1 FROM pg_database WHERE datname='{{ dq_db_name | default('data-quality') }}'"
   register: dq_db_exists
@@ -753,7 +753,7 @@
   tags: [db-init]
 
 - name: "DB Init: Create data-quality postgres database owned by its role"
-  command: >
+  ansible.builtin.command: >
     docker exec -u postgres la_postgres psql -v ON_ERROR_STOP=1 -c
     "CREATE DATABASE \"{{ dq_db_name | default('data-quality') }}\" OWNER \"{{ dq_db_user | default('data-quality') }}\""
   become: true
@@ -766,7 +766,7 @@
 # The ala-install layers-db role assumes a local postgres (createdb/psql as the postgres
 # system user); in container mode provision via docker exec against la_postgres. Needs PostGIS.
 - name: "DB Init: Create/sync layers postgres login role (idempotent)"
-  command: >
+  ansible.builtin.command: >
     docker exec -u postgres la_postgres psql -v ON_ERROR_STOP=1 -c
     "DO $$ BEGIN
        IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='{{ layers_db_username | default('layers') }}') THEN
@@ -781,7 +781,7 @@
   tags: [db-init, db-password-sync]
 
 - name: "DB Init: Check if layersdb postgres database exists"
-  command: >
+  ansible.builtin.command: >
     docker exec -u postgres la_postgres psql -tAc
     "SELECT 1 FROM pg_database WHERE datname='{{ layers_db_name | default('layersdb') }}'"
   register: layersdb_exists
@@ -791,7 +791,7 @@
   tags: [db-init]
 
 - name: "DB Init: Create layersdb database owned by layers + enable PostGIS"
-  command: >
+  ansible.builtin.command: >
     docker exec -u postgres la_postgres psql -v ON_ERROR_STOP=1 -c
     "CREATE DATABASE {{ layers_db_name | default('layersdb') }} OWNER {{ layers_db_username | default('layers') }}"
   become: true
@@ -804,7 +804,7 @@
   # Match ala-install pg_instance (extensions: postgis, postgis_topology, uuid-ossp). uuid-ossp
   # needs double-quoting (the hyphen is not a bare identifier); single-quote the whole -c arg so
   # the inner "uuid-ossp" needs no shell escaping. All ship with the postgis/postgis:16 image.
-  command: >
+  ansible.builtin.command: >
     docker exec -u postgres la_postgres psql -v ON_ERROR_STOP=1
     -d {{ layers_db_name | default('layersdb') }} -c
     'CREATE EXTENSION IF NOT EXISTS postgis; CREATE EXTENSION IF NOT EXISTS postgis_topology; CREATE EXTENSION IF NOT EXISTS "uuid-ossp";'
@@ -814,7 +814,7 @@
   tags: [db-init]
 
 - name: "DB Init: Download layersdb schema (first run only)"
-  get_url:
+  ansible.builtin.get_url:
     url: "{{ layersdb_schema_url | default('https://github.com/AtlasOfLivingAustralia/spatial-database/raw/master/layersdb.sql') }}"
     dest: "{{ docker_compose_data_dir }}/layersdb.sql"
     mode: '0644'
@@ -832,7 +832,7 @@
   # loads with `psql layersdb -f` and NO error-stop: psql prints those errors but continues
   # and loads the schema (verified: 17 tables + 780 functions on postgis/postgis:16-3.4-alpine).
   # NB: adding `-v ON_ERROR_STOP=1` is what made the tolerated drop-database error fatal (CI #224).
-  shell: >
+  ansible.builtin.shell: >
     docker exec -i la_postgres psql -U postgres
     -d {{ layers_db_name | default('layersdb') }} < {{ docker_compose_data_dir }}/layersdb.sql
   become: true
@@ -848,7 +848,7 @@
   # "must be owner of table ..." on its CREATE INDEX / ALTER TABLE schema-ensure. Reassign
   # ownership of every public app table/sequence to layers (skip the PostGIS-owned
   # spatial_ref_sys). Runs unconditionally (idempotent) so it also repairs an existing DB.
-  command: >
+  ansible.builtin.command: >
     docker exec -u postgres la_postgres psql -v ON_ERROR_STOP=1
     -d {{ layers_db_name | default('layersdb') }} -c
     "DO $$ DECLARE r record; BEGIN
@@ -868,7 +868,7 @@
 # CREATEDB is required: the geonetwork:*-postgres image entrypoint connects as this role and
 # createdb's a (vestigial) `admin` db on boot — without CREATEDB it exits (set -e) and crash-loops.
 - name: "DB Init: Create/sync geonetwork postgres login role (idempotent)"
-  command: >
+  ansible.builtin.command: >
     docker exec -u postgres la_postgres psql -v ON_ERROR_STOP=1 -c
     "DO $$ BEGIN
        IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='{{ geonetwork_db_username | default('geonetwork') }}') THEN
@@ -883,7 +883,7 @@
   tags: [db-init, db-password-sync]
 
 - name: "DB Init: Check if geonetwork postgres database exists"
-  command: >
+  ansible.builtin.command: >
     docker exec -u postgres la_postgres psql -tAc
     "SELECT 1 FROM pg_database WHERE datname='{{ geonetwork_database | default('geonetwork') }}'"
   register: geonetwork_db_exists
@@ -893,7 +893,7 @@
   tags: [db-init]
 
 - name: "DB Init: Create geonetwork database owned by its role"
-  command: >
+  ansible.builtin.command: >
     docker exec -u postgres la_postgres psql -v ON_ERROR_STOP=1 -c
     "CREATE DATABASE {{ geonetwork_database | default('geonetwork') }} OWNER {{ geonetwork_db_username | default('geonetwork') }}"
   become: true
@@ -903,7 +903,7 @@
   tags: [db-init]
 
 - name: "DB Init: Enable PostGIS extensions on geonetwork db"
-  command: >
+  ansible.builtin.command: >
     docker exec -u postgres la_postgres psql -v ON_ERROR_STOP=1
     -d {{ geonetwork_database | default('geonetwork') }} -c
     "CREATE EXTENSION IF NOT EXISTS postgis; CREATE EXTENSION IF NOT EXISTS postgis_topology;"
@@ -916,20 +916,20 @@
 # fixes that changed a CREATE statement (e.g. emmet collation, 6646fb6) reach
 # aged/production volumes here instead of "requiring a clean deploy".
 - name: "DB Init: Apply idempotent schema migrations to existing databases"
-  include_tasks: schema-migrations.yml
+  ansible.builtin.include_tasks: schema-migrations.yml
   tags:
     - db-init
     - db-migrations
 
 - name: "DB Init: Verify database initialization completed successfully"
-  include_tasks: validate-db-init.yml
+  ansible.builtin.include_tasks: validate-db-init.yml
   when: "'cas-servers' in physical_server_groups"
   tags:
     - db-init
     - db-validation
 
 - name: "DB Init: Database initialization completed successfully"
-  debug:
+  ansible.builtin.debug:
     msg: "✅ Database initialization completed. Ready to start all services."
   tags:
     - db-init

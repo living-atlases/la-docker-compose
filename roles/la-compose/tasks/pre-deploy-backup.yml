@@ -19,19 +19,19 @@
 # A failed dump FAILS the deploy on purpose: no backup, no mutation.
 
 - name: "Pre-deploy backup: timestamp for this backup set"
-  set_fact:
+  ansible.builtin.set_fact:
     backup_ts: "{{ lookup('pipe', 'date -u +%Y%m%dT%H%M%SZ') }}"
   tags: [pre-deploy-backup]
 
 - name: "Pre-deploy backup: list running database containers on this host"
-  shell: docker ps --filter "status=running" --format '{{ '{{' }}.Names{{ '}}' }}' | grep -E '^la_(mysql|mongodb|postgres)$' || true
+  ansible.builtin.shell: docker ps --filter "status=running" --format '{{ '{{' }}.Names{{ '}}' }}' | grep -E '^la_(mysql|mongodb|postgres)$' || true
   register: backup_db_containers
   become: true
   changed_when: false
   tags: [pre-deploy-backup]
 
 - name: "Pre-deploy backup: nothing to back up on this host"
-  debug:
+  ansible.builtin.debug:
     msg: "No running la_mysql/la_mongodb/la_postgres container here — skipping backups."
   when: backup_db_containers.stdout_lines | length == 0
   tags: [pre-deploy-backup]
@@ -42,7 +42,7 @@
   tags: [pre-deploy-backup]
   block:
     - name: "Pre-deploy backup: ensure backup directory exists (root-only)"
-      file:
+      ansible.builtin.file:
         path: "{{ la_backup_dir }}/{{ backup_ts }}"
         state: directory
         mode: "0700"
@@ -50,7 +50,7 @@
         group: root
 
     - name: "Pre-deploy backup: dump MySQL (all databases, routines/triggers/events)"
-      shell: >
+      ansible.builtin.shell: >
         set -o pipefail;
         docker exec la_mysql mysqldump --all-databases --routines --events --triggers
         --single-transaction -u root -p{{ mysql_root_password }}
@@ -61,7 +61,7 @@
       when: "'la_mysql' in backup_db_containers.stdout_lines"
 
     - name: "Pre-deploy backup: dump MongoDB (archive, gzip)"
-      shell: >
+      ansible.builtin.shell: >
         set -o pipefail;
         docker exec la_mongodb mongodump --quiet
         --username {{ mongodb_root_username }} --password {{ mongodb_root_password }}
@@ -73,7 +73,7 @@
       when: "'la_mongodb' in backup_db_containers.stdout_lines"
 
     - name: "Pre-deploy backup: dump PostgreSQL (pg_dumpall: roles + all databases)"
-      shell: >
+      ansible.builtin.shell: >
         set -o pipefail;
         docker exec -u postgres la_postgres pg_dumpall
         | gzip > "{{ la_backup_dir }}/{{ backup_ts }}/postgres-all.sql.gz"
@@ -82,7 +82,7 @@
       when: "'la_postgres' in backup_db_containers.stdout_lines"
 
     - name: "Pre-deploy backup: verify dumps are non-empty"
-      shell: |
+      ansible.builtin.shell: |
         set -e
         for f in "{{ la_backup_dir }}/{{ backup_ts }}"/*.gz; do
           [ -s "$f" ] || { echo "EMPTY BACKUP: $f"; exit 1; }
@@ -93,14 +93,14 @@
       changed_when: false
 
     - name: "Pre-deploy backup: report"
-      debug:
+      ansible.builtin.debug:
         msg: "{{ backup_verify.stdout_lines }}"
 
     # Retention: keep the newest pre_deploy_backup_keep sets. Only directories
     # matching our own timestamp pattern inside la_backup_dir are candidates —
     # nothing else is ever touched.
     - name: "Pre-deploy backup: prune backup sets beyond retention ({{ pre_deploy_backup_keep }})"
-      shell: |
+      ansible.builtin.shell: |
         cd "{{ la_backup_dir }}"
         ls -1d [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z 2>/dev/null \
           | sort -r | tail -n +{{ (pre_deploy_backup_keep | int) + 1 }} | xargs -r rm -rf --

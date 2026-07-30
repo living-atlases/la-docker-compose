@@ -3,7 +3,7 @@
 # Used by ensure-db-volumes.yml and generate-compose.yml
 
 - name: Include services descriptions
-  include_vars:
+  ansible.builtin.include_vars:
     file: docker-services-desc.yaml
   tags:
     - always
@@ -11,7 +11,7 @@
     - docker-compose
 
 - name: Set docker_services_desc as a clean variable
-  set_fact:
+  ansible.builtin.set_fact:
     docker_services_desc: "{{ docker_services_desc }}"
   tags:
     - always
@@ -20,7 +20,7 @@
 
 # Find all hosts that share the same physical server (ansible_host) as this docker_compose host
 - name: Find all service groups deployed on this physical server
-  set_fact:
+  ansible.builtin.set_fact:
     physical_server_groups: >-
       {%- set result = [] -%}
       {%- for host in groups['all'] -%}
@@ -39,7 +39,7 @@
     - docker-compose
 
 - name: Detect enabled services from physical server groups (based on group defined in docker_services_desc)
-  set_fact:
+  ansible.builtin.set_fact:
     services_enabled: "{{ services_enabled | default([]) + ([item.key] if (
       (item.value.isSubService | default(false) and docker_services_desc[item.value.parentService].group in physical_server_groups) or
       (not item.value.isSubService | default(false) and item.value.group in physical_server_groups)
@@ -56,7 +56,7 @@
 # Acepta nombres de grupo de inventario (p.ej. 'sensitive-data-service') o
 # claves de docker_services_desc (p.ej. 'sensitiveDataService').
 - name: Normalize skip_services (allow comma-separated string)
-  set_fact:
+  ansible.builtin.set_fact:
     skip_services: >-
       {{ (skip_services.split(',') | map('trim') | list)
          if (skip_services is string) else (skip_services | default([])) }}
@@ -65,7 +65,7 @@
     - docker-compose
 
 - name: Apply skip_services to services_enabled
-  set_fact:
+  ansible.builtin.set_fact:
     services_enabled: >-
       {{ services_enabled
          | reject('in', skip_services)
@@ -79,7 +79,7 @@
     - docker-compose
 
 - name: Determine if MySQL is required
-  set_fact:
+  ansible.builtin.set_fact:
     enable_mysql: >-
       {{
         'mysql' in physical_server_groups
@@ -113,7 +113,7 @@
 # port publishing, depends_on gating) and, right below, by the *_docker_local facts.
 # Defined here rather than there so both derive from ONE group list.
 - name: Define datastore cross-host spec
-  set_fact:
+  ansible.builtin.set_fact:
     datastore_cluster_spec:
       cassandra:
         groups: ['cassandra5', 'cassandra3', 'cassandra']
@@ -167,7 +167,7 @@
 # Computed for every datastore in one loop rather than hand-written per datastore: this is
 # the third time the same predicate was needed and the second time a copy of it was wrong.
 - name: Determine which datastores are deployed inside this docker stack (vs external VMs)
-  set_fact:
+  ansible.builtin.set_fact:
     datastore_docker_local: >-
       {%- set docker_hosts = groups['docker_compose'] | default([])
             | map('extract', hostvars, 'ansible_host') | select('defined') | list -%}
@@ -185,7 +185,7 @@
 # Named aliases for the two the templates read directly. Kept as their own facts so every
 # existing `solr_docker_local | default(true)` keeps working unchanged.
 - name: Expose the per-datastore locality facts under their established names
-  set_fact:
+  ansible.builtin.set_fact:
     solr_docker_local: "{{ datastore_docker_local.solr }}"
     cassandra_docker_local: "{{ datastore_docker_local.cassandra }}"
   tags:
@@ -196,7 +196,7 @@
 # Maps each service group to its corresponding inventory hostname alias (e.g., 'cas-servers' -> 'test-host.cas')
 # Used in generate-compose.yml to load service-specific variables via hostvars[]
 - name: Calculate service alias hostnames for variable loading
-  set_fact:
+  ansible.builtin.set_fact:
     service_aliases: >-
       {%- set result = {} -%}
       {%- for service in [
@@ -219,7 +219,7 @@
     - docker-compose
 
 - name: Normalize database hostnames for Docker network
-  set_fact:
+  ansible.builtin.set_fact:
     cas_db_hostname: "{{ 'mysql' if (cas_db_hostname | default('localhost') in ['localhost', '127.0.0.1']) else cas_db_hostname }}"
     collectory_db_host_address: >-
       {{ 'mysql' if (collectory_db_host_address | default('localhost') in ['localhost', '127.0.0.1'])
@@ -291,7 +291,7 @@
 # so only the last-registered service would survive. generate-compose derives
 # nginx_vhost_fast_mode from this set, so no service needs a hand-set fast_mode:false.
 - name: Compute shared-domain vhost service keys (parentService clusters with >1 enabled member)
-  set_fact:
+  ansible.builtin.set_fact:
     nginx_shared_vhost_service_keys: >-
       {%- set members = {} -%}
       {%- for item in docker_services_desc | dict2items -%}

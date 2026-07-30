@@ -9,14 +9,14 @@
 #      deploy leaves the old baseline in place and the restart re-triggers).
 
 - name: "Config-apply: is la_nginx running?"
-  shell: docker ps --filter "name=^la_nginx$" --filter "status=running" -q
+  ansible.builtin.shell: docker ps --filter "name=^la_nginx$" --filter "status=running" -q
   register: nginx_running
   become: true
   changed_when: false
   tags: [docker-compose, deploy, config-restart]
 
 - name: "Config-apply: validate regenerated nginx config (nginx -t)"
-  command: docker exec la_nginx nginx -t
+  ansible.builtin.command: docker exec la_nginx nginx -t
   register: nginx_config_test
   become: true
   changed_when: false
@@ -25,7 +25,7 @@
   tags: [docker-compose, deploy, config-restart]
 
 - name: "Config-apply: ABORT — regenerated nginx config is invalid"
-  fail:
+  ansible.builtin.fail:
     msg: |
       `nginx -t` rejected the regenerated configuration — NOT reloading (the
       running nginx keeps serving the previous config; the site stays up).
@@ -37,7 +37,7 @@
   tags: [docker-compose, deploy, config-restart]
 
 - name: "Config-apply: graceful nginx reload (applies regenerated vhosts, zero downtime)"
-  command: docker exec la_nginx nginx -s reload
+  ansible.builtin.command: docker exec la_nginx nginx -s reload
   become: true
   when:
     - nginx_running.stdout != ""
@@ -48,7 +48,7 @@
 # skip if the container is gone (nothing to restart) or was started after the
 # pre-up timestamp (compose up already recreated it with the new config).
 - name: "Config-apply: restart services whose config changed"
-  shell: |
+  ansible.builtin.shell: |
     started=$(docker inspect -f '{{ '{{' }}.State.StartedAt{{ '}}' }}' "la_{{ item }}" 2>/dev/null) || {
       echo "SKIP no-container"; exit 0; }
     started_epoch=$(date -d "$started" +%s)
@@ -68,7 +68,7 @@
   tags: [docker-compose, deploy, config-restart]
 
 - name: "Config-apply: report restarts"
-  debug:
+  ansible.builtin.debug:
     msg: >-
       {{ config_restart_result.results
          | map(attribute='item') | zip(config_restart_result.results | map(attribute='stdout'))
@@ -79,7 +79,7 @@
   tags: [docker-compose, deploy, config-restart]
 
 - name: "Config-apply: persist the new config-hash snapshot"
-  copy:
+  ansible.builtin.copy:
     content: "{{ config_hashes_now.stdout }}\n"
     dest: "{{ docker_compose_data_dir }}/.config-hashes"
     mode: "0644"

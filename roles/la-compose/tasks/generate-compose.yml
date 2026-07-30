@@ -3,7 +3,7 @@
 # Using existing ala-install variables
 
 - name: Ensure docker_compose_data_dir is set
-  set_fact:
+  ansible.builtin.set_fact:
     docker_compose_data_dir: "{{ docker_compose_data_dir | default('/data/docker-compose') }}"
   tags:
     - always
@@ -16,7 +16,7 @@
 # ala-install roles (e.g. common/setfacts) from resetting it to 'vm'
 # via their own set_fact calls.
 - name: Enforce deployment_type=container for all included roles
-  set_fact:
+  ansible.builtin.set_fact:
     deployment_type: container
   tags:
     - always
@@ -27,28 +27,28 @@
 # normalise it to a boolean and provide a safe false fallback for hand-written
 # inventories that omit it. la-compose itself performs no domain detection.
 - name: "SSL: Normalise use_la_site_certs (decided upstream by the generator)"
-  set_fact:
+  ansible.builtin.set_fact:
     use_la_site_certs: "{{ use_la_site_certs | default(false) | bool }}"
   tags:
     - always
     - docker-compose
 
 - name: Ensure nginx_docker_internal_aliases is a list
-  set_fact:
+  ansible.builtin.set_fact:
     nginx_docker_internal_aliases: "{{ nginx_docker_internal_aliases | from_json if nginx_docker_internal_aliases is string else nginx_docker_internal_aliases }}"
   tags:
     - always
     - docker-compose
 
 - name: Ensure docker_extra_hosts is a list
-  set_fact:
+  ansible.builtin.set_fact:
     docker_extra_hosts: "{{ docker_extra_hosts | from_json if docker_extra_hosts is string else docker_extra_hosts }}"
   tags:
     - always
     - docker-compose
 
 - name: Create docker_extra_hosts_dict mapping
-  set_fact:
+  ansible.builtin.set_fact:
     docker_extra_hosts_dict: >-
       {%- set result = {} -%}
       {%- for entry in docker_extra_hosts -%}
@@ -97,7 +97,7 @@
 # mailhog container publishes host_private_ip:1025/8025 itself (see mailhog.yml.j2),
 # exactly like solr/cassandra. Only added in dev mode (prod uses postfix).
 - name: Add mailhog to the cross-host cluster spec (dev mail catcher, single instance on cas host)
-  set_fact:
+  ansible.builtin.set_fact:
     datastore_cluster_spec: >-
       {{ datastore_cluster_spec | combine({'mailhog': {'groups': ['cas-servers'], 'port': 1025, 'aliases': ['mailhog']}}) }}
   when: docker_mail_development_mode | default(false) | bool
@@ -107,7 +107,7 @@
     - mail
 
 - name: Compute datastore endpoints (co-located vs remote) per consumed datastore
-  set_fact:
+  ansible.builtin.set_fact:
     datastore_endpoints: >-
       {%- set result = {} -%}
       {%- for ds, spec in datastore_cluster_spec.items() -%}
@@ -140,7 +140,7 @@
     - docker-compose
 
 - name: Inject remote datastore aliases into docker_extra_hosts_dict
-  set_fact:
+  ansible.builtin.set_fact:
     docker_extra_hosts_dict: >-
       {%- set result = docker_extra_hosts_dict | default({}) | combine({}) -%}
       {%- for ds, ep in datastore_endpoints.items() -%}
@@ -159,7 +159,7 @@
     - docker-compose
 
 - name: Validate docker_extra_hosts_dict contains only literal IPv4 addresses
-  assert:
+  ansible.builtin.assert:
     that:
       - docker_extra_hosts_dict | dict2items | rejectattr('value', 'match', '^\d{1,3}(\.\d{1,3}){3}$') | list | length == 0
     fail_msg: >-
@@ -173,7 +173,7 @@
     - docker-compose
 
 - name: Warn when a remote datastore could not be resolved to a literal IP
-  debug:
+  ansible.builtin.debug:
     msg: >-
       Remote datastore '{{ item.key }}' (owner {{ item.value.owner }}) has no literal IP;
       its aliases {{ item.value.aliases }} will NOT resolve inside containers.
@@ -190,7 +190,7 @@
     - docker-compose
 
 - name: Derive cluster-wide datastore port publishing facts
-  set_fact:
+  ansible.builtin.set_fact:
     host_private_ip: "{{ ansible_default_ipv4.address | default(hostvars[inventory_hostname].ansible_host) | default('0.0.0.0') }}"
     publish_db_ports_clusterwide: "{{ (groups['docker_compose'] | default([]) | length | int) > 1 }}"
   tags:
@@ -200,7 +200,7 @@
 # Define system variables that should NOT be copied when bulk-loading from service aliases
 # These are internal Ansible variables that belong only to their source context
 - name: Define system variables blacklist
-  set_fact:
+  ansible.builtin.set_fact:
     system_vars_blacklist:
       - inventory_hostname
       - inventory_hostname_short
@@ -238,7 +238,7 @@
     - always
 
 - name: Set docker facts for all services
-  set_fact:
+  ansible.builtin.set_fact:
     # Core user variables for all services - use numeric UID to match container runtime
     # nginx_user stays at role default (nginx): official nginx image requires a passwd name, not a numeric UID
     tomcat_user: "{{ docker_container_uid }}"
@@ -247,7 +247,7 @@
     - docker-compose
 
 - name: Set docker facts for cas services
-  set_fact:
+  ansible.builtin.set_fact:
     cas_user: "{{ docker_container_uid }}"
     collectory_user: "{{ docker_container_uid }}"
     userdetails_user: "{{ docker_container_uid }}"
@@ -259,7 +259,7 @@
   when: service_aliases.get('cas-servers') is defined
 
 - name: Set docker facts for namematching service
-  set_fact:
+  ansible.builtin.set_fact:
     namematching_user: "{{ docker_container_uid }}"
   tags:
     - always
@@ -267,7 +267,7 @@
   when: service_aliases.get('namematching-service') is defined
 
 - name: Set docker facts for sensitive data service
-  set_fact:
+  ansible.builtin.set_fact:
     sensitive_data_user: "{{ docker_container_uid }}"
   tags:
     - always
@@ -275,7 +275,7 @@
   when: service_aliases.get('sensitive-data-service') is defined
 
 - name: Set docker facts for collectory service
-  set_fact:
+  ansible.builtin.set_fact:
     collectory_docker_data_dir: "/data/collectory"
   tags:
     - always
@@ -283,14 +283,14 @@
   when: service_aliases.get('collectory') is defined
 
 - name: Set nginx Docker resolver configuration
-  set_fact:
+  ansible.builtin.set_fact:
     nginx_docker_internal_resolver: "{{ (deployment_type in ['swarm', 'container']) | bool }}"
   tags:
     - always
     - docker-compose
 
 - name: Set docker service container names (used in proxy_pass for nginx)
-  set_fact:
+  ansible.builtin.set_fact:
     # Convention: la_<service> - these are the container service names in docker-compose
     # Only used when deployment_type is 'container' or 'swarm'
     # Can be overridden in inventory for custom naming
@@ -327,7 +327,7 @@
     - docker-compose
 
 - name: Debug - Docker user configuration
-  debug:
+  ansible.builtin.debug:
     verbosity: 2
     msg: |
       Container UID/GID: {{ docker_compose_userid }}/{{ docker_compose_usergid }}
@@ -347,7 +347,7 @@
 #  - Directory creation and validation
 #  - Deployment type validation
 - name: Run ala-install common role
-  include_role:
+  ansible.builtin.include_role:
     name: common
     public: true  # Makes vars/ and set_fact available globally for la-compose tasks
   tags:
@@ -357,13 +357,13 @@
 
 # Create docker-compose specific common directories and configs
 - name: Run docker-compose specific common setup
-  include_tasks: common.yml
+  ansible.builtin.include_tasks: common.yml
   tags:
     - docker-compose
 
 # Enable gatus endpoint generation when gatus group exists
 - name: Set use_gatus fact
-  set_fact:
+  ansible.builtin.set_fact:
     use_gatus: true
   when: groups['gatus'] is defined and groups['gatus']|length > 0
   tags:
@@ -372,7 +372,7 @@
     - gatus
 
 - name: Ensure output directory exists
-  file:
+  ansible.builtin.file:
     path: "{{ docker_compose_data_dir }}"
     state: directory
     mode: '0755'
@@ -383,7 +383,7 @@
     - docker-compose
 
 - name: Ensure cert-validator directory exists
-  file:
+  ansible.builtin.file:
     path: "{{ docker_compose_data_dir }}/cert-validator"
     state: directory
     mode: '0755'
@@ -394,7 +394,7 @@
     - docker-compose
 
 - name: Copy cert-validator script
-  template:
+  ansible.builtin.template:
     src: cert-validator.sh
     dest: "{{ docker_compose_data_dir }}/cert-validator/cert-validator.sh"
     mode: '0755'
@@ -407,7 +407,7 @@
 # Create clean dictionaries for easy access to software versions
 # Uses version_variable from docker_services_desc dynamically
 - name: Build service versions dictionary from docker_services_desc
-  set_fact:
+  ansible.builtin.set_fact:
     service_versions_dict: "{{ service_versions_dict | default({}) | combine({item.key: vars[item.value.version_variable] | default('develop')}) }}"
   loop: "{{ docker_services_desc | dict2items }}"
   when: item.value.version_variable is defined
@@ -422,7 +422,7 @@
 - name: Fetch latest ala-i18n version from apt.gbif.es repository
   block:
     - name: Download Packages.gz and extract version
-      shell: |
+      ansible.builtin.shell: |
         curl -s https://apt.gbif.es/dists/unstable/main/binary-amd64/Packages.gz | \
         gunzip | \
         awk '/^Package: ala-i18n$/{p=1; next} p && /^Version:/{print $2; p=0}' | \
@@ -435,12 +435,12 @@
       failed_when: false
 
     - name: Set i18n_version from apt.gbif.es
-      set_fact:
+      ansible.builtin.set_fact:
         i18n_version: "{{ gbif_i18n_version.stdout | trim }}"
       when: gbif_i18n_version.stdout | length > 0
 
     - name: Display fetched i18n version
-      debug:
+      ansible.builtin.debug:
         verbosity: 2
         msg: "Latest ala-i18n version from apt.gbif.es: {{ i18n_version | default('unable to fetch') }}"
   tags:
@@ -448,7 +448,7 @@
 
 
 - name: DEBUG - Show physical server groups
-  debug:
+  ansible.builtin.debug:
     verbosity: 2
     msg:
       - "Physical Server: {{ hostvars[inventory_hostname].get('ansible_host', inventory_hostname) }}"
@@ -458,7 +458,7 @@
 
 
 - name: DEBUG - Inspect services detection
-  debug:
+  ansible.builtin.debug:
     verbosity: 2
     msg:
       - "Host: {{ inventory_hostname }}"
@@ -473,7 +473,7 @@
 
 # Debug after detecting services
 - name: "DEBUG: Show services_enabled after detection"
-  debug:
+  ansible.builtin.debug:
     verbosity: 2
     msg: |
       Services detected after Detect enabled services task:
@@ -484,14 +484,14 @@
 
 # Always add nginx and ensure unique services
 - name: Add nginx and ensure unique services list
-  set_fact:
+  ansible.builtin.set_fact:
     services_enabled: "{{ (['nginx'] + services_enabled) | unique }}"
   tags:
     - always
     - docker-compose
 
 - name: Debug - Show services configuration
-  debug:
+  ansible.builtin.debug:
     verbosity: 2
     msg: "Services enabled: {{ services_enabled }}"
   tags:
@@ -500,7 +500,7 @@
     - build
 
 - name: Determine services present in the inventory (cluster-wide)
-  set_fact:
+  ansible.builtin.set_fact:
     cluster_services: >-
       {{
         (cluster_services | default([])) +
@@ -512,7 +512,7 @@
   tags: [always, only, docker-compose, build]
 
 - name: Add non-standard services to cluster_services
-  set_fact:
+  ansible.builtin.set_fact:
     cluster_services: >-
       {{
         (cluster_services | default([])) +
@@ -523,7 +523,7 @@
 
 # skip_services (flag temporal): no construir imágenes de servicios omitidos.
 - name: Apply skip_services to cluster_services
-  set_fact:
+  ansible.builtin.set_fact:
     cluster_services: >-
       {{ cluster_services
          | reject('in', skip_services | default([]))
@@ -535,12 +535,12 @@
   tags: [always, only, docker-compose, build]
 
 - name: Set services to build on this host
-  set_fact:
+  ansible.builtin.set_fact:
     services_to_build: "{{ cluster_services | unique if (inventory_hostname == (groups['docker_compose'] | first)) else services_enabled }}"
   tags: [always, only, docker-compose, build]
 
 - name: Debug - Show services to build
-  debug:
+  ansible.builtin.debug:
     verbosity: 2
     msg: "Services to build on this host: {{ services_to_build }}"
   tags:
@@ -551,7 +551,7 @@
 
 # Create nginx directories BEFORE any role tries to use nginx_vhost
 - name: Ensure nginx config directory exists
-  file:
+  ansible.builtin.file:
     path: "{{ nginx_conf_dir }}"
     state: directory
     mode: '0755'
@@ -562,7 +562,7 @@
     - docker-compose
 
 - name: Ensure nginx conf.d directory exists
-  file:
+  ansible.builtin.file:
     path: "{{ nginx_conf_dir }}/conf.d"
     state: directory
     mode: '0755'
@@ -573,7 +573,7 @@
     - docker-compose
 
 - name: Ensure nginx sites-enabled directory exists
-  file:
+  ansible.builtin.file:
     path: "{{ nginx_conf_dir }}/sites-enabled"
     state: directory
     mode: '0755'
@@ -586,7 +586,7 @@
 # conf.d is ours: nginx_vhost only ever writes sites-available/sites-enabled, so
 # a drop-in here is safe from being clobbered on the next deploy.
 - name: Ensure nginx serves the internal disk metric
-  template:
+  ansible.builtin.template:
     src: nginx-metrics.conf.j2
     dest: "{{ nginx_conf_dir }}/conf.d/metrics.conf"
     mode: '0644'
@@ -603,7 +603,7 @@
 # would override host customizations (nginx_other_log_formats, client_max_body_size,
 # rate limits, cache, ...). We namespace the defaults and only fill the gaps.
 - name: Load nginx role defaults (namespaced)
-  include_vars:
+  ansible.builtin.include_vars:
     file: "{{ playbook_dir }}/../ala-install/ansible/roles/nginx/defaults/main.yml"
     name: _nginx_role_defaults
   when: "'nginx' in services_enabled"
@@ -611,7 +611,7 @@
     - docker-compose
 
 - name: Apply nginx defaults only where inventory did not provide a value
-  set_fact:
+  ansible.builtin.set_fact:
     "{{ item.key }}": "{{ item.value }}"
   loop: "{{ _nginx_role_defaults | dict2items }}"
   loop_control:
@@ -632,7 +632,7 @@
 # Fix: union nginx_other_log_formats across every group co-located on this physical server
 # (same ansible_host), mirroring physical_server_groups detection in setup-facts.yml.
 - name: Collect nginx_other_log_formats from co-located service groups
-  set_fact:
+  ansible.builtin.set_fact:
     nginx_other_log_formats: >-
       {%- set result = [] -%}
       {%- for host in groups['all'] -%}
@@ -650,7 +650,7 @@
     - docker-compose
 
 - name: Generate nginx.conf
-  template:
+  ansible.builtin.template:
     src: "{{ playbook_dir }}/../ala-install/ansible/roles/nginx/templates/nginx.conf.j2"
     dest: "{{ nginx_conf_dir }}/nginx.conf"
     mode: '0644'
@@ -665,7 +665,7 @@
 # CAS5, USERDETAILS, APIKEY and CAS-MANAGEMENT all share the same source
 # (service_aliases['cas-servers']), so one load + one normalize is enough.
 - name: "Bulk load CAS-related variables from service alias context"
-  set_fact:
+  ansible.builtin.set_fact:
     "{{ item.key }}": "{{ item.value }}"
   loop: >-
     {{ hostvars[service_aliases.get('cas-servers', '')] | default({})
@@ -687,7 +687,7 @@
     - bulk-load
 
 - name: Re-normalize database hostnames after CAS bulk load
-  include_tasks: normalize-hostnames.yml
+  ansible.builtin.include_tasks: normalize-hostnames.yml
   when: service_aliases.get('cas-servers') is defined
   tags:
     - cas
@@ -703,7 +703,7 @@
 # By building URIs here (after all bulk-loads + normalize-hostnames), the normalized
 # host vars (e.g. cas_audit_host=la_mongodb) are already in place and correct.
 - name: Set CAS database variables from inventories for MongoDB initialization
-  set_fact:
+  ansible.builtin.set_fact:
     cas_tickets_username: "{{ cas_tickets_username | default('cas-ticket-user') }}"
     cas_tickets_password: "{{ cas_tickets_password | default(lookup('password', '/dev/null length=20')) }}"
     cas_tickets_db: "{{ cas_tickets_db | default('cas-ticket-registry') }}"
@@ -723,7 +723,7 @@
     - docker-compose
 
 - name: Build MongoDB URIs for CAS services (requires normalized hosts)
-  set_fact:
+  ansible.builtin.set_fact:
     cas_audit_uri: "mongodb://{{ cas_audit_username }}:{{ cas_audit_password }}@{{ cas_audit_host | default('la_mongodb') }}:{{ cas_audit_port | default('27017') }}/{{ cas_audit_db }}?retryWrites=true&ssl=false"
     cas_services_uri: "mongodb://{{ cas_services_username }}:{{ cas_services_password }}@{{ cas_services_host | default('la_mongodb') }}:{{ cas_services_port | default('27017') }}/{{ cas_services_db }}?retryWrites=true&ssl=false"
     cas_tickets_uri: "mongodb://{{ cas_tickets_username }}:{{ cas_tickets_password }}@{{ cas_tickets_host | default('la_mongodb') }}:{{ cas_tickets_port | default('27017') }}/{{ cas_tickets_db }}?retryWrites=true&ssl=false"
@@ -735,7 +735,7 @@
     - docker-compose
 
 - name: Run cas configuration generation
-  include_role:
+  ansible.builtin.include_role:
     name: cas5
     apply:
       become: true
@@ -749,7 +749,7 @@
     - docker-compose
 
 - name: Run userdetails configuration generation
-  include_role:
+  ansible.builtin.include_role:
     name: userdetails
     apply:
       become: true
@@ -762,7 +762,7 @@
     - docker-compose
 
 - name: Run apikey configuration generation
-  include_role:
+  ansible.builtin.include_role:
     name: apikey
     apply:
       become: true
@@ -775,7 +775,7 @@
     - docker-compose
 
 - name: Run cas-management configuration generation
-  include_role:
+  ansible.builtin.include_role:
     name: cas-management
     apply:
       become: true
@@ -789,7 +789,7 @@
 
 
 - name: Load collectory role variables if needed
-  include_vars:
+  ansible.builtin.include_vars:
     file: "{{ playbook_dir }}/../ala-install/ansible/roles/collectory/vars/main.yml"
   when: service_aliases.get('collectory') is defined
   tags:
@@ -798,7 +798,7 @@
 # Ensure database password variables have values (from inventory or defaults)
 # These are critical for docker-compose .env generation
 - name: Ensure database password variables are set
-  set_fact:
+  ansible.builtin.set_fact:
     mysql_root_password: "{{ mysql_root_password | default('generated_mysql_password') }}"
     collectory_db_password: "{{ collectory_db_password | default('generated_collectory_password') }}"
     mongodb_root_password: "{{ mongodb_root_password | default('generated_mongodb_password') }}"
@@ -810,7 +810,7 @@
 # Now run collectory and other services
 # Bulk load all COLLECTORY variables from service alias context
 - name: "Bulk load COLLECTORY variables from service alias context"
-  set_fact:
+  ansible.builtin.set_fact:
     "{{ item.key }}": "{{ item.value }}"
   loop: >-
     {{ hostvars[service_aliases.get('collectory', '')] | default({})
@@ -829,7 +829,7 @@
     - bulk-load
 
 - name: Re-normalize database hostnames after COLLECTORY bulk load
-  include_tasks: normalize-hostnames.yml
+  ansible.builtin.include_tasks: normalize-hostnames.yml
   when: service_aliases.get('collectory') is defined
   tags:
     - collectory
@@ -837,7 +837,7 @@
     - normalize
 
 - name: Run collectory configuration generation (asset copy, config templates)
-  include_role:
+  ansible.builtin.include_role:
     name: collectory
     apply:
       become: true
@@ -857,7 +857,7 @@
 
 # Bulk load all SPECIES-LIST variables from service alias context
 - name: "Bulk load SPECIES-LIST variables from service alias context"
-  set_fact:
+  ansible.builtin.set_fact:
     "{{ item.key }}": "{{ item.value }}"
   loop: >-
     {{ hostvars[service_aliases.get('species-list', '')] | default({})
@@ -875,7 +875,7 @@
     - bulk-load
 
 - name: Re-normalize database hostnames after SPECIES-LIST bulk load
-  include_tasks: normalize-hostnames.yml
+  ansible.builtin.include_tasks: normalize-hostnames.yml
   when: service_aliases.get('species-list') is defined
   tags:
     - species-list
@@ -883,7 +883,7 @@
     - normalize
 
 - name: Run species-list configuration generation (asset copy, config templates)
-  include_role:
+  ansible.builtin.include_role:
     name: species-list
     apply:
       become: true
@@ -900,7 +900,7 @@
 
 # Bulk load all BIE-HUB variables from service alias context
 - name: "Bulk load BIE-HUB variables from service alias context"
-  set_fact:
+  ansible.builtin.set_fact:
     "{{ item.key }}": "{{ item.value }}"
   loop: >-
     {{ hostvars[service_aliases.get('bie-hub', '')] | default({})
@@ -918,7 +918,7 @@
     - bulk-load
 
 - name: Run bie-hub configuration generation
-  include_role:
+  ansible.builtin.include_role:
     name: bie-hub
     apply:
       become: true
@@ -945,7 +945,7 @@
 
 # Bulk load all BIE-INDEX variables from service alias context
 - name: "Bulk load BIE-INDEX variables from service alias context"
-  set_fact:
+  ansible.builtin.set_fact:
     "{{ item.key }}": "{{ item.value }}"
   loop: >-
     {{ hostvars[service_aliases.get('bie-index', '')] | default({})
@@ -967,7 +967,7 @@
 # keeps the VM endpoints. Separate fact names avoid self-referential recursion in the
 # include_role `vars:` block.
 - name: Capture inventory bie-index Solr URLs (external-solr fallback)
-  set_fact:
+  ansible.builtin.set_fact:
     bie_index_admin_url_ext: "{{ index_admin_url | default('http://solr:8983/solr') }}"
     bie_index_live_url_ext: "{{ index_live_url | default('http://solr:8983/solr/bie') }}"
     bie_index_offline_url_ext: "{{ index_offline_url | default('http://solr:8983/solr/bie-offline') }}"
@@ -978,7 +978,7 @@
     - docker-compose
 
 - name: Run bie-index configuration generation
-  include_role:
+  ansible.builtin.include_role:
     name: bie-index
     apply:
       become: true
@@ -1010,7 +1010,7 @@
 
 # Bulk load all BIOCACHE-HUB variables from service alias context
 - name: "Bulk load BIOCACHE-HUB variables from service alias context"
-  set_fact:
+  ansible.builtin.set_fact:
     "{{ item.key }}": "{{ item.value }}"
   loop: >-
     {{ hostvars[service_aliases.get('biocache-hub', '')] | default({})
@@ -1034,7 +1034,7 @@
 # dies with "Could not find or access". Normalize to basename so a stray path/URL
 # degrades gracefully. Covers both config-file vars biocache-hub consumes this way.
 - name: "Normalize hub config-file vars to basename (tolerate path/URL in inventory)"
-  set_fact:
+  ansible.builtin.set_fact:
     "{{ item }}": "{{ lookup('vars', item) | regex_replace('^.*/', '') }}"
   loop:
     - grouped_facets_json
@@ -1053,7 +1053,7 @@
 # controller so the upstream copy delivers the real file. No-op when the inventory
 # provides no such file (default portals). Mirrors gbif-es/deploy-hub.sh's rsync.
 - name: "Stage inventory grouped_facets file into biocache-hub role search path"
-  copy:
+  ansible.builtin.copy:
     src: "{{ inventory_dir }}/files/{{ grouped_facets_json }}"
     dest: "{{ playbook_dir }}/../ala-install/ansible/roles/biocache-hub/templates/config/{{ grouped_facets_json }}"
   delegate_to: localhost
@@ -1067,7 +1067,7 @@
     - config
 
 - name: Run biocache-hub configuration generation
-  include_role:
+  ansible.builtin.include_role:
     name: biocache-hub
     apply:
       become: true
@@ -1082,7 +1082,7 @@
 
 # Bulk load all BIOCACHE-SERVICE variables from service alias context
 - name: "Bulk load BIOCACHE-SERVICE variables from service alias context"
-  set_fact:
+  ansible.builtin.set_fact:
     "{{ item.key }}": "{{ item.value }}"
   loop: >-
     {{ hostvars[service_aliases.get('biocache-service-clusterdb', '')] | default({})
@@ -1100,7 +1100,7 @@
     - bulk-load
 
 - name: Re-normalize database hostnames after BIOCACHE-SERVICE bulk load
-  include_tasks: normalize-hostnames.yml
+  ansible.builtin.include_tasks: normalize-hostnames.yml
   when: service_aliases.get('biocache-service-clusterdb') is defined
   tags:
     - biocache-service
@@ -1117,7 +1117,7 @@
 # be parked under another name — a self-referential `else biocache_db_host` inside `vars:`
 # is a recursive template, not a fallback.
 - name: Capture inventory datastore endpoints (external-datastore fallback)
-  set_fact:
+  ansible.builtin.set_fact:
     solr_url_ext: "{{ solr_url | default('zookeeper:2181') }}"
     # default(..., true): the inventory can carry biocache_db_host as an EMPTY string (it
     # does in the CI one), which `default()` alone happily passes through -- and an empty
@@ -1133,7 +1133,7 @@
     - docker-compose
 
 - name: Run biocache-service properties generation
-  include_role:
+  ansible.builtin.include_role:
     name: biocache3-properties
     apply:
       become: true
@@ -1163,7 +1163,7 @@
   #  - external Solr (mixed VM+Docker): -> the inventory VM ZK ensemble captured in
   #    solr_url_ext, so biocache talks to the real SolrCloud on the VMs.
   # Idempotent: only fires when the legacy name is present; the replacement never contains it.
-  replace:
+  ansible.builtin.replace:
     path: "{{ data_dir }}/biocache/config/biocache-config.properties"
     regexp: '^(\s*(?:solr\.home|zookeeper\.address)\s*=\s*).*la_solrcloud_zoo_.*$'
     replace: '\1{{ "zookeeper:2181" if (solr_docker_local | default(true)) else solr_url_ext }}'
@@ -1177,7 +1177,7 @@
     - docker-compose
 
 - name: Run biocache-service configuration generation
-  include_role:
+  ansible.builtin.include_role:
     name: biocache3-service
     apply:
       become: true
@@ -1209,7 +1209,7 @@
 
 # Bulk load all LOGGER-SERVICE variables from service alias context
 - name: "Bulk load LOGGER-SERVICE variables from service alias context"
-  set_fact:
+  ansible.builtin.set_fact:
     "{{ item.key }}": "{{ item.value }}"
   loop: >-
     {{ hostvars[service_aliases.get('logger-service', '')] | default({})
@@ -1227,7 +1227,7 @@
     - bulk-load
 
 - name: Re-normalize database hostnames after LOGGER-SERVICE bulk load
-  include_tasks: normalize-hostnames.yml
+  ansible.builtin.include_tasks: normalize-hostnames.yml
   when: service_aliases.get('logger-service') is defined
   tags:
     - logger-service
@@ -1235,7 +1235,7 @@
     - normalize
 
 - name: Run logger-service configuration generation
-  include_role:
+  ansible.builtin.include_role:
     name: logger-service
     apply:
       become: true
@@ -1257,7 +1257,7 @@
 
 # Bulk load all IMAGE-SERVICE variables from service alias context
 - name: "Bulk load IMAGE-SERVICE variables from service alias context"
-  set_fact:
+  ansible.builtin.set_fact:
     "{{ item.key }}": "{{ item.value }}"
   loop: >-
     {{ hostvars[service_aliases.get('image-service', '')] | default({})
@@ -1275,7 +1275,7 @@
     - bulk-load
 
 - name: Re-normalize database hostnames after IMAGE-SERVICE bulk load
-  include_tasks: normalize-hostnames.yml
+  ansible.builtin.include_tasks: normalize-hostnames.yml
   when: service_aliases.get('image-service') is defined
   tags:
     - image-service
@@ -1283,7 +1283,7 @@
     - normalize
 
 - name: Run image-service configuration generation
-  include_role:
+  ansible.builtin.include_role:
     name: image-service
     apply:
       become: true
@@ -1315,7 +1315,7 @@
 
 # Bulk load all NAMEMATCHING-SERVICE variables from service alias context
 - name: "Bulk load NAMEMATCHING-SERVICE variables from service alias context"
-  set_fact:
+  ansible.builtin.set_fact:
     "{{ item.key }}": "{{ item.value }}"
   loop: >-
     {{ hostvars[service_aliases.get('namematching-service', '')] | default({})
@@ -1333,7 +1333,7 @@
     - bulk-load
 
 - name: Run namematching-service configuration generation (config + nameindex download)
-  include_role:
+  ansible.builtin.include_role:
     name: namematching-service
     apply:
       become: true
@@ -1357,7 +1357,7 @@
 
 # Bulk load all SENSITIVE-DATA-SERVICE variables from service alias context
 - name: "Bulk load SENSITIVE-DATA-SERVICE variables from service alias context"
-  set_fact:
+  ansible.builtin.set_fact:
     "{{ item.key }}": "{{ item.value }}"
   loop: >-
     {{ hostvars[service_aliases.get('sensitive-data-service', '')] | default({})
@@ -1375,7 +1375,7 @@
     - bulk-load
 
 - name: Run sensitive-data-service configuration generation (config + data download)
-  include_role:
+  ansible.builtin.include_role:
     name: sensitive-data-service
     apply:
       become: true
@@ -1407,7 +1407,7 @@
     - docker-compose
 
 - name: Repair the sensitive-data-service data files the role just downloaded
-  include_tasks: sds-data-fixups.yml
+  ansible.builtin.include_tasks: sds-data-fixups.yml
   args:
     apply:
       become: true
@@ -1421,7 +1421,7 @@
 
 # Bulk load all ALERTS variables from service alias context
 - name: "Bulk load ALERTS variables from service alias context"
-  set_fact:
+  ansible.builtin.set_fact:
     "{{ item.key }}": "{{ item.value }}"
   loop: >-
     {{ hostvars[service_aliases.get('alerts-service', '')] | default({})
@@ -1439,7 +1439,7 @@
     - bulk-load
 
 - name: Re-normalize database hostnames after ALERTS bulk load
-  include_tasks: normalize-hostnames.yml
+  ansible.builtin.include_tasks: normalize-hostnames.yml
   when: service_aliases.get('alerts-service') is defined
   tags:
     - alerts
@@ -1447,7 +1447,7 @@
     - normalize
 
 - name: Run alerts configuration generation
-  include_role:
+  ansible.builtin.include_role:
     name: alerts
     apply:
       become: true
@@ -1471,7 +1471,7 @@
 
 # Bulk load all REGIONS variables from service alias context
 - name: "Bulk load REGIONS variables from service alias context"
-  set_fact:
+  ansible.builtin.set_fact:
     "{{ item.key }}": "{{ item.value }}"
   loop: >-
     {{ hostvars[service_aliases.get('regions', '')] | default({})
@@ -1489,7 +1489,7 @@
     - bulk-load
 
 - name: Run regions configuration generation
-  include_role:
+  ansible.builtin.include_role:
     name: regions
     apply:
       become: true
@@ -1514,7 +1514,7 @@
 
 # Bulk load all DOI-SERVICE variables from service alias context
 - name: "Bulk load DOI-SERVICE variables from service alias context"
-  set_fact:
+  ansible.builtin.set_fact:
     "{{ item.key }}": "{{ item.value }}"
   loop: >-
     {{ hostvars[service_aliases.get('doi-service', '')] | default({})
@@ -1532,7 +1532,7 @@
     - bulk-load
 
 - name: Re-normalize database hostnames after DOI-SERVICE bulk load
-  include_tasks: normalize-hostnames.yml
+  ansible.builtin.include_tasks: normalize-hostnames.yml
   when: service_aliases.get('doi-service') is defined
   tags:
     - doi-service
@@ -1540,7 +1540,7 @@
     - normalize
 
 - name: Run doi-service configuration generation
-  include_role:
+  ansible.builtin.include_role:
     name: doi-service
     apply:
       become: true
@@ -1575,7 +1575,7 @@
 
 # Bulk load all SDS (legacy sds-webapp2) variables from service alias context
 - name: "Bulk load SDS variables from service alias context"
-  set_fact:
+  ansible.builtin.set_fact:
     "{{ item.key }}": "{{ item.value }}"
   loop: >-
     {{ hostvars[service_aliases.get('sds', '')] | default({})
@@ -1593,7 +1593,7 @@
     - bulk-load
 
 - name: Re-normalize database hostnames after SDS bulk load
-  include_tasks: normalize-hostnames.yml
+  ansible.builtin.include_tasks: normalize-hostnames.yml
   when: service_aliases.get('sds') is defined
   tags:
     - sds
@@ -1601,7 +1601,7 @@
     - normalize
 
 - name: Run sds (legacy sds-webapp2) configuration generation
-  include_role:
+  ansible.builtin.include_role:
     name: sds
     apply:
       become: true
@@ -1627,7 +1627,7 @@
 
 # Bulk load all DATA-QUALITY-FILTER-SERVICE variables from service alias context
 - name: "Bulk load DATA-QUALITY-FILTER-SERVICE variables from service alias context"
-  set_fact:
+  ansible.builtin.set_fact:
     "{{ item.key }}": "{{ item.value }}"
   loop: >-
     {{ hostvars[service_aliases.get('data_quality_filter_service', '')] | default({})
@@ -1645,7 +1645,7 @@
     - bulk-load
 
 - name: Re-normalize database hostnames after DATA-QUALITY-FILTER-SERVICE bulk load
-  include_tasks: normalize-hostnames.yml
+  ansible.builtin.include_tasks: normalize-hostnames.yml
   when: service_aliases.get('data_quality_filter_service') is defined
   tags:
     - data-quality
@@ -1653,7 +1653,7 @@
     - normalize
 
 - name: Run data-quality-filter-service configuration generation
-  include_role:
+  ansible.builtin.include_role:
     name: data_quality_filter_service
     apply:
       become: true
@@ -1687,7 +1687,7 @@
 
 # Bulk load all SPATIAL-HUB variables from service alias context
 - name: "Bulk load SPATIAL-HUB variables from service alias context"
-  set_fact:
+  ansible.builtin.set_fact:
     "{{ item.key }}": "{{ item.value }}"
   loop: >-
     {{ hostvars[service_aliases.get('spatial', '')] | default({})
@@ -1705,7 +1705,7 @@
     - bulk-load
 
 - name: Re-normalize database hostnames after SPATIAL-HUB bulk load
-  include_tasks: normalize-hostnames.yml
+  ansible.builtin.include_tasks: normalize-hostnames.yml
   when: service_aliases.get('spatial') is defined
   tags:
     - spatial-hub
@@ -1723,7 +1723,7 @@
 # spatial_hub_skin_layout still wins; the deploy-time guard further down re-verifies. The git-URL
 # resolve/clone below is idempotent with the same tasks later in this file.
 - name: Resolve branding_source as a git URL (early, for skin detection)
-  set_fact:
+  ansible.builtin.set_fact:
     branding_is_git_url: "{{ branding_source is defined and branding_source is match('^(https?://|git@).*') }}"
   when:
     - use_branding | default(false) | bool
@@ -1734,7 +1734,7 @@
     - spatial-hub
 
 - name: Resolve branding source path (early, for skin detection)
-  set_fact:
+  ansible.builtin.set_fact:
     branding_source_path: >-
       {%- if branding_is_git_url | default(false) -%}
         /tmp/branding-git-checkout
@@ -1752,7 +1752,7 @@
     - spatial-hub
 
 - name: Clone branding from git repository early (if git URL, for skin detection)
-  git:
+  ansible.builtin.git:
     repo: "{{ branding_source }}"
     dest: "{{ branding_source_path }}"
     version: "{{ branding_git_ref | default('master') }}"
@@ -1777,7 +1777,7 @@
   # Presence of the source layout signals this branding ships the Spatial skin feature; when it does,
   # skin.layout=spatial-layout and la_spatial-skin-init fetches the BUILT gsp over HTTP from the
   # branding nginx at runtime (dist/ is git-ignored, so only app/ is in the checkout).
-  stat:
+  ansible.builtin.stat:
     path: "{{ branding_source_path }}/app/spatial/spatial-layout.gsp"
   register: spatial_skin_stat
   # The branding checkout (local ../lademo-branding or the git clone in /tmp) lives on the
@@ -1802,7 +1802,7 @@
   # *default* 'portal' to 'spatial-layout' (leave an explicit 'generic' — or any non-portal value —
   # untouched). This runs after the fact promotion and before the config render + compose gen, so both
   # sides see the same value.
-  set_fact:
+  ansible.builtin.set_fact:
     spatial_branding_skin_available: "{{ spatial_skin_stat.stat.exists | default(false) }}"
     spatial_hub_skin_layout: >-
       {{ 'spatial-layout'
@@ -1826,7 +1826,7 @@
     - spatial-hub
 
 - name: Run spatial-hub configuration generation
-  include_role:
+  ansible.builtin.include_role:
     name: spatial-hub
     apply:
       become: true
@@ -1854,7 +1854,7 @@
 
 # Bulk load all SPATIAL-SERVICE variables from service alias context
 - name: "Bulk load SPATIAL-SERVICE variables from service alias context"
-  set_fact:
+  ansible.builtin.set_fact:
     "{{ item.key }}": "{{ item.value }}"
   loop: >-
     {{ hostvars[service_aliases.get('spatial-service', '')] | default({})
@@ -1872,7 +1872,7 @@
     - bulk-load
 
 - name: Re-normalize database hostnames after SPATIAL-SERVICE bulk load
-  include_tasks: normalize-hostnames.yml
+  ansible.builtin.include_tasks: normalize-hostnames.yml
   when: service_aliases.get('spatial-service') is defined
   tags:
     - spatial-service
@@ -1880,7 +1880,7 @@
     - normalize
 
 - name: Run spatial-service configuration generation
-  include_role:
+  ansible.builtin.include_role:
     name: spatial-service
     apply:
       become: true
@@ -1911,7 +1911,7 @@
 # vhost per call so only the last location survives. Fragment mode merges all locations; nginx
 # then prefers the more-specific location over spatial-hub's catch-all "/".
 - name: Register geoserver nginx vhost (docker-local proxy to container)
-  include_role:
+  ansible.builtin.include_role:
     name: nginx_vhost
   vars:
     appname: "geoserver"
@@ -1937,7 +1937,7 @@
     - docker-compose
 
 - name: Register geonetwork nginx vhost (docker-local proxy to container)
-  include_role:
+  ansible.builtin.include_role:
     name: nginx_vhost
   vars:
     appname: "geonetwork"
@@ -1967,7 +1967,7 @@
 # exists) the gatus endpoint file (airflow-http.yaml). Opt-in: only when airflow_hostname
 # is defined (e.g. set airflow_hostname=airflow.l-a.site in your inventory/extras).
 - name: Register airflow nginx vhost (+ gatus monitoring)
-  include_role:
+  ansible.builtin.include_role:
     name: nginx_vhost
   vars:
     appname: "airflow"
@@ -2000,7 +2000,7 @@
     - docker-compose
 
 - name: Ensure database init directories exist with correct permissions
-  file:
+  ansible.builtin.file:
     path: "{{ item }}"
     state: directory
     mode: '0755'
@@ -2024,7 +2024,7 @@
 # creates them as root and the JVM can't write — services restart with
 # "Failed to create parent directories for /var/log/tomcat9/<svc>.log".
 - name: Ensure /var/log/tomcat9 bind-source dirs exist for tomcat-based services
-  file:
+  ansible.builtin.file:
     path: "{{ item }}"
     state: directory
     mode: '0755'
@@ -2047,20 +2047,20 @@
 # lookup time, so a `when: '{' in ...` guard never catches it. Override here;
 # --extra="zookeeper_version=X.Y.Z" still wins via Ansible precedence.
 - name: Force zookeeper version
-  set_fact:
+  ansible.builtin.set_fact:
     zookeeper_version: "3.9.3"
   tags:
     - docker-compose
 
 # Build JAVA_OPTS for each service from inventory variables
 - name: Initialize temp_java_opts variable
-  set_fact:
+  ansible.builtin.set_fact:
     temp_java_opts: {}
   tags:
     - docker-compose
 
 - name: Build JAVA_OPTS strings for each service
-  set_fact:
+  ansible.builtin.set_fact:
     temp_java_opts: "{{ temp_java_opts | default({}) | combine({
       item: '-Djava.awt.headless=true -Xmx' +
             (vars.get(item.replace('-', '_') + '_max_memory', '2g')) +
@@ -2080,13 +2080,13 @@
 
 # Build service_extra_params dict for templates
 - name: Initialize service_extra_params variable
-  set_fact:
+  ansible.builtin.set_fact:
     service_extra_params: {}
   tags:
     - docker-compose
 
 - name: Build extra_params dict for services
-  set_fact:
+  ansible.builtin.set_fact:
     service_extra_params: "{{ service_extra_params | default({}) | combine({
       item: docker_services_desc.get(item, {}).get('extra_params', [])
     }) }}"
@@ -2097,13 +2097,13 @@
     - docker-compose
 
 - name: Set service_java_opts_dict from temp_java_opts
-  set_fact:
+  ansible.builtin.set_fact:
     service_java_opts_dict: "{{ temp_java_opts }}"
   tags:
     - docker-compose
 
 - name: Debug - Show service_extra_params (extra JVM parameters defined per service)
-  debug:
+  ansible.builtin.debug:
     verbosity: 2
     msg: |
       Services with extra_params that will be concatenated in .env:
@@ -2116,14 +2116,14 @@
     - docker-compose
 
 - name: Debug - Show generated JAVA_OPTS for services (BASE - extras added in template)
-  debug:
+  ansible.builtin.debug:
     verbosity: 2
     msg: "{{ service_java_opts_dict }}"
   tags:
     - docker-compose
 
 - name: Generate .env file with database passwords from inventories
-  template:
+  ansible.builtin.template:
     src: docker-compose.env.j2
     dest: "{{ docker_compose_data_dir }}/.env"
     mode: '0644'
@@ -2137,7 +2137,7 @@
 # which is regenerated each time. Compose loads both via COMPOSE_ENV_FILES
 # (.env,.env-custom; last wins), wired at the deploy block in main.yml.
 - name: Create .env-custom override file (once, never overwritten)
-  template:
+  ansible.builtin.template:
     src: docker-compose.env-custom.j2
     dest: "{{ docker_compose_data_dir }}/.env-custom"
     force: no
@@ -2155,7 +2155,7 @@
 # BEFORE the config render, so config and compose agree. See generate-compose.yml above.
 
 - name: Generate docker-compose.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/base.yml.j2
     dest: "{{ docker_compose_data_dir }}/docker-compose.yml"
     mode: '0644'
@@ -2166,7 +2166,7 @@
 
 # Create subdirectories for organized service files
 - name: Create infrastructure directory for docker-compose files
-  file:
+  ansible.builtin.file:
     path: "{{ docker_compose_data_dir }}/infrastructure"
     state: directory
     mode: '0755'
@@ -2178,7 +2178,7 @@
     - docker-compose
 
 - name: Create services directory for docker-compose files
-  file:
+  ansible.builtin.file:
     path: "{{ docker_compose_data_dir }}/services"
     state: directory
     mode: '0755'
@@ -2192,7 +2192,7 @@
 
 # Generate infrastructure service files
 - name: Generate i18n.yml if enabled
-  template:
+  ansible.builtin.template:
     src: docker-compose/infrastructure/i18n.yml.j2
     dest: "{{ docker_compose_data_dir }}/infrastructure/i18n.yml"
     mode: '0644'
@@ -2205,7 +2205,7 @@
 # Order-independent branding readiness gate. Included by base.yml.j2 only when a
 # commonui hub (collectory / ala_bie) runs on this host; harmless to generate always.
 - name: Generate wait-for-branding.yml (branding readiness gate for commonui hubs)
-  template:
+  ansible.builtin.template:
     src: docker-compose/infrastructure/wait-for-branding.yml.j2
     dest: "{{ docker_compose_data_dir }}/infrastructure/wait-for-branding.yml"
     mode: '0644'
@@ -2223,7 +2223,7 @@
 # Branding preparation and generation
 
 - name: Detect if branding_source is a git URL
-  set_fact:
+  ansible.builtin.set_fact:
     branding_is_git_url: "{{ branding_source is defined and branding_source is match('^(https?://|git@).*') }}"
     branding_build_source: "{{ 'git' if (branding_source is defined and branding_source is match('^(https?://|git@).*')) else 'local' }}"
   when: "'branding' in services_to_build"
@@ -2231,7 +2231,7 @@
     - branding
 
 - name: Set branding source path for local builds
-  set_fact:
+  ansible.builtin.set_fact:
     branding_source_path: >-
       {%- if branding_is_git_url | default(false) -%}
         /tmp/branding-git-checkout
@@ -2245,7 +2245,7 @@
     - branding
 
 - name: Debug branding source path
-  debug:
+  ansible.builtin.debug:
     verbosity: 2
     msg: "Branding source path: [{{ branding_source_path }}]"
   when: "'branding' in services_to_build"
@@ -2259,7 +2259,7 @@
 # Stat on localhost/run_once like the skin-detect stat above: branding_source_path is a controller-side
 # path (inventory_dir/..), so an undelegated stat on remote hosts would spuriously report exists:false.
 - name: Verify local branding source exists (controller)
-  stat:
+  ansible.builtin.stat:
     path: "{{ branding_source_path }}"
   register: branding_src_stat
   delegate_to: localhost
@@ -2271,7 +2271,7 @@
     - branding
 
 - name: Fail early with an actionable message if local branding is missing
-  fail:
+  ansible.builtin.fail:
     msg: >-
       Branding enabled (branding_source={{ branding_source }}) but the resolved local path
       {{ branding_source_path }} does not exist. Check the branding dir name matches the project
@@ -2285,7 +2285,7 @@
     - branding
 
 - name: Ensure branding build directory exists
-  file:
+  ansible.builtin.file:
     path: "{{ docker_compose_data_dir }}/dockerfiles/branding"
     state: directory
     mode: '0755'
@@ -2297,7 +2297,7 @@
     - branding
 
 - name: Clone branding from git repository (if git URL)
-  git:
+  ansible.builtin.git:
     repo: "{{ branding_source }}"
     dest: "{{ branding_source_path }}"
     version: "{{ branding_git_ref | default('master') }}"
@@ -2316,7 +2316,7 @@
 # the host before the synchronize below. The git-URL path already does this via
 # recursive: yes. Mirrors deploy.sh's required "git submodule update --init" step.
 - name: Stat branding .gitmodules (local source)
-  stat:
+  ansible.builtin.stat:
     path: "{{ branding_source_path }}/.gitmodules"
   register: branding_gitmodules
   when: "'branding' in services_to_build and not (branding_is_git_url | default(false) | bool)"
@@ -2324,7 +2324,7 @@
     - branding
 
 - name: Initialize branding git submodules (local source)
-  command:
+  ansible.builtin.command:
     cmd: git submodule update --init --recursive
     chdir: "{{ branding_source_path }}"
   register: branding_submodule_init
@@ -2337,7 +2337,7 @@
     - branding
 
 - name: Copy branding source to build directory
-  synchronize:
+  ansible.posix.synchronize:
     src: "{{ branding_source_path }}/"
     dest: "{{ docker_compose_data_dir }}/dockerfiles/branding/"
     delete: yes
@@ -2359,7 +2359,7 @@
 # branding — only materialised here — or an explicit spatial_hub_skin_layout: if the skin is
 # requested but the branding source lacks it, fail early with an actionable message instead.
 - name: Check the branding provides the Spatial Portal skin layout (when requested)
-  stat:
+  ansible.builtin.stat:
     path: "{{ branding_source_path }}/app/spatial/spatial-layout.gsp"
   register: spatial_skin_gsp
   # Same as the detection above: the branding source is a controller-side path. Stat it once on
@@ -2376,7 +2376,7 @@
     - spatial-hub
 
 - name: Fail clearly if the Spatial skin is requested but missing from the branding
-  fail:
+  ansible.builtin.fail:
     msg: >-
       spatial_hub_skin_layout is 'spatial-layout' but the branding at
       '{{ branding_source_path }}' does not provide app/spatial/spatial-layout.gsp — it needs a
@@ -2398,7 +2398,7 @@
 # repopulates the la_branding-assets volume); identical source => identical tag
 # => bake and recreate are no-ops (idempotent).
 - name: Compute branding source content hash
-  shell: >-
+  ansible.builtin.shell: >-
     set -o pipefail;
     find "{{ docker_compose_data_dir }}/dockerfiles/branding/" -type f
     -not -path '*/node_modules/*' -not -path '*/.git/*'
@@ -2414,7 +2414,7 @@
     - docker-compose
 
 - name: Set branding_version from source hash
-  set_fact:
+  ansible.builtin.set_fact:
     branding_version: "{{ branding_src_hash.stdout | trim }}"
   when: "'branding' in services_to_build"
   tags:
@@ -2422,7 +2422,7 @@
     - docker-compose
 
 - name: Copy branding Dockerfile to build directory
-  copy:
+  ansible.builtin.copy:
     src: "docker/branding/Dockerfile"
     dest: "{{ docker_compose_data_dir }}/dockerfiles/branding/Dockerfile"
     mode: '0644'
@@ -2431,7 +2431,7 @@
     - branding
 
 - name: Copy branding nginx.conf
-  copy:
+  ansible.builtin.copy:
     src: "docker/branding/nginx.conf"
     dest: "{{ docker_compose_data_dir }}/dockerfiles/branding/nginx.conf"
     mode: '0644'
@@ -2440,7 +2440,7 @@
     - branding
 
 - name: Generate branding.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/infrastructure/branding.yml.j2
     dest: "{{ docker_compose_data_dir }}/infrastructure/branding.yml"
     mode: '0644'
@@ -2452,7 +2452,7 @@
     - docker-compose
 
 - name: Register branding nginx vhost for gatus monitoring
-  include_role:
+  ansible.builtin.include_role:
     name: nginx_vhost
   vars:
     appname: "branding"
@@ -2474,7 +2474,7 @@
     - docker-compose
 
 - name: Register branding-as-home nginx vhost (root domain) for gatus monitoring
-  include_role:
+  ansible.builtin.include_role:
     name: nginx_vhost
   vars:
     appname: "branding-home"
@@ -2495,14 +2495,14 @@
     - docker-compose
 
 - name: Add branding hostname to nginx_docker_internal_aliases
-  set_fact:
+  ansible.builtin.set_fact:
     nginx_docker_internal_aliases: "{{ nginx_docker_internal_aliases | default([]) | union([branding_url]) | union(([branding_home_url] if (branding_as_home | default(true) | bool and branding_home_url is defined) else [])) | unique }}"
   when: "'branding' in group_names and branding_url is defined"
   tags:
     - branding
 
 - name: Add mailhog hostname to nginx_docker_internal_aliases
-  set_fact:
+  ansible.builtin.set_fact:
     nginx_docker_internal_aliases: "{{ nginx_docker_internal_aliases | default([]) | union([docker_mail_development_url]) | unique }}"
   when: docker_mail_development_mode | default(false) | bool and (docker_mail_development_url | default('') | length > 0)
   tags:
@@ -2514,7 +2514,7 @@
 # (biocache mail.smtp.*). Runs after all normalize-hostnames includes, so it is
 # the final word and nothing downstream clobbers it.
 - name: Set mail configuration variables (development mode → mailhog)
-  set_fact:
+  ansible.builtin.set_fact:
     # Inventory-only: no hardcoded domain fallback here, or every deployment would
     # advertise the demo's mailhog vhost. Empty means "no public mailhog vhost".
     docker_mail_development_url: "{{ docker_mail_development_url | default('') }}"
@@ -2530,7 +2530,7 @@
 # Production with an external SMTP server declared in the inventory: keep the
 # inventory host/port instead of forcing postfix.
 - name: Set mail configuration variables (production, external SMTP from inventory)
-  set_fact:
+  ansible.builtin.set_fact:
     mail_host: "{{ mail_host if (mail_host | default('localhost') not in ['localhost', '127.0.0.1']) else mail_smtp_host }}"
     mail_smtp_host: "{{ mail_smtp_host if (mail_smtp_host | default('localhost') not in ['localhost', '127.0.0.1']) else mail_host }}"
     mail_port: "{{ mail_port | default(mail_smtp_port) | default(25) }}"
@@ -2544,7 +2544,7 @@
 
 # Production with no external SMTP server: relay through the postfix container.
 - name: Set mail configuration variables (production, default postfix relay)
-  set_fact:
+  ansible.builtin.set_fact:
     mail_smtp_host: postfix
     mail_smtp_port: 25
     mail_host: postfix
@@ -2559,7 +2559,7 @@
 - name: Configure mailhog nginx vhost (Docker development mode)
   block:
     - name: Create mailhog nginx vhost using nginx_vhost role
-      include_role:
+      ansible.builtin.include_role:
         name: nginx_vhost
       vars:
         appname: "mailhog"
@@ -2594,7 +2594,7 @@
     - config-docker
 
 - name: Generate mongodb.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/infrastructure/mongodb.yml.j2
     dest: "{{ docker_compose_data_dir }}/infrastructure/mongodb.yml"
     mode: '0644'
@@ -2605,7 +2605,7 @@
     - docker-compose
 
 - name: Create zookeeper bind-mount directories
-  file:
+  ansible.builtin.file:
     path: "{{ docker_compose_data_dir }}/zookeeper/{{ item }}"
     state: directory
     mode: '0755'
@@ -2622,7 +2622,7 @@
     - docker-compose
 
 - name: Generate zookeeper.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/infrastructure/zookeeper.yml.j2
     dest: "{{ docker_compose_data_dir }}/infrastructure/zookeeper.yml"
     mode: '0644'
@@ -2633,7 +2633,7 @@
     - docker-compose
 
 - name: Generate solr.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/infrastructure/solr.yml.j2
     dest: "{{ docker_compose_data_dir }}/infrastructure/solr.yml"
     mode: '0644'
@@ -2644,7 +2644,7 @@
     - docker-compose
 
 - name: Generate cassandra.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/infrastructure/cassandra.yml.j2
     dest: "{{ docker_compose_data_dir }}/infrastructure/cassandra.yml"
     mode: '0644'
@@ -2655,7 +2655,7 @@
     - docker-compose
 
 - name: Generate elasticsearch.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/infrastructure/elasticsearch.yml.j2
     dest: "{{ docker_compose_data_dir }}/infrastructure/elasticsearch.yml"
     mode: '0644'
@@ -2675,7 +2675,7 @@
 # doi-service needs an ES 7.x TransportClient endpoint (incompatible with the shared ES 8.x),
 # so it gets a dedicated sidecar. See infrastructure/doi-elasticsearch.yml.j2.
 - name: Generate doi-elasticsearch.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/infrastructure/doi-elasticsearch.yml.j2
     dest: "{{ docker_compose_data_dir }}/infrastructure/doi-elasticsearch.yml"
     mode: '0644'
@@ -2690,7 +2690,7 @@
     'doi-service' in physical_server_groups
 
 - name: Generate mysql.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/infrastructure/mysql.yml.j2
     dest: "{{ docker_compose_data_dir }}/infrastructure/mysql.yml"
     mode: '0644'
@@ -2701,7 +2701,7 @@
     - docker-compose
 
 - name: Generate postgres.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/infrastructure/postgres.yml.j2
     dest: "{{ docker_compose_data_dir }}/infrastructure/postgres.yml"
     mode: '0644'
@@ -2713,7 +2713,7 @@
 
 # Generate gatus configuration when gatus group exists
 - name: Create gatus config directory
-  file:
+  ansible.builtin.file:
     path: "{{ docker_compose_data_dir }}/gatus/config"
     state: directory
     mode: '0755'
@@ -2726,7 +2726,7 @@
     - gatus
 
 - name: Generate gatus config.yaml
-  template:
+  ansible.builtin.template:
     src: docker-compose/gatus/config.yaml.j2
     dest: "{{ docker_compose_data_dir }}/gatus/config/config.yaml"
     mode: '0644'
@@ -2742,7 +2742,7 @@
 # from nginx_paths. Data lives as readable multi-line YAML in the role's vars/ file;
 # rendered into a separate *.yaml that gatus auto-merges from the config dir.
 - name: Load curated gatus extra endpoints (cert/deep/dns)
-  include_vars: "{{ role_path }}/vars/gatus-extra-endpoints.yml"
+  ansible.builtin.include_vars: "{{ role_path }}/vars/gatus-extra-endpoints.yml"
   when: groups['gatus'] is defined and groups['gatus']|length > 0
   tags:
     - docker-compose
@@ -2750,7 +2750,7 @@
     - gatus
 
 - name: Generate gatus extra-checks.yaml
-  template:
+  ansible.builtin.template:
     src: docker-compose/gatus/extra-checks.yaml.j2
     dest: "{{ docker_compose_data_dir }}/gatus/config/extra-checks.yaml"
     mode: '0644'
@@ -2763,7 +2763,7 @@
     - gatus
 
 - name: Generate db-backup.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/infrastructure/db-backup.yml.j2
     dest: "{{ docker_compose_data_dir }}/infrastructure/db-backup.yml"
     mode: '0644'
@@ -2774,7 +2774,7 @@
     - docker-compose
 
 - name: Create gatus nginx vhost
-  include_role:
+  ansible.builtin.include_role:
     name: nginx_vhost
   vars:
     appname: "gatus"
@@ -2800,7 +2800,7 @@
     - docker-compose
 
 - name: Generate gatus.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/infrastructure/gatus.yml.j2
     dest: "{{ docker_compose_data_dir }}/infrastructure/gatus.yml"
     mode: '0644'
@@ -2820,7 +2820,7 @@
 # slurp reads from the remote target (gatus host), not the controller, unlike
 # lookup('file') which caused FATAL on hosts where the files don't exist.
 - name: Find gatus endpoint files (only on the gatus host where they live)
-  find:
+  ansible.builtin.find:
     paths: "{{ gatus_config_dir | default(docker_compose_data_dir + '/gatus/config') }}"
     patterns: "*-http.yaml"
   register: gatus_endpoint_files
@@ -2830,7 +2830,7 @@
     - nginx
 
 - name: Slurp gatus endpoint files (local to the gatus host)
-  slurp:
+  ansible.builtin.slurp:
     src: "{{ item.path }}"
   register: gatus_endpoint_blobs
   loop: "{{ gatus_endpoint_files.files | default([]) }}"
@@ -2844,7 +2844,7 @@
     - nginx
 
 - name: Extract monitored hostnames into nginx_docker_internal_aliases
-  set_fact:
+  ansible.builtin.set_fact:
     nginx_docker_internal_aliases: >-
       {{ nginx_docker_internal_aliases | default([])
          | union([((item.content | b64decode | from_yaml).endpoints | first).group])
@@ -2858,7 +2858,7 @@
     - nginx
 
 - name: Generate nginx.yml (after collecting aliases)
-  template:
+  ansible.builtin.template:
     src: docker-compose/infrastructure/nginx.yml.j2
     dest: "{{ docker_compose_data_dir }}/infrastructure/nginx.yml"
     mode: '0644'
@@ -2871,7 +2871,7 @@
     - docker-compose
 
 - name: Clean up stale gatus SQLite WAL files before start
-  command: >
+  ansible.builtin.command: >
     docker run --rm -v la_gatus-data:/data alpine
     sh -c "rm -f /data/data.db-shm /data/data.db-wal"
   become: true
@@ -2883,7 +2883,7 @@
     - gatus
 
 - name: Create initialization directories for Solr and Cassandra
-  file:
+  ansible.builtin.file:
     path: "{{ item }}"
     state: directory
     mode: '0755'
@@ -2900,7 +2900,7 @@
     - docker-compose
 
 - name: Copy Solr configuration files from solrcloud_config role
-  copy:
+  ansible.builtin.copy:
     src: "{{ playbook_dir }}/../ala-install/ansible/roles/solrcloud_config/files/"
     dest: "{{ docker_compose_data_dir }}/solr/init/"
     mode: '0644'
@@ -2939,7 +2939,7 @@
         timeout: 20
   rescue:
     - name: "Offline fallback — copy committed pinned cache (sha256 == pin)"
-      copy:
+      ansible.builtin.copy:
         src: "solr/biocache/conf/schema.xml"
         dest: "{{ docker_compose_data_dir }}/solr/init/biocache/conf/schema.xml"
         checksum: "{{ biocache_solr_schema_sha256 }}"
@@ -2960,7 +2960,7 @@
 # delegates to it as parent). Without this, biocache core creation fails:
 # NoClassDefFoundError CoordinateSequenceFactory.
 - name: Stage JTS jars for Solr spatial field types (biocache geohash)
-  copy:
+  ansible.builtin.copy:
     src: "{{ playbook_dir }}/../ala-install/ansible/roles/solrcloud/files/libs/{{ item }}"
     dest: "{{ docker_compose_data_dir }}/solr/lib/{{ item }}"
     mode: '0644'
@@ -2975,7 +2975,7 @@
     - docker-compose
 
 - name: Copy Cassandra schema from biocache3-db role
-  copy:
+  ansible.builtin.copy:
     src: "{{ playbook_dir }}/../ala-install/ansible/roles/biocache3-db/files/cassandra/cassandra3-schema.txt"
     dest: "{{ docker_compose_data_dir }}/cassandra/init/schema.cql"
     mode: '0644'
@@ -2988,7 +2988,7 @@
 
 
 - name: Generate mailhog.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/infrastructure/mailhog.yml.j2
     dest: "{{ docker_compose_data_dir }}/infrastructure/mailhog.yml"
     mode: '0644'
@@ -3005,7 +3005,7 @@
     - docker-compose
 
 - name: Generate postfix.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/infrastructure/postfix.yml.j2
     dest: "{{ docker_compose_data_dir }}/infrastructure/postfix.yml"
     mode: '0644'
@@ -3017,7 +3017,7 @@
     - docker-compose
 
 - name: Generate cas.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/services/cas.yml.j2
     dest: "{{ docker_compose_data_dir }}/services/cas.yml"
     mode: '0644'
@@ -3028,7 +3028,7 @@
     - docker-compose
 
 - name: Generate userdetails.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/services/userdetails.yml.j2
     dest: "{{ docker_compose_data_dir }}/services/userdetails.yml"
     mode: '0644'
@@ -3039,7 +3039,7 @@
     - docker-compose
 
 - name: Generate apikey.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/services/apikey.yml.j2
     dest: "{{ docker_compose_data_dir }}/services/apikey.yml"
     mode: '0644'
@@ -3050,7 +3050,7 @@
     - docker-compose
 
 - name: Generate cas-management.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/services/cas-management.yml.j2
     dest: "{{ docker_compose_data_dir }}/services/cas-management.yml"
     mode: '0644'
@@ -3061,7 +3061,7 @@
     - docker-compose
 
 - name: Generate species-list.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/services/species-list.yml.j2
     dest: "{{ docker_compose_data_dir }}/services/species-list.yml"
     mode: '0644'
@@ -3072,7 +3072,7 @@
     - docker-compose
 
 - name: Generate collectory.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/services/collectory.yml.j2
     dest: "{{ docker_compose_data_dir }}/services/collectory.yml"
     mode: '0644'
@@ -3083,7 +3083,7 @@
     - docker-compose
 
 - name: Generate bie-hub.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/services/bie-hub.yml.j2
     dest: "{{ docker_compose_data_dir }}/services/bie-hub.yml"
     mode: '0644'
@@ -3095,7 +3095,7 @@
     - docker-compose
 
 - name: Generate bie-index.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/services/bie-index.yml.j2
     dest: "{{ docker_compose_data_dir }}/services/bie-index.yml"
     mode: '0644'
@@ -3107,7 +3107,7 @@
     - docker-compose
 
 - name: Generate biocache-hub.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/services/biocache-hub.yml.j2
     dest: "{{ docker_compose_data_dir }}/services/biocache-hub.yml"
     mode: '0644'
@@ -3119,7 +3119,7 @@
     - docker-compose
 
 - name: Generate biocache-service.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/services/biocache-service.yml.j2
     dest: "{{ docker_compose_data_dir }}/services/biocache-service.yml"
     mode: '0644'
@@ -3131,7 +3131,7 @@
     - docker-compose
 
 - name: Generate pipelines.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/services/pipelines.yml.j2
     dest: "{{ docker_compose_data_dir }}/services/pipelines.yml"
     mode: '0644'
@@ -3238,7 +3238,7 @@
       become: true
 
 - name: Generate logger-service.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/services/logger-service.yml.j2
     dest: "{{ docker_compose_data_dir }}/services/logger-service.yml"
     mode: '0644'
@@ -3250,7 +3250,7 @@
     - docker-compose
 
 - name: Generate image-service.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/services/image-service.yml.j2
     dest: "{{ docker_compose_data_dir }}/services/image-service.yml"
     mode: '0644'
@@ -3262,7 +3262,7 @@
     - docker-compose
 
 - name: Generate namematching-service.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/services/namematching-service.yml.j2
     dest: "{{ docker_compose_data_dir }}/services/namematching-service.yml"
     mode: '0644'
@@ -3274,7 +3274,7 @@
     - docker-compose
 
 - name: Generate sensitive-data-service.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/services/sensitive-data-service.yml.j2
     dest: "{{ docker_compose_data_dir }}/services/sensitive-data-service.yml"
     mode: '0644'
@@ -3286,7 +3286,7 @@
     - docker-compose
 
 - name: Generate alerts.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/services/alerts.yml.j2
     dest: "{{ docker_compose_data_dir }}/services/alerts.yml"
     mode: '0644'
@@ -3298,7 +3298,7 @@
     - docker-compose
 
 - name: Generate regions.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/services/regions.yml.j2
     dest: "{{ docker_compose_data_dir }}/services/regions.yml"
     mode: '0644'
@@ -3310,7 +3310,7 @@
     - docker-compose
 
 - name: Generate doi-service.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/services/doi-service.yml.j2
     dest: "{{ docker_compose_data_dir }}/services/doi-service.yml"
     mode: '0644'
@@ -3322,7 +3322,7 @@
     - docker-compose
 
 - name: Generate sds.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/services/sds.yml.j2
     dest: "{{ docker_compose_data_dir }}/services/sds.yml"
     mode: '0644'
@@ -3334,7 +3334,7 @@
     - docker-compose
 
 - name: Generate data-quality-filter-service.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/services/data-quality-filter-service.yml.j2
     dest: "{{ docker_compose_data_dir }}/services/data-quality-filter-service.yml"
     mode: '0644'
@@ -3354,7 +3354,7 @@
 # the layout gsp is never staged/mounted → SiteMesh can't decorate → unstyled page. Re-flip here so
 # config and compose agree. Idempotent; reuses the earlier delegated spatial_skin_stat.
 - name: Re-assert Spatial skin layout before compose render (a later bulk-load may have reverted it)
-  set_fact:
+  ansible.builtin.set_fact:
     spatial_hub_skin_layout: >-
       {{ 'spatial-layout'
          if ((spatial_skin_stat.stat.exists | default(false)) and (spatial_hub_skin_layout | default('portal')) == 'portal')
@@ -3365,7 +3365,7 @@
     - docker-compose
 
 - name: Generate spatial-hub.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/services/spatial-hub.yml.j2
     dest: "{{ docker_compose_data_dir }}/services/spatial-hub.yml"
     mode: '0644'
@@ -3377,7 +3377,7 @@
     - docker-compose
 
 - name: Generate spatial-service.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/services/spatial-service.yml.j2
     dest: "{{ docker_compose_data_dir }}/services/spatial-service.yml"
     mode: '0644'
@@ -3389,7 +3389,7 @@
     - docker-compose
 
 - name: Generate geoserver.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/services/geoserver.yml.j2
     dest: "{{ docker_compose_data_dir }}/services/geoserver.yml"
     mode: '0644'
@@ -3401,7 +3401,7 @@
     - docker-compose
 
 - name: Generate geonetwork.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/services/geonetwork.yml.j2
     dest: "{{ docker_compose_data_dir }}/services/geonetwork.yml"
     mode: '0644'
@@ -3417,7 +3417,7 @@
 # until enabled. When enabled, the app config generation (ala-install ecodata/biocollect roles)
 # still needs container-mode adaptation + a service_aliases entry (as spatial does).
 - name: Generate ecodata.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/services/ecodata.yml.j2
     dest: "{{ docker_compose_data_dir }}/services/ecodata.yml"
     mode: '0644'
@@ -3429,7 +3429,7 @@
     - docker-compose
 
 - name: Generate biocollect.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/services/biocollect.yml.j2
     dest: "{{ docker_compose_data_dir }}/services/biocollect.yml"
     mode: '0644'
@@ -3443,7 +3443,7 @@
 # Self-hosted pdfgen (biocollect's PDF backend) + clamav (ecodata's AV scanner). Inert until
 # biocollect/ecodata are enabled. clamav is infra (rendered alongside mongodb when ecodata present).
 - name: Generate pdfgen.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/services/pdfgen.yml.j2
     dest: "{{ docker_compose_data_dir }}/services/pdfgen.yml"
     mode: '0644'
@@ -3456,7 +3456,7 @@
     - docker-compose
 
 - name: Generate clamav.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/infrastructure/clamav.yml.j2
     dest: "{{ docker_compose_data_dir }}/infrastructure/clamav.yml"
     mode: '0644'
@@ -3471,7 +3471,7 @@
 # SDS static home page (sds.<domain>). Image-only service (built in la-docker-images),
 # gated on the raw 'sds-static-home' inventory group (no docker_services_desc entry).
 - name: Generate sds-static-home.yml
-  template:
+  ansible.builtin.template:
     src: docker-compose/services/sds-static-home.yml.j2
     dest: "{{ docker_compose_data_dir }}/services/sds-static-home.yml"
     mode: '0644'
@@ -3485,7 +3485,7 @@
     - docker-compose
 
 - name: Register nginx vhost for sds-static-home (sds.<domain>)
-  include_role:
+  ansible.builtin.include_role:
     name: nginx_vhost
   vars:
     appname: "sds-static-home"
@@ -3533,7 +3533,7 @@
 # Create directories for services
 
 - name: Include build-images tasks
-  include_tasks: build-images.yml
+  ansible.builtin.include_tasks: build-images.yml
   when: (build_images | default(true)) or ('branding' in services_enabled)
   tags:
     - docker-compose
@@ -3544,13 +3544,13 @@
 # ============================================================================
 
 - name: "Validate docker-compose generation"
-  include_tasks: validate-docker-compose.yml
+  ansible.builtin.include_tasks: validate-docker-compose.yml
   tags:
     - validate
     - docker-compose
 
 - name: "Display generated compose file location"
-  debug:
+  ansible.builtin.debug:
     msg: |
       ✅ Docker Compose configuration successfully generated and validated!
       Location: {{ docker_compose_data_dir }}/
@@ -3576,7 +3576,7 @@
 # with service_completed_successfully, so a missing certificate never surfaces as "cert
 # missing", only as "nginx never started".
 - name: "SSL Certificates: Stat certificate and key on the docker host"
-  stat:
+  ansible.builtin.stat:
     path: "{{ ssl_certificate_server_dir }}/{{ item }}"
   loop:
     - "{{ ssl_cert_file }}"
@@ -3589,7 +3589,7 @@
     - nginx-validation
 
 - name: "SSL Certificates: Assert certificate and key exist on the docker host"
-  assert:
+  ansible.builtin.assert:
     that:
       - item.stat.exists or ansible_check_mode
     fail_msg: |
@@ -3626,7 +3626,7 @@
   # the post-up drift check in main.yml) and let the `up` below recreate those; an
   # up-to-date nginx is still left alone, and cert-validator is a one-shot with
   # `restart: "no"` — there is no uptime to protect there.
-  shell: |
+  ansible.builtin.shell: |
     cd "{{ docker_compose_data_dir }}"
     drift=""
     while read -r svc want; do
@@ -3660,7 +3660,7 @@
     - nginx-validation
 
 - name: "SSL Certificates: Wait for nginx to be running"
-  command: docker ps --filter "name=^la_nginx$" --filter "status=running" -q
+  ansible.builtin.command: docker ps --filter "name=^la_nginx$" --filter "status=running" -q
   environment:
     DOCKER_HOST: "{{ docker_socket }}"
   become: true
@@ -3677,7 +3677,7 @@
     - nginx-validation
 
 - name: "SSL Certificates: Collect diagnostics when nginx did not start"
-  shell: |
+  ansible.builtin.shell: |
     cd "{{ docker_compose_data_dir }}"
     echo "==== docker compose ps ===="
     docker compose ps --all nginx cert-validator 2>&1
@@ -3705,7 +3705,7 @@
     - nginx-validation
 
 - name: "SSL Certificates: Fail with the reason nginx did not start"
-  fail:
+  ansible.builtin.fail:
     msg: |
       la_nginx is not running after 60s.
 
@@ -3726,7 +3726,7 @@
     - nginx-validation
 
 - name: "SSL Certificates: Display validation success for local certs"
-  debug:
+  ansible.builtin.debug:
     msg: |
       ✅ SSL Local Certificates Validated Successfully!
 
@@ -3747,7 +3747,7 @@
     - nginx-validation
 
 - name: "SSL Certificates: Display info for Docker image certs"
-  debug:
+  ansible.builtin.debug:
     msg: |
       ℹ️  Using Docker Image Certificates
 
@@ -3768,7 +3768,7 @@
 # This is a check for any remaining ala-install absolute paths in the generated files
 # that will cause runtime issues in containers
 - name: "Validation: Check for ala-install references in generated files"
-  shell: |
+  ansible.builtin.shell: |
     set -o pipefail
     cd {{ docker_compose_data_dir }}
     # Search for ala-install in generated files, excluding comments and specific files
@@ -3782,7 +3782,7 @@
     - docker-compose
 
 - name: "Display final validation summary"
-  debug:
+  ansible.builtin.debug:
     msg: |
       ✅ Docker Compose generation completed successfully!
 

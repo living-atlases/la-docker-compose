@@ -15,7 +15,7 @@
 # with the current config; the snapshot is written by the apply phase.
 
 - name: "Config-change: build the watch list (enabled services with bind-mounted config)"
-  set_fact:
+  ansible.builtin.set_fact:
     # svc: services_enabled key (per-host gating) / service: compose service name
     # (container la_<service>) / path: host config dir the container mounts.
     config_watch: >-
@@ -51,7 +51,7 @@
 # file paths AND content (sha256sum lines are themselves hashed), so renames,
 # additions and deletions all count as a change. Missing dirs are skipped.
 - name: "Config-change: hash current config trees"
-  shell: |
+  ansible.builtin.shell: |
     while read -r svc dir; do
       [ -d "$dir" ] || continue
       h=$(find "$dir" -type f -print0 | sort -z | xargs -0 -r sha256sum | sha256sum | awk '{print $1}')
@@ -69,7 +69,7 @@
   tags: [docker-compose, deploy, config-restart]
 
 - name: "Config-change: read previous snapshot (if any)"
-  shell: cat "{{ docker_compose_data_dir }}/.config-hashes" 2>/dev/null || true
+  ansible.builtin.shell: cat "{{ docker_compose_data_dir }}/.config-hashes" 2>/dev/null || true
   register: config_hashes_prev
   become: true
   changed_when: false
@@ -79,7 +79,7 @@
 # without a baseline are NOT restarted (fresh containers already carry the
 # current config); their hash simply enters the snapshot.
 - name: "Config-change: index the previous snapshot"
-  set_fact:
+  ansible.builtin.set_fact:
     _config_prev_hashes: "{{ dict(config_hashes_prev.stdout_lines | map('split', ' ', 1)) }}"
     config_changed_services: []
     # Containers started after this moment were (re)created by compose up itself
@@ -88,7 +88,7 @@
   tags: [docker-compose, deploy, config-restart]
 
 - name: "Config-change: compute services whose config changed since last deploy"
-  set_fact:
+  ansible.builtin.set_fact:
     config_changed_services: "{{ config_changed_services + [item.split(' ', 1) | first] }}"
   loop: "{{ config_hashes_now.stdout_lines }}"
   loop_control:
@@ -99,7 +99,7 @@
   tags: [docker-compose, deploy, config-restart]
 
 - name: "Config-change: report"
-  debug:
+  ansible.builtin.debug:
     msg: >-
       {{ 'Config changed for: ' ~ (config_changed_services | join(', ')) ~ ' — will restart after compose up.'
          if config_changed_services | length > 0

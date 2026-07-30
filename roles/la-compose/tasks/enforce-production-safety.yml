@@ -10,12 +10,12 @@
 # temporarily change la_env — leaving an audit trail in the inventory).
 
 - name: "Safety: report deployment environment"
-  debug:
+  ansible.builtin.debug:
     msg: "la_env={{ la_env | default('ci') }}{{ ' — production safety gate ACTIVE' if (la_env | default('ci')) == 'production' else '' }}"
   tags: [always, safety]
 
 - name: "Safety: refuse destructive flags in production"
-  fail:
+  ansible.builtin.fail:
     msg: |
       PRODUCTION SAFETY GATE: la_env=production forbids destructive flags, and
       the following are set:

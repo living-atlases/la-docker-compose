@@ -3,7 +3,7 @@
 # This task file is included when build_images is true
 
 - name: Display build information
-  debug:
+  ansible.builtin.debug:
     msg:
       - "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
       - "Preparing images"
@@ -14,7 +14,7 @@
       - "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 - name: Check docker buildx availability
-  command: docker buildx version
+  ansible.builtin.command: docker buildx version
   register: buildx_check
   failed_when: false
   changed_when: false
@@ -22,7 +22,7 @@
     - "'branding' in services_enabled"
 
 - name: Fail if docker buildx not available
-  fail:
+  ansible.builtin.fail:
     msg: |
       docker buildx is required to build branding images but is not available.
       docker buildx was added in Docker 19.03 and is installed by default on most systems.
@@ -35,7 +35,7 @@
     - buildx_check.rc != 0
 
 - name: Generate docker-bake.hcl for branding
-  template:
+  ansible.builtin.template:
     src: docker-bake.hcl.j2
     dest: "{{ docker_compose_data_dir }}/docker-bake.hcl"
     mode: '0644'
@@ -43,7 +43,7 @@
     - "'branding' in services_enabled"
 
 - name: Build site-specific branding using docker buildx bake
-  command: docker buildx bake -f docker-bake.hcl branding
+  ansible.builtin.command: docker buildx bake -f docker-bake.hcl branding
   args:
     chdir: "{{ docker_compose_data_dir }}"
   register: build_branding
@@ -57,7 +57,7 @@
 # of the play and leaves it with NO containers at all — which is what emptied
 # gbif-es-docker-cluster-2023-1 and turned every one of its vhosts red in Gatus.
 - name: Pull Docker images
-  command: docker compose pull
+  ansible.builtin.command: docker compose pull
   args:
     chdir: "{{ docker_compose_data_dir }}"
   become: true

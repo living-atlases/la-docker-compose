@@ -19,14 +19,14 @@
 # port-forwarder holds :80/:443 bindings after stop (docker_desktop_workaround).
 
 - name: "Pre-deploy: List unhealthy la_* containers"
-  shell: docker ps -a --filter "health=unhealthy" --filter "name=la_" --format '{{ '{{' }}.Names{{ '}}' }}'
+  ansible.builtin.shell: docker ps -a --filter "health=unhealthy" --filter "name=la_" --format '{{ '{{' }}.Names{{ '}}' }}'
   register: unhealthy_containers
   become: true
   changed_when: false
   tags: [docker-compose, deploy]
 
 - name: "Pre-deploy: Restart unhealthy la_* containers (resets health state, keeps container + ID)"
-  shell: |
+  ansible.builtin.shell: |
     docker ps -a --filter "health=unhealthy" --filter "name=la_" --format '{{ '{{' }}.Names{{ '}}' }}' \
       | xargs -r docker restart
   become: true
@@ -37,13 +37,13 @@
   tags: [docker-compose, deploy]
 
 - name: "Pre-deploy: Report restarted unhealthy containers"
-  debug:
+  ansible.builtin.debug:
     msg: "Restarted unhealthy containers (health state reset, IDs preserved): {{ unhealthy_containers.stdout_lines | join(', ') }}"
   when: unhealthy_containers.stdout_lines | length > 0
   tags: [docker-compose, deploy]
 
 - name: "Pre-deploy: Remove la_nginx (Docker Desktop port-binding workaround only)"
-  command: docker rm -f la_nginx
+  ansible.builtin.command: docker rm -f la_nginx
   become: true
   register: nginx_removal
   failed_when: false

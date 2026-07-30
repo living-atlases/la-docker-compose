@@ -3,7 +3,7 @@
 # This keeps the Docker builds in sync with ALA requirements
 
 - name: Download ALA dependencies from LA Toolkit dependencies.yaml
-  uri:
+  ansible.builtin.uri:
     url: https://raw.githubusercontent.com/living-atlases/la-toolkit-backend/master/assets/dependencies.yaml
     return_content: yes
   register: la_dependencies_yaml
@@ -11,13 +11,13 @@
   run_once: true
 
 - name: Parse dependencies.yaml
-  set_fact:
+  ansible.builtin.set_fact:
     la_dependencies: "{{ la_dependencies_yaml.content | from_yaml }}"
   delegate_to: localhost
   run_once: true
 
 - name: Determine Java version for each service using dependencies.yaml
-  set_fact:
+  ansible.builtin.set_fact:
     collectory_java_version: "{{ 'collectory' | determine_java_version(collectory_version | default('develop'), la_dependencies) }}"
     species_list_java_version: "{{ 'species-lists' | determine_java_version(species_list_version | default('develop'), la_dependencies) }}"
     cas_java_version: "{{ 'cas' | determine_java_version(cas_version | default('develop'), la_dependencies) }}"
