@@ -180,7 +180,11 @@ services:
         aliases:
           # These aliases allow services to reach nginx on the internal network using vhost hostnames
           # Example: service can resolve auth-es.l-a.site to nginx container internally
-{% for alias in nginx_docker_internal_aliases %}
+{# sort: the list is accumulated with union/unique, which round-trips through a
+   Python set, so its order changes between runs and rewrites this file on every
+   regeneration. Docker resolves network aliases as a set, so ordering them is
+   free and makes the generated artifact diffable. #}
+{% for alias in nginx_docker_internal_aliases | sort %}
           - {{ alias }}
 {% endfor %}
 {% endif %}
