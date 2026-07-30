@@ -114,11 +114,19 @@ services:
    somebody trips over it. Mounted read-only at the identical path, and only for services
    co-located with this nginx (same union-of-groups check the branding/vhost logic uses;
    a non-co-located entry would bind-mount a non-existent dir and Docker would create it
-   root-owned). Only services that have a la-compose template are listed. #}
+   root-owned). Only services that have a la-compose template are listed.
+
+   KEYS ARE INVENTORY GROUP NAMES, which are not always the service name — biocache-service
+   lives in the `biocache-service-clusterdb` group, and guessing `biocache-service` here
+   silently rendered no mount at all (the map just never matched), so the ZIPs kept 404ing
+   while everything upstream looked fine. Cross-check a new key against how
+   generate-compose.yml refers to the service before adding it. Duplicate keys pointing at
+   the same directory are harmless: the dedup below emits one mount. #}
 {% set nginx_serving_groups = (group_names | union(physical_server_groups | default([]))) | reject('in', skip_services | default([])) | list %}
 {% set nginx_alias_dirs = {
      'sensitive-data-service': [data_dir ~ '/sds'],
      'sds-static-home':        [data_dir ~ '/sds'],
+     'biocache-service-clusterdb': [download_dir | default(data_dir ~ '/biocache-download')],
      'biocache-service':       [download_dir | default(data_dir ~ '/biocache-download')],
      'spatial-service':        [data_dir ~ '/ala/runtime/files'],
      'biocollect':             [biocollect_pwa_app_path | default('/data/biocollect/mobile-app')],

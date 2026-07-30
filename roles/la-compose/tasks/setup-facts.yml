@@ -195,17 +195,22 @@
          else ('postfix' if (not (docker_mail_development_mode | default(false) | bool) and
          mail_host | default('localhost') in ['localhost', '127.0.0.1'])
          else mail_host | default('postfix')) }}
+    # In development mode the port is 1025 UNCONDITIONALLY, because development mode means
+    # mailhog and mailhog listens on 1025. It must NOT be conditioned on the host still
+    # reading 'localhost' the way the host facts above are: this block re-runs (tags: always)
+    # and the host has by then been rewritten to 'mailhog', so the host-gated form fell
+    # through to the inventory's `mail_smtp_port = 25` (lademo-local-extras.ini) and rendered
+    # `mail.smtp.host=mailhog` next to `mail.smtp.port=25` — biocache mailing into a closed
+    # port, no download notification, no error in the log. The equivalent fact in
+    # generate-compose.yml already hardcodes 1025, but it runs long after
+    # biocache3-properties has rendered, so it never reached this file.
     mail_port: >-
-      {{ 1025 if (docker_mail_development_mode | default(false) | bool and
-         mail_host | default('localhost') in ['localhost', '127.0.0.1'])
-         else (25 if (not (docker_mail_development_mode | default(false) | bool) and
-         mail_host | default('localhost') in ['localhost', '127.0.0.1'])
+      {{ 1025 if (docker_mail_development_mode | default(false) | bool)
+         else (25 if (mail_host | default('localhost') in ['localhost', '127.0.0.1'])
          else (mail_port | default(mail_smtp_port) | default(25))) }}
     mail_smtp_port: >-
-      {{ 1025 if (docker_mail_development_mode | default(false) | bool and
-         mail_smtp_host | default('localhost') in ['localhost', '127.0.0.1'])
-         else (25 if (not (docker_mail_development_mode | default(false) | bool) and
-         mail_smtp_host | default('localhost') in ['localhost', '127.0.0.1'])
+      {{ 1025 if (docker_mail_development_mode | default(false) | bool)
+         else (25 if (mail_smtp_host | default('localhost') in ['localhost', '127.0.0.1'])
          else (mail_smtp_port | default(mail_port) | default(25))) }}
   tags:
     - always

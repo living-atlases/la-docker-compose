@@ -37,7 +37,7 @@ const TERMINAL_STATES = ["FINISHED", "TOO_LARGE", "SKIPPED", "FAILED", "ERROR"];
  */
 export function assertDownloadAccepted(
   resp: Cypress.Response<DownloadStatus | string>,
-  context: string,
+  context: string
 ): DownloadStatus {
   const body =
     typeof resp.body === "string" ? { message: resp.body } : resp.body || {};
@@ -48,7 +48,7 @@ export function assertDownloadAccepted(
       `${context}: biocache-service returned 400 "No valid email" — ` +
         `no user principal reached biocache-service. ` +
         `getDownloadUser() found neither a JWT/OIDC principal (security.jwt) nor a ` +
-        `userdetails-resolvable email query param. Body: ${detail}`,
+        `userdetails-resolvable email query param. Body: ${detail}`
     );
   }
   if (resp.status === 412) {
@@ -56,16 +56,18 @@ export function assertDownloadAccepted(
       `${context}: biocache-service returned 412 — ` +
         `principal without email. Authentication DID reach biocache-service, but the ` +
         `profile carries no email address (missing claim / attribute release). ` +
-        `Body: ${detail}`,
+        `Body: ${detail}`
     );
   }
   expect(
     resp.status,
     `${context}: offline download should be accepted (neither 400 no-principal nor ` +
-      `412 principal-without-email). Body: ${detail}`,
+      `412 principal-without-email). Body: ${detail}`
   ).to.eq(200);
 
-  expect(body, `${context}: download status body`).to.have.property("statusUrl");
+  expect(body, `${context}: download status body`).to.have.property(
+    "statusUrl"
+  );
   expect(body.statusUrl, `${context}: statusUrl`).to.match(/^https?:\/\//);
   return body as DownloadStatus;
 }
@@ -86,7 +88,10 @@ export function downloadQuery(extra: Record<string, string> = {}): string {
 }
 
 export function offlineDownloadUrl(extra: Record<string, string> = {}): string {
-  return serviceUrl("recordsWs", `/occurrences/offline/download?${downloadQuery(extra)}`);
+  return serviceUrl(
+    "recordsWs",
+    `/occurrences/offline/download?${downloadQuery(extra)}`
+  );
 }
 
 /**
@@ -96,27 +101,27 @@ export function offlineDownloadUrl(extra: Record<string, string> = {}): string {
 export function pollDownloadStatus(
   statusUrl: string,
   deadline: number,
-  intervalMs = 5000,
+  intervalMs = 5000
 ): Cypress.Chainable<DownloadStatus> {
-  return cy
-    .request({ url: statusUrl, failOnStatusCode: false })
-    .then((resp): Cypress.Chainable<DownloadStatus> | DownloadStatus => {
-      const body = (resp.body || {}) as DownloadStatus;
-      expect(resp.status, `GET ${statusUrl}`).to.be.lessThan(400);
-      const state = (body.status || "").toUpperCase();
-      if (TERMINAL_STATES.includes(state)) {
-        return body;
-      }
-      if (Date.now() > deadline) {
-        throw new Error(
-          `Download did not reach a terminal state before the timeout. ` +
-            `Last status: ${JSON.stringify(body).slice(0, 500)}`,
-        );
-      }
-      return cy
-        .wait(intervalMs, { log: false })
-        .then(() => pollDownloadStatus(statusUrl, deadline, intervalMs));
-    }) as Cypress.Chainable<DownloadStatus>;
+  return cy.request({ url: statusUrl, failOnStatusCode: false }).then((resp):
+    | Cypress.Chainable<DownloadStatus>
+    | DownloadStatus => {
+    const body = (resp.body || {}) as DownloadStatus;
+    expect(resp.status, `GET ${statusUrl}`).to.be.lessThan(400);
+    const state = (body.status || "").toUpperCase();
+    if (TERMINAL_STATES.includes(state)) {
+      return body;
+    }
+    if (Date.now() > deadline) {
+      throw new Error(
+        `Download did not reach a terminal state before the timeout. ` +
+          `Last status: ${JSON.stringify(body).slice(0, 500)}`
+      );
+    }
+    return cy
+      .wait(intervalMs, { log: false })
+      .then(() => pollDownloadStatus(statusUrl, deadline, intervalMs));
+  }) as Cypress.Chainable<DownloadStatus>;
 }
 
 /** True when this deployment runs the dev mail catcher (docker_mail_development_mode). */
@@ -135,12 +140,14 @@ export interface MailhogMessage {
  * filtering on older mailhog images.
  */
 export function mailhogMessagesTo(
-  recipient: string,
+  recipient: string
 ): Cypress.Chainable<MailhogMessage[]> {
   const base = serviceUrl("mailhog");
   return cy
     .request({
-      url: `${base}/api/v2/search?kind=to&query=${encodeURIComponent(recipient)}&limit=50`,
+      url: `${base}/api/v2/search?kind=to&query=${encodeURIComponent(
+        recipient
+      )}&limit=50`,
       failOnStatusCode: false,
     })
     .then((resp) => {
@@ -153,8 +160,8 @@ export function mailhogMessagesTo(
           const all: MailhogMessage[] = Array.isArray(v1.body) ? v1.body : [];
           return all.filter((m) =>
             (m.Raw?.To || []).some(
-              (to) => to.toLowerCase() === recipient.toLowerCase(),
-            ),
+              (to) => to.toLowerCase() === recipient.toLowerCase()
+            )
           );
         });
     }) as Cypress.Chainable<MailhogMessage[]>;
