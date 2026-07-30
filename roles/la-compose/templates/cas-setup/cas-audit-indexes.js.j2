@@ -18,9 +18,27 @@
 // both the $gte range and the descending sort; the remaining predicates stay as a
 // residual filter over a handful of documents. `background` is deliberately absent: it
 // has been deprecated (and ignored) since MongoDB 4.2.
+//
+// Two mongosh traps this script is shaped around, both found the hard way in CI:
+//
+//  1. getIndexes() raises NamespaceNotFound when the collection does not exist, which
+//     is the NORMAL state on a fresh deploy — db-init runs before CAS writes its first
+//     audit record. So create the collection up front; CAS would create it anyway, and
+//     this way the index is in place before the first write.
+//  2. The shell API is promise-based. Only the top level of a script gets an implicit
+//     await, so a mongo call inside a plain function returns an unresolved Promise and
+//     a try/catch around it never fires. Every db call below therefore stays at the top
+//     level — do not "tidy" them into a helper function.
+//
+// Run it with `mongosh --file`, never with `< script.js`: stdin puts mongosh in REPL
+// mode, where an uncaught exception is printed and the script carries on to the next
+// line, still exiting 0. That turned a broken run into a green one.
 {% set audit_collection = cas_audit_collection | default('MongoDbCasAuditRepository') %}
 var coll = {{ audit_collection | to_json }};
 var retentionDays = {{ cas_audit_retention_days | default(0) | int }};
+if (!db.getCollectionNames().includes(coll)) {
+  db.createCollection(coll);
+}
 var c = db.getCollection(coll);
 var changed = 0;
 

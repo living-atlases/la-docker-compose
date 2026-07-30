@@ -191,8 +191,12 @@
   tags:
     - db-init
 
-# The redirect is resolved on the target host, which is why the template above has to
-# land there first.
+# `--file /dev/stdin` with a host-side redirect, deliberately: the redirect is resolved on
+# the target host (the script lives there, and cas-setup is not mounted into la_mongodb),
+# while --file keeps mongosh out of REPL mode. Plain `< script.js` is a trap — stdin makes
+# mongosh a REPL, where an uncaught exception is printed and execution carries on to the
+# next line, still exiting 0. That is how CI #309 created the index yet reported
+# changed=false, and it would have stayed green had createIndex failed outright.
 - name: "DB Init: Create/refresh MongoDB CAS audit indexes (idempotent)"
   shell: >
     docker exec -i la_mongodb mongosh --quiet
@@ -200,11 +204,16 @@
     --password "{{ mongodb_root_password }}"
     --authenticationDatabase admin
     "{{ cas_audit_db | default('cas-audit-repository') }}"
+    --file /dev/stdin
     < {{ docker_compose_data_dir }}/cas-setup/cas-audit-indexes.js
   become: true
   register: mongo_audit_indexes
   changed_when: "'CAS_AUDIT_INDEXES_CHANGED' in (mongo_audit_indexes.stdout | default(''))"
-  failed_when: mongo_audit_indexes.rc != 0
+  # Demand the closing sentinel as well as rc: the script only prints it on its last line,
+  # so a run that dies halfway cannot pass itself off as a success even if rc lies.
+  failed_when: >-
+    mongo_audit_indexes.rc != 0
+    or 'CAS_AUDIT_INDEX_COUNT=' not in (mongo_audit_indexes.stdout | default(''))
   when: "'cas-servers' in physical_server_groups"
   tags:
     - db-init
