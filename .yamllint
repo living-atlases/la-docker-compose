@@ -18,14 +18,37 @@ rules:
     check-keys: false
 
   # Allow comments without space after #
+  # min-spaces-from-content must be 1 for ansible-lint to accept this config as
+  # compatible; with 2 it refuses and disables its own fix mode.
   comments:
-    min-spaces-from-content: 2
+    min-spaces-from-content: 1
+
+  # Jinja inside flow mappings ({{ x }}, {key: '{{ y }}'}) needs one space inside
+  # braces. yamllint's default of 0 flags every such expression, which is most of
+  # an Ansible codebase. ansible-lint requires these four settings verbatim.
+  comments-indentation: false
+  braces:
+    max-spaces-inside: 1
+  octal-values:
+    forbid-implicit-octal: true
+    forbid-explicit-octal: true
 
   # Ignore indentation in templates (Jinja2 blocks)
   indentation:
     spaces: 2
     indent-sequences: true
     check-multi-line-strings: false
+
+  # Loop items in this repo align their values into columns, e.g.
+  #   - { svc: 'cas',          path: "..." }
+  #   - { svc: 'userdetails',  path: "..." }
+  # which is deliberate and readable. yamllint counts the padding as extra
+  # spaces after a comma/colon, so disable the max (-1) rather than unalign 42
+  # lines. Missing spaces are still flagged.
+  commas:
+    max-spaces-after: -1
+  colons:
+    max-spaces-after: -1
 
   # Allow empty lines at end of file
   empty-lines:

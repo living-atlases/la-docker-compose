@@ -14,7 +14,7 @@
 # Requirements:
 #   - ansible (required for layers 2 and 3)
 #   - yamllint (optional, for layer 1 - skipped if missing)
-#   - ansible-lint (optional, for layer 1 - skipped if missing)
+#   - ansible-lint (optional, for layer 1 - preferred from .venv-molecule; see scripts/setup-molecule.sh)
 #
 # Environment:
 #   LA_SKIP_ANSIBLE_LINT=1  Skip ansible-lint (e.g. Ansible CLI vs python module version mismatch on the host).
@@ -31,8 +31,20 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 # Populated by run_layer3: unique mktemp dir per run (avoids rm -rf of root-owned paths under /tmp/la-test-data)
 LAYER3_TEST_DIR=""
 
-# Inventory to use for local testing
-LOCAL_INVENTORY="${REPO_ROOT}/inventories/local"
+# Inventory to use for local testing.
+#
+# inventories/local/ was removed in 186d875 and is no longer generated, so the
+# fallback is the checked-in testing inventory. Without this the prerequisite
+# check aborted the whole script before it ever reached layer 1, which is why
+# the lint appeared to "not run". Override with LA_LOCAL_INVENTORY.
+LOCAL_INVENTORY="${LA_LOCAL_INVENTORY:-}"
+if [[ -z "$LOCAL_INVENTORY" ]]; then
+    if [[ -f "${REPO_ROOT}/inventories/local/hosts" || -f "${REPO_ROOT}/inventories/local/hosts.ini" ]]; then
+        LOCAL_INVENTORY="${REPO_ROOT}/inventories/local"
+    else
+        LOCAL_INVENTORY="${REPO_ROOT}/inventories/testing/lademo-inventories/lademo-inventory.ini"
+    fi
+fi
 
 # Colors
 RED='\033[0;31m'
@@ -128,12 +140,15 @@ check_prerequisites() {
     ANSIBLE_VERSION=$(ansible-playbook --version | head -1 | awk '{print $NF}')
     log_pass "ansible-playbook available (${ANSIBLE_VERSION})"
 
-    # Check inventory
-    if [[ ! -f "${LOCAL_INVENTORY}/hosts" ]] && [[ ! -f "${LOCAL_INVENTORY}/hosts.ini" ]]; then
-        log_fail "Local inventory not found at ${LOCAL_INVENTORY}/hosts or hosts.ini"
+    # Check inventory (a directory with hosts/hosts.ini, or a plain .ini file)
+    if [[ ! -f "${LOCAL_INVENTORY}" ]] \
+        && [[ ! -f "${LOCAL_INVENTORY}/hosts" ]] \
+        && [[ ! -f "${LOCAL_INVENTORY}/hosts.ini" ]]; then
+        log_fail "Inventory not found: ${LOCAL_INVENTORY}"
+        echo -e "  ${YELLOW}Set LA_LOCAL_INVENTORY to a valid inventory path${NC}"
         exit 1
     fi
-    log_pass "Local inventory available"
+    log_pass "Inventory available (${LOCAL_INVENTORY#"${REPO_ROOT}/"})"
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -157,18 +172,47 @@ run_layer1() {
     fi
 
     # ansible-lint
+    #
+    # Prefer the one from .venv-molecule: it is installed alongside its own
+    # ansible-core, so the two always agree. A distro-packaged ansible-lint
+    # bundles an ansible-core independent of the system `ansible` CLI, and when
+    # they diverge it aborts with "Ansible CLI (X) and python module (Y) versions
+    # do not match" before linting a single file. Detect that and skip with the
+    # reason, instead of reporting an opaque failure.
+    #
+    # ANSIBLE_ROLES_PATH must include ala-install so `import_role: name: docker`
+    # in roles/la-compose resolves; otherwise two unskippable syntax-check
+    # failures fire. Rule configuration lives in .ansible-lint.
     if [[ "${LA_SKIP_ANSIBLE_LINT:-}" == "1" ]]; then
         log_skip "ansible-lint (LA_SKIP_ANSIBLE_LINT=1)"
-    elif command_available ansible-lint; then
-        if ansible-lint "${REPO_ROOT}/roles/" -f brief >/dev/null 2>&1; then
-            log_pass "ansible-lint (local roles)"
-        else
-            log_fail "ansible-lint failed"
-            ansible-lint "${REPO_ROOT}/roles/" -f brief 2>&1 | head -20 | sed 's/^/    /'
-            ((LAYER1_FAILED++)) || true
-        fi
     else
-        log_skip "ansible-lint (not installed: sudo apt install ansible-lint)"
+        local lint_bin="" lint_out="" lint_rc=0
+        if [[ -x "${REPO_ROOT}/.venv-molecule/bin/ansible-lint" ]]; then
+            lint_bin="${REPO_ROOT}/.venv-molecule/bin/ansible-lint"
+        elif command_available ansible-lint; then
+            lint_bin="$(command -v ansible-lint)"
+        fi
+
+        if [[ -z "$lint_bin" ]]; then
+            log_skip "ansible-lint (not installed: run scripts/setup-molecule.sh)"
+        else
+            # Don't try to predict the mismatch by comparing version strings:
+            # which `ansible` ansible-lint ends up using depends on how it
+            # manipulates PATH, and a wrong guess would skip a lint that works.
+            # Run it and let it tell us — it refuses loudly and lints nothing.
+            lint_out="$(ANSIBLE_ROLES_PATH="${REPO_ROOT}/ala-install/ansible/roles:${REPO_ROOT}/roles" \
+                "$lint_bin" "${REPO_ROOT}/roles/" -f brief 2>&1)" || lint_rc=$?
+
+            if [[ $lint_rc -eq 0 ]]; then
+                log_pass "ansible-lint (local roles)"
+            elif grep -qE 'versions do not match|broken execution environment' <<<"$lint_out"; then
+                log_skip "ansible-lint (${lint_bin} has a broken execution environment: $(grep -m1 -oE 'Ansible CLI \([0-9.]+\) and python module \([0-9.]+\) versions do not match' <<<"$lint_out") — run scripts/setup-molecule.sh)"
+            else
+                log_fail "ansible-lint failed"
+                head -20 <<<"$lint_out" | sed 's/^/    /'
+                ((LAYER1_FAILED++)) || true
+            fi
+        fi
     fi
 
     # Syntax check: config-gen playbook
