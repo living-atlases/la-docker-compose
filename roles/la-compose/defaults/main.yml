@@ -364,6 +364,14 @@ nginx_listen_ipv6: false
 # no silent override. Set in the inventory ([all:vars] la_env=production).
 la_env: ci
 
+# Whether this run may (re)configure and restart the Docker daemon. site.yml
+# sets it automatically: true on a first install (no live la_* stack), false on
+# a redeploy over a running stack — because the `docker` role's daemon.json
+# rewrite notifies `systemctl restart docker`, which drops every container
+# (incl. nginx) for ~20s and breaks the non-destructive redeploy contract
+# (CI #316). Force true in a maintenance window if daemon.json must change.
+manage_docker_daemon: true
+
 # Remove la_nginx before `compose up`. Only needed on Docker Desktop, whose
 # port-forwarder holds :80/:443 bindings after stop. On Linux hosts (CI VMs,
 # production) nginx must be left running: config changes are applied with a

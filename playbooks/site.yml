@@ -3,9 +3,39 @@
   gather_facts: yes
   become: yes
   tasks:
+    # Non-destructive redeploy guard. The `docker` role's "Setup docker daemon"
+    # task rewrites /etc/docker/daemon.json and notifies "Restart docker" ->
+    # `systemctl restart docker`, which stops EVERY container (incl. nginx, the
+    # single entrypoint) for ~20s. On a redeploy over a live stack that is a
+    # full-site outage on every run (CI #316: two ~22s nginx connection-refusal
+    # windows, one per `docker` role invocation). So only manage the daemon when
+    # there is NO live la_* stack yet (first install); on a redeploy leave the
+    # already-running, already-configured daemon untouched. Override in a
+    # maintenance window with -e manage_docker_daemon=true.
+    - name: "Detect a live la_* stack (to skip Docker-daemon management on redeploys)"
+      shell: docker ps --filter "name=la_" --filter "status=running" -q | head -1
+      register: la_stack_live_probe
+      changed_when: false
+      failed_when: false
+      tags: [always, docker]
+
+    - name: "Decide whether to manage the Docker daemon this run"
+      set_fact:
+        manage_docker_daemon: "{{ manage_docker_daemon | default((la_stack_live_probe.stdout | default('') | trim) == '') }}"
+      tags: [always, docker]
+
+    - name: "Report Docker-daemon management decision"
+      debug:
+        msg: >-
+          manage_docker_daemon={{ manage_docker_daemon }}
+          ({{ 'first install — configuring daemon' if manage_docker_daemon | bool
+              else 'live stack detected — leaving daemon untouched (non-destructive redeploy)' }})
+      tags: [always, docker]
+
     - name: Ensure Docker is installed
       import_role:
         name: docker
+      when: manage_docker_daemon | bool
       tags:
         - always
         - docker

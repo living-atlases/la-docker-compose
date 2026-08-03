@@ -29,10 +29,17 @@
     # of CWD. The `up -d`/`down` commands chdir anyway, so they're unaffected either way.
     COMPOSE_ENV_FILES: "{{ compose_env_files | default(docker_compose_data_dir ~ '/.env,' ~ docker_compose_data_dir ~ '/.env-custom') }}"
   block:
+    # Gated by manage_docker_daemon (set in site.yml): on a redeploy over a live
+    # stack this is false, so the daemon is NOT reconfigured/restarted — a
+    # `systemctl restart docker` here drops every container (incl. nginx) for
+    # ~20s (CI #316). Default true when unset (e.g. la-compose run standalone) so
+    # a first install still configures Docker.
     - name: Ensure Docker is installed
       import_role:
         name: docker
-      when: auto_deploy | default(true) | bool
+      when:
+        - auto_deploy | default(true) | bool
+        - manage_docker_daemon | default(true) | bool
       tags:
         - docker
 
