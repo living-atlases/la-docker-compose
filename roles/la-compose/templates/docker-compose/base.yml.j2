@@ -56,8 +56,13 @@ include:
 {% if 'cassandra5' in all_groups or 'cassandra3' in all_groups or 'cassandra' in all_groups %}
   - ./infrastructure/cassandra.yml
 {% endif %}
-{% if 'image-service' in all_groups or 'events' in all_groups or 'doi-service' in all_groups or 'ecodata' in all_groups %}
+{% if 'image-service' in all_groups or 'events' in all_groups or 'ecodata' in all_groups %}
   - ./infrastructure/elasticsearch.yml
+{% endif %}
+{% if 'doi-service' in all_groups %}
+  # doi-service uses the ES TransportClient (grails-elasticsearch), incompatible with the shared
+  # ES 8.x, so it gets a dedicated version-matched ES 7.x sidecar.
+  - ./infrastructure/doi-elasticsearch.yml
 {% endif %}
 {% if enable_mysql | default(false) | bool or enable_postgres | default(false) | bool or enable_mongo | default(false) | bool %}
   - ./infrastructure/db-backup.yml
@@ -183,8 +188,12 @@ volumes:
   la_cassandra-data:
     external: true
 {% endif %}
-{% if 'image-service' in all_groups or 'events' in all_groups or 'doi-service' in all_groups or 'ecodata' in all_groups %}
+{% if 'image-service' in all_groups or 'events' in all_groups or 'ecodata' in all_groups %}
   la_elasticsearch-data:
+    external: true
+{% endif %}
+{% if 'doi-service' in all_groups %}
+  la_doi-elasticsearch-data:
     external: true
 {% endif %}
 {% if 'gatus' in all_groups %}

@@ -1,0 +1,41 @@
+  # Elasticsearch 7.x sidecar dedicated to doi-service.
+  #
+  # doi-service (grails-elasticsearch: 2.7.0.RC1 in v1.x, 3.0.0-RC1 in v4.x) talks to ES via the
+  # Java TransportClient (transport protocol, port 9300). That client was removed in ES 8.x and the
+  # RC1 mappings use include_type_name, so doi cannot use the shared ES 8.x (`elasticsearch:9200`).
+  # It gets its own version-matched ES 7.x here; the app points at `doi-elasticsearch:9300`
+  # (see elasticSearch.client.hosts in doi-service-config.yml). Legacy-service-with-its-legacy-dep.
+services:
+  doi-elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:{{ doi_elasticsearch_version | default('7.3.2') }}
+    container_name: {{ doi_elasticsearch_docker_host | default('la_doi-elasticsearch') }}
+    profiles: [dbs, full]
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    restart: unless-stopped
+    expose:
+      - 9200
+      - 9300
+    environment:
+      TZ: {{ server_tz | default('UTC') }}
+      discovery.type: "single-node"
+      # cluster.name must match elasticSearch.cluster.name in doi-service-config.yml, otherwise the
+      # TransportClient rejects the node on handshake.
+      cluster.name: "{{ doi_elasticsearch_cluster_name | default('elasticsearch') }}"
+      xpack.security.enabled: "false"
+      # publish the transport port on all interfaces so the doi container can reach 9300;
+      # single-node discovery skips the production bootstrap checks this would otherwise trigger.
+      network.host: "0.0.0.0"
+      ES_JAVA_OPTS: "-Xms512m -Xmx{{ doi_elasticsearch_heap | default('1g') }}"
+    volumes:
+      - la_doi-elasticsearch-data:/usr/share/elasticsearch/data
+    networks:
+      default: {}
+      {{ docker_network | default('internal') }}:
+        aliases:
+          - doi-elasticsearch
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:9200/_cluster/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s

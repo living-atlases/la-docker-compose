@@ -97,8 +97,19 @@
   when: >
     'image-service' in (physical_server_groups | default([]))
     or 'events' in (physical_server_groups | default([]))
-    or 'doi-service' in (physical_server_groups | default([]))
     or 'ecodata' in (physical_server_groups | default([]))
+
+- name: "Database volumes: Create doi-service Elasticsearch (ES 7.x sidecar) external volume"
+  docker_volume:
+    name: la_doi-elasticsearch-data
+    driver: local
+    docker_host: "{{ docker_socket }}"
+    state: present
+  become: true
+  tags:
+    - db-init
+    - docker-volumes
+  when: "'doi-service' in (physical_server_groups | default([]))"
 
 - name: "Database volumes: Create SSL certificates external volume"
   docker_volume:

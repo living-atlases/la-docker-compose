@@ -1550,6 +1550,11 @@
     # doi uses jdbc:postgresql, but the inventory mis-sets doi_db_hostname=la_mysql; point it
     # at the postgres container (scoped here; VM deploys keep the inventory value).
     doi_db_hostname: "postgres"
+    # container mode: point the grails-elasticsearch TransportClient at the dedicated ES 7.x
+    # sidecar (transport port 9300). Scoped here so VM deploys keep the packaged localhost:9200
+    # default rendered by doi-service-config.yml.
+    doi_es_host: "doi-elasticsearch"
+    doi_es_port: "9300"
   when:
     - "'doi' in services_enabled"
     - "service_aliases.get('doi-service') is defined"
@@ -2603,10 +2608,25 @@
     'image-service' in physical_server_groups or
     'events' in group_names or
     'events' in physical_server_groups or
-    'doi-service' in group_names or
-    'doi-service' in physical_server_groups or
     'ecodata' in group_names or
     'ecodata' in physical_server_groups
+
+# doi-service needs an ES 7.x TransportClient endpoint (incompatible with the shared ES 8.x),
+# so it gets a dedicated sidecar. See infrastructure/doi-elasticsearch.yml.j2.
+- name: Generate doi-elasticsearch.yml
+  template:
+    src: docker-compose/infrastructure/doi-elasticsearch.yml.j2
+    dest: "{{ docker_compose_data_dir }}/infrastructure/doi-elasticsearch.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  tags:
+    - elasticsearch
+    - doi-service
+    - docker-compose
+  when: >-
+    'doi-service' in group_names or
+    'doi-service' in physical_server_groups
 
 - name: Generate mysql.yml
   template:
