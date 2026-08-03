@@ -1,12 +1,42 @@
 ---
-# Checks curados (deep API / certs / DNS) — generado, NO editar a mano.
-# Fuente de datos: roles/la-compose/vars/gatus-extra-endpoints.yml
-# Gatus auto-mergea este fichero junto al config.yaml base y los *-http.yaml.
+# Curated checks (deep API / TLS certs / DNS) — GENERATED, do not edit by hand.
+# Data source: roles/la-compose/vars/gatus-extra-endpoints.yml
+# Gatus auto-merges this file alongside the base config.yaml and the *-http.yaml files.
+#
+# Every URL below is resolved from THIS deployment's inventory (groups[] + hostvars[]),
+# never from a hardcoded domain. Resolution lives here rather than in a set_fact so it
+# sees the whole inventory: in multi-host deployments gatus runs on a different machine
+# than biocache/collectory, and the `service_aliases` fact only covers services that
+# land on the current ansible_host.
+{% set resolved = {} %}
+{% for key, spec in (gatus_url_sources | default({})).items() %}
+{%   set hosts = groups[spec.group] | default([]) %}
+{%   if hosts | length > 0 %}
+{%     set hv = hostvars[hosts[0]] %}
+{%     set u = hv.get(spec.url_var) if spec.url_var else none %}
+{%     set h = hv.get(spec.host_var) %}
+{%     if u %}
+{%       set _ = resolved.update({key: u | regex_replace('/+$', '')}) %}
+{%     elif h %}
+{%       set _ = resolved.update({key: 'https://' ~ (h | regex_replace('^https?://', '') | regex_replace('/+$', '')) }) %}
+{%     endif %}
+{%   endif %}
+{% endfor %}
+{# Unique public FQDNs behind the resolved URLs, used for the cert and DNS checks. #}
+{% set fqdns = [] %}
+{% for base in resolved.values() %}
+{%   set fqdn = base | urlsplit('hostname') %}
+{%   if fqdn and fqdn not in fqdns %}
+{%     set _ = fqdns.append(fqdn) %}
+{%   endif %}
+{% endfor %}
+{% set deep = gatus_extra_endpoints | default([]) | selectattr('service', 'in', resolved) | list %}
+{% if deep | length > 0 or fqdns | length > 0 %}
 endpoints:
-{% for ep in gatus_extra_endpoints | default([]) %}
+{% for ep in deep %}
   - name: "{{ ep.name }}"
     group: "{{ ep.group | default('extra') }}"
-    url: "{{ ep.url }}"
+    url: "{{ resolved[ep.service] }}{{ ep.path | default('') }}"
     interval: {{ ep.interval | default(gatus_interval | default('1m')) }}
     conditions:
 {% for c in ep.conditions | default(['[STATUS] < 400']) %}
@@ -18,10 +48,41 @@ endpoints:
       {{ k }}: {{ v | to_json }}
 {% endfor %}
 {% endif %}
-{% if ep.dns is defined %}
+{% endfor %}
+{# ---------------------------------------------------------------------------
+   TLS certs — expiry, one per public FQDN.
+   Group named "TLS certs" (not "Certs") so it sorts LAST: gatus orders groups
+   alphabetically and "Certs" landed at the top, dominating the header in red.
+   Topology note: gatus reaches the internal nginx certificate (la-site-certs volume,
+   image livingatlases/l-a-site-certs, pull_policy: always), refreshed on every deploy;
+   a REAL red would show [CERTIFICATE_EXPIRATION] with hours > 0 but < the threshold ->
+   refresh that image.
+   No external dns-resolver here: the 1.1.1.1:53 (DNS-over-TCP) client that used to be
+   set did NOT change the certificate seen (still the internal one) and, with all checks
+   firing together, caused transient timeouts -> [CERTIFICATE_EXPIRATION] (0s) -> spurious
+   red. With the container's local resolver plus a long interval (gatus does NOT retry per
+   probe) the flapping disappears.
+   --------------------------------------------------------------------------- #}
+{% for fqdn in fqdns %}
+  - name: "Cert expiry - {{ fqdn }}"
+    group: "TLS certs"
+    url: "https://{{ fqdn }}/"
+    interval: {{ gatus_cert_interval | default('15m') }}
+    conditions:
+      - "[CERTIFICATE_EXPIRATION] > {{ gatus_cert_expiry_threshold | default('336h') }}"
+{% endfor %}
+{# DNS — A record via gatus_dns_resolver (defaults to 1.1.1.1; override per deployment
+   to point at your own resolver). #}
+{% for fqdn in fqdns %}
+  - name: "DNS A - {{ fqdn }}"
+    group: "DNS"
+    url: "{{ gatus_dns_resolver | default('1.1.1.1') }}"
+    interval: {{ gatus_dns_interval | default('15m') }}
     dns:
-{% for k, v in ep.dns.items() %}
-      {{ k }}: {{ v | to_json }}
+      query-name: {{ fqdn | to_json }}
+      query-type: "A"
+    conditions:
+      - "[DNS_RCODE] == NOERROR"
+      - "[BODY] != "
 {% endfor %}
 {% endif %}
-{% endfor %}

@@ -278,7 +278,27 @@ gatus_interval: "1m"
 # '[STATUS] == 200'). ALA endpoints behind CAS legitimately return 302/401/403 (and
 # param-less API paths 400/404) while healthy, so ==200 produces massive false-reds.
 # '< 500' keeps only real outages red (502/503/504/timeout/no upstream).
+#
+# It cannot be the *only* condition: an unreachable host leaves the status at 0, which
+# satisfies '< 500' just as well as a healthy 200. http.j2 therefore pairs whatever is set
+# here with '[CONNECTED] == true'; set gatus_up_conditions instead to replace the pair.
 gatus_up_condition: "[STATUS] < 500"
+
+# Curated extra checks (roles/la-compose/vars/gatus-extra-endpoints.yml, rendered by
+# templates/docker-compose/gatus/extra-checks.yaml.j2). Kept in defaults/ — NOT in the
+# vars/ file — because vars/ is loaded with include_vars, whose precedence an inventory
+# value cannot beat.
+#
+# Certificate expiry checks: 336h = 14 days of warning. A long interval matters because
+# gatus does not retry within a probe, and firing every cert check at once caused
+# transient timeouts that read as [CERTIFICATE_EXPIRATION] (0s) -> spurious red.
+gatus_cert_interval: "15m"
+gatus_cert_expiry_threshold: "336h"
+
+# DNS A-record checks resolve through this server. Defaults to Cloudflare's public
+# resolver; point it at your own DNS on private/internal deployments.
+gatus_dns_resolver: "1.1.1.1"
+gatus_dns_interval: "15m"
 
 # Post-deploy health gate timeout (seconds). validate-post-deploy.yml passes this
 # to wait-for-health.sh --timeout. Raised from 300 to accommodate cassandra cold-start:
