@@ -1564,6 +1564,58 @@
     - nginx_vhost
     - docker-compose
 
+# Bulk load all SDS (legacy sds-webapp2) variables from service alias context
+- name: "Bulk load SDS variables from service alias context"
+  set_fact:
+    "{{ item.key }}": "{{ item.value }}"
+  loop: >-
+    {{ hostvars[service_aliases.get('sds', '')] | default({})
+       | dict2items
+       | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
+       | rejectattr('key', 'match', '^ansible_.*')
+       | rejectattr('key', 'in', system_vars_blacklist)
+       | list }}
+  loop_control:
+    label: "{{ item.key }}"
+  when: service_aliases.get('sds') is defined
+  tags:
+    - sds
+    - config
+    - bulk-load
+
+- name: Re-normalize database hostnames after SDS bulk load
+  include_tasks: normalize-hostnames.yml
+  when: service_aliases.get('sds') is defined
+  tags:
+    - sds
+    - config
+    - normalize
+
+- name: Run sds (legacy sds-webapp2) configuration generation
+  include_role:
+    name: sds
+    apply:
+      become: true
+      tags:
+        - docker-compose
+  vars:
+    nginx_vhost_fast_mode: true
+    # container mode: nginx proxies to the app container; the sds role hardcoded 127.0.0.1, now
+    # reads sds_upstream_host (default 127.0.0.1, so VM/bare-metal is untouched).
+    nginx_upstream_host: "sds"
+    sds_upstream_host: "sds"
+    # container mode: chown config dirs to the container runtime user (1000 == image 'sds' user),
+    # not the app-named system user (which doesn't exist on the generation host).
+    sds_user: "{{ docker_default_user }}"
+  when:
+    - "'sds' in services_enabled"
+    - "service_aliases.get('sds') is defined"
+  tags:
+    - sds
+    - config
+    - nginx_vhost
+    - docker-compose
+
 # Bulk load all DATA-QUALITY-FILTER-SERVICE variables from service alias context
 - name: "Bulk load DATA-QUALITY-FILTER-SERVICE variables from service alias context"
   set_fact:
@@ -3235,6 +3287,18 @@
   when: "'doi' in services_enabled"
   tags:
     - doi-service
+    - docker-compose
+
+- name: Generate sds.yml
+  template:
+    src: docker-compose/services/sds.yml.j2
+    dest: "{{ docker_compose_data_dir }}/services/sds.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'sds' in services_enabled"
+  tags:
+    - sds
     - docker-compose
 
 - name: Generate data-quality-filter-service.yml

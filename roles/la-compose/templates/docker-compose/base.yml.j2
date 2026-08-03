@@ -115,6 +115,9 @@ include:
 {% if 'doi' in services_enabled %}
   - ./services/doi-service.yml
 {% endif %}
+{% if 'sds' in services_enabled %}
+  - ./services/sds.yml
+{% endif %}
 {% if 'dataQuality' in services_enabled %}
   - ./services/data-quality-filter-service.yml
 {% endif %}

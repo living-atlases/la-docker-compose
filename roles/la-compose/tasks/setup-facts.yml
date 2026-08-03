@@ -135,7 +135,7 @@
       {%- for service in [
         'cas-servers', 'collectory', 'species-list', 'bie-hub', 'bie-index', 'biocache-hub',
         'biocache-service-clusterdb', 'logger-service', 'image-service', 'namematching-service',
-        'sensitive-data-service', 'gatus',
+        'sensitive-data-service', 'sds', 'gatus',
         'alerts-service', 'regions', 'doi-service', 'data_quality_filter_service',
         'spatial', 'spatial-service',
       ] -%}

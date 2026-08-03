@@ -96,7 +96,10 @@ pipeline {
             // Re-enabled (tanda 2, CI #233 green): geonetwork — postgres md5 (password_encryption=md5
             // + pg_hba rewrite) for the image's old libpq that can't do SCRAM; healthy end-to-end.
             // Removing any token re-enables that service. Goal: keep CI green while these are fixed.
-            defaultValue: 'sds-static-home,sensitive-data-service,doi-service',
+            // sds (legacy sds-webapp2): newly containerised (livingatlases/sds-webapp2 image + ES-free);
+            //   skipped until validated end-to-end. Remove the token to deploy. Requires sds_version to
+            //   be a PUBLISHED tag (1.7.1/1.7.0/1.6.4) — the old 1.6.2 pin has no image.
+            defaultValue: 'sds-static-home,sensitive-data-service,doi-service,sds',
             description: 'Comma-separated inventory groups to skip (temporary: immature/crash-looping services). Empty to deploy everything.'
         )
         booleanParam(

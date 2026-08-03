@@ -1,0 +1,43 @@
+# SDS - Sensitive Data Service (legacy sds-webapp2).
+#
+# ALA migrated to the nextgen ala-sensitive-data-server (group `sensitive-data-service`); the
+# community stack keeps the maintained legacy service via the livingatlases/sds-webapp2 image
+# (Spring Boot executable WAR, JDK 11, served at the context root). No datastore dependency: it
+# reads a bundled lucene index + sensitivity XMLs and calls out to layers-service / species-lists.
+services:
+  sds:
+    image: {% set svc_reg = sds_registry | default(docker_registry | default('')) %}{{ svc_reg }}{% if svc_reg %}/{% endif %}sds-webapp2:{{ sds_version | default('1.7.1') }}
+    container_name: {{ sds_docker_host | default('la_sds') }}
+    profiles: [app-core, full]
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    restart: unless-stopped
+    expose:
+      - {{ sds_port | default('8080') }}
+    environment:
+      TZ: {{ server_tz | default('UTC') }}
+      JAVA_OPTS: {{ sds_java_opts | default('-Xmx2g -Xms1g') }}
+    # The baked CMD only loads spring.config.name=application,application-local-config, so it never
+    # picks up the role-generated sds-config.properties. Mirror the image CMD but append `sds-config`
+    # to the config name and honour JAVA_OPTS (same approach as doi-service / logger-service). The
+    # image artifact is an executable WAR (WarLauncher).
+    command: ["/bin/sh", "-c", "exec java $$JAVA_OPTS -Xss512k -Djava.awt.headless=true -Dlogging.config=/data/sds-webapp2/config/logback.xml -Dspring.config.additional-location=/data/sds-webapp2/config/ -Dspring.config.name=application,application-local-config,sds-config -jar /opt/atlas/sds-webapp2/app.war"]
+    volumes:
+      # The sds role writes config + sensitivity XMLs under {{ data_dir }}/sds. The image expects
+      # its spring config at /data/sds-webapp2/config; the app also reads /data/sds/config
+      # (ala.admin.systemMessage.path), so expose the role dir under both paths.
+      - {{ data_dir }}/sds/config:/data/sds-webapp2/config
+      - {{ data_dir }}/sds:/data/sds
+      # logback.xml writes to /var/log/tomcat9; the image has no writable /var/log/tomcat9 (uid
+      # 1000), so bind a host dir (created uid 1000 by config-dir-ensure), mirroring doi-service.
+      - {{ data_dir }}/sds/logs:/var/log/tomcat9
+    networks:
+      default: {}
+      {{ docker_network | default('internal') }}:
+    healthcheck:
+      # Served at the context root (sds_context_path is empty). Accept 2xx/3xx/4xx (server up) and
+      # fail on refused/5xx.
+      test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' http://localhost:{{ sds_port | default('8080') }}/ | grep -qvE '^(000|5)'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
