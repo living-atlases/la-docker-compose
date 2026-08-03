@@ -20,6 +20,21 @@ always pass it), `3host-alt` (same 3 hosts, deliberately shuffled split),
 `2host` (auth+apps / datastores, heavy services skipped), `1host`
 (all-in-one, aggressive skips).
 
+### Known blind spot: one host per service
+
+`<variant>.placement.json` maps each service to exactly ONE slot, because the
+generator models placement as a single `LA_<service>_hostname`. Production does
+not always match: gbif-es runs `namematching-service` on all three docker hosts.
+Anything that behaves differently when a service spans several hosts is
+therefore invisible to this matrix. It bit us once — the nameindex was installed
+with `run_once`, so only the first host of the play got the 2 GB Lucene index
+and the other two crash-looped with `FileNotFoundException:
+/data/lucene/namematching-nm/cb` while every CI variant stayed green.
+
+Until a variant can place a service on several slots, that class of bug is
+covered statically by `scripts/check-per-host-artifacts.sh` (run in the "Unit
+tests" stage), not by a deploy.
+
 The generator does NOT derive `LA_docker_extra_hosts_by_host` /
 `LA_nginx_docker_internal_aliases_by_host` / `LA_etc_hosts` from the
 per-service hostnames on `--replay` (they are opaque la-toolkit variables) —

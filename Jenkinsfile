@@ -306,6 +306,10 @@ EOF
                     "$VENV_MOL/bin/pip" install --quiet molecule ansible-core
                     VENV_MOLECULE="$VENV_MOL" PATH="$VENV_MOL/bin:$PATH" "$VENV_MOL/bin/molecule" test -s unit
                 '''
+                // Milliseconds. Guards the one bug class our topology fixtures structurally
+                // cannot reach: a per-host artifact (the Lucene nameindex) installed run_once,
+                // invisible in CI because every variant places a service on a single host.
+                sh 'bash scripts/check-per-host-artifacts.sh'
             }
         }
 
