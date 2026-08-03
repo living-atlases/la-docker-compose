@@ -13,14 +13,25 @@ services:
       RELAYHOST: {{ email_sender_server | default('') }}
       RELAYHOST_USERNAME: {{ email_sender | default('') }}
       RELAYHOST_PASSWORD: {{ email_sender_password | default('') }}
-      ALLOWED_SENDER_DOMAINS: {{ email_allowed_domains | default('l-a.site') }}
+      # Derived from this deployment's sender address, never from a hardcoded
+      # domain: email_allowed_domains is not emitted by the toolkit, so a literal
+      # default here would apply to every deployment. Empty (authorise nobody)
+      # beats authorising someone else's domain.
+      ALLOWED_SENDER_DOMAINS: {{ email_allowed_domains | default(email_sender | default('') | regex_replace('^.*@', '')) }}
     networks:
       default: {}
       {{ docker_network | default('internal') }}:
         aliases:
           - {{ mail_host | default('postfix') }}
+    # nc, not telnet: boky/postfix is Debian trixie and ships no telnet, so the previous
+    # `echo quit | telnet` test could only ever fail -> postfix reported UNHEALTHY on every
+    # host of every deploy, and wait-for-health.sh burned its whole timeout waiting for it.
+    # Nothing is written to the socket either: postfix answers an immediate QUIT with
+    # "554 SMTP protocol synchronization", not with the banner. Reading with stdin closed
+    # gets the 220 greeting; grep -q closes the pipe as soon as it matches.
     healthcheck:
-      test: ["CMD", "sh", "-c", "timeout 1 echo quit | telnet localhost 25 2>/dev/null | grep -q '220' || exit 1"]
+      test: ["CMD-SHELL", "nc -w 3 127.0.0.1 25 </dev/null | grep -q '^220'"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 30s
