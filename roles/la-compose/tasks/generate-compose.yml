@@ -2423,7 +2423,7 @@
 - name: Add mailhog hostname to nginx_docker_internal_aliases
   set_fact:
     nginx_docker_internal_aliases: "{{ nginx_docker_internal_aliases | default([]) | union([docker_mail_development_url]) | unique }}"
-  when: docker_mail_development_mode | default(false) | bool and docker_mail_development_url is defined
+  when: docker_mail_development_mode | default(false) | bool and (docker_mail_development_url | default('') | length > 0)
   tags:
     - mail
 
@@ -2434,7 +2434,9 @@
 # the final word and nothing downstream clobbers it.
 - name: Set mail configuration variables (development mode → mailhog)
   set_fact:
-    docker_mail_development_url: "{{ docker_mail_development_url | default('mailhog.l-a.site') }}"
+    # Inventory-only: no hardcoded domain fallback here, or every deployment would
+    # advertise the demo's mailhog vhost. Empty means "no public mailhog vhost".
+    docker_mail_development_url: "{{ docker_mail_development_url | default('') }}"
     mail_smtp_host: mailhog
     mail_smtp_port: 1025
     mail_http_port: 8025
@@ -2500,7 +2502,9 @@
             static_upstream: "{{ (mail_host | default('mailhog')) in (docker_extra_hosts_dict | default({})) }}"
   when:
     - docker_mail_development_mode | default(false) | bool
-    - docker_mail_development_url is defined
+    # Truthiness, not `is defined`: the set_fact above always defines it, possibly empty
+    # (no inventory value). An empty hostname would build a bogus vhost + /srv//www/ root.
+    - docker_mail_development_url | default('') | length > 0
   tags:
     - mail
     - docker-compose

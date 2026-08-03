@@ -14,7 +14,8 @@ services:
     # Multi-host: publish SMTP (1025) + Web UI (8025) on the host private IP so
     # remote consumers reach this single mailhog via `mailhog` + extra_hosts:
     #   - services on other hosts (doi, alerts, ...) SMTP to mailhog:1025
-    #   - each host's nginx proxies the mailhog.l-a.site vhost to mailhog:8025
+    #   - each host's nginx proxies the mailhog vhost (docker_mail_development_url)
+    #     to mailhog:8025
     # Operator must firewall these to the private cluster subnet (like the DB ports).
     ports:
       - "{{ host_private_ip }}:1025:1025"
@@ -22,7 +23,11 @@ services:
 {% endif %}
     environment:
       TZ: {{ server_tz | default('UTC') }}
-      MH_HOSTNAME: {{ docker_mail_development_url | default('mailhog.l-a.site') }}
+{% if docker_mail_development_url | default('') %}
+      # SMTP banner hostname. Comes from the inventory only — omitted rather than
+      # defaulted, so we never advertise another deployment's domain.
+      MH_HOSTNAME: {{ docker_mail_development_url }}
+{% endif %}
     networks:
       default: {}
       {{ docker_network | default('internal') }}:

@@ -56,7 +56,13 @@ if [[ -z "$GATUS_HOST" ]]; then
   if [[ -f "$TARGETS_FILE" ]]; then
     GATUS_HOST="$(jq -r '.services.gatus // ""' "$TARGETS_FILE" 2>/dev/null | sed -E 's#^https?://##; s#/.*$##')"
   fi
-  GATUS_HOST="${GATUS_HOST:-gatus.l-a.site}"
+  # No hardcoded fallback: guessing a domain here silently verifies someone else's
+  # deployment. Fail and let the caller say which host to check.
+  if [[ -z "$GATUS_HOST" ]]; then
+    err "Cannot resolve GATUS_HOST: $TARGETS_FILE is missing or has no .services.gatus."
+    err "Pass GATUS_HOST=<fqdn> explicitly, or run the deploy so the targets manifest is generated."
+    exit 2
+  fi
 fi
 
 # Fetch a URL path from Gatus. On a host we hit https://localhost with a Host header (works
