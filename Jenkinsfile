@@ -306,10 +306,10 @@ EOF
                     "$VENV_MOL/bin/pip" install --quiet molecule ansible-core
                     VENV_MOLECULE="$VENV_MOL" PATH="$VENV_MOL/bin:$PATH" "$VENV_MOL/bin/molecule" test -s unit
                 '''
-                // Milliseconds. Guards the one bug class our topology fixtures structurally
-                // cannot reach: a per-host artifact (the Lucene nameindex) installed run_once,
-                // invisible in CI because every variant places a service on a single host.
-                sh 'bash scripts/check-per-host-artifacts.sh'
+                // NOTE: the per-host-artifact guard (Lucene nameindex must not be run_once)
+                // runs in 'Prepare environment', AFTER the ala-install submodule is synced —
+                // running it here validated the PREVIOUS build's stale ala-install checkout
+                // and false-failed when the pin had already moved to a fixed commit (#317).
             }
         }
 
@@ -339,6 +339,14 @@ EOF
                     echo "Initializing ala-install submodule..."
                     git submodule update --init --remote ala-install
                     echo "ala-install submodule SHA: \$(git -C ala-install rev-parse HEAD)"
+
+                    # Per-host-artifact guard, NOW that ala-install is synced to the deployed
+                    # commit: the Lucene nameindex is per-host and must not be run_once (with it,
+                    # the index lands on host-1 only and hosts -2/-3 crash-loop on
+                    # FileNotFoundException). Milliseconds; guards the one bug class the
+                    # single-host topology fixtures structurally cannot reach.
+                    echo "Checking per-host artifacts (ala-install synced)..."
+                    bash scripts/check-per-host-artifacts.sh
                     # Disable sparse checkout in case it was left active from a prior build
                     git -C ala-install config core.sparseCheckout false 2>/dev/null || true
                     git -C ala-install read-tree -mu HEAD 2>/dev/null || true
