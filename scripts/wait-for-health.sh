@@ -33,6 +33,15 @@ NO_EXIT_CODE=false
 COMPOSE_DIR="."
 START_TIME=$(date +%s)
 
+# Bound every docker call. The wait loop only re-evaluates its deadline between iterations, so
+# a single `docker inspect` against a wedged daemon froze the whole script well past --timeout
+# (an Ansible run once sat here for over an hour). Wrapping the command name covers every call
+# site at once. timeout(1) is an external binary and cannot run the `command` builtin, so the
+# real docker path is resolved once up front — that is also what stops the function recursing.
+DOCKER_CALL_TIMEOUT="${DOCKER_CALL_TIMEOUT:-60}"
+DOCKER_BIN="$(type -P docker || true)"
+docker() { timeout "$DOCKER_CALL_TIMEOUT" "${DOCKER_BIN:-docker}" "$@"; }
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -139,7 +148,9 @@ EOF
 
 # Check if docker and docker-compose are available
 check_dependencies() {
-    if ! command -v docker &> /dev/null; then
+    # type -P searches PATH only, so the docker() timeout wrapper above does not
+    # make this check always succeed.
+    if ! type -P docker &> /dev/null; then
         log_error "docker command not found"
         return 3
     fi
@@ -248,19 +259,19 @@ display_status() {
         case $status_code in
             0)
                 log_success "$service - HEALTHY"
-                ((healthy_count++))
+                healthy_count=$((healthy_count + 1))
                 ;;
             1)
                 log_error "$service - UNHEALTHY"
-                ((unhealthy_count++))
+                unhealthy_count=$((unhealthy_count + 1))
                 ;;
             2)
                 log_warn "$service - STARTING/INITIALIZING"
-                ((starting_count++))
+                starting_count=$((starting_count + 1))
                 ;;
             *)
                 log_warn "$service - UNKNOWN STATUS"
-                ((unknown_count++))
+                unknown_count=$((unknown_count + 1))
                 ;;
         esac
     done <<< "$services"

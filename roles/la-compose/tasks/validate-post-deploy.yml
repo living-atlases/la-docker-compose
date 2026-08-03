@@ -23,14 +23,25 @@
       register: compose_ps
       changed_when: false
 
+    - name: List running service names
+      command: |
+        docker compose -f "{{ docker_compose_data_dir }}/docker-compose.yml" ps --services --filter status=running
+      register: compose_running_services
+      changed_when: false
+
     - name: Parse service status
       set_fact:
         running_services: "{{ (compose_ps.stdout_lines | select('search', ' Up ') | list) | length }}"
         expected_services: "{{ compose_services.keys() | length }}"
+        down_service_names: "{{ compose_services.keys() | difference(compose_running_services.stdout_lines) | list }}"
 
     - name: Display service status
       debug:
-        msg: "Service Status: {{ running_services }} running / {{ expected_services }} expected"
+        msg: |
+          Service Status: {{ running_services }} running / {{ expected_services }} expected
+          {% if down_service_names | length > 0 %}
+          Not running: {{ down_service_names | join(', ') }}
+          {% endif %}
 
     - name: Warn if not all services running yet
       debug:
@@ -53,8 +64,18 @@
             group: "{{ docker_compose_usergid }}"
           become: true
 
+        # --timeout is an argument to the *script*; on its own it bounds nothing on the
+        # Ansible side. A run that hung for over an hour here (gbif-es, 2026-07) came from a
+        # silently dead SSH channel: `command` just keeps reading and no default task timeout
+        # exists. Three independent belts, so no single failure can hang the deploy again:
+        #   - timeout(1) on the target kills a wedged script (SIGTERM, then SIGKILL after 30s),
+        #   - async/poll bounds the task from Ansible's side even if the script never returns,
+        #   - ServerAliveInterval in playbooks/ansible.cfg tears down a dead SSH channel.
+        # rc 124 is timeout(1)'s "deadline reached" and lands in the rescue block below with
+        # the diagnostics, same as a genuine unhealthy stack.
         - name: Run health check with custom timeout
           command: |
+            timeout -k 30 {{ health_check_timeout | default(300) | int + 60 }} \
             "{{ docker_compose_data_dir }}/wait-for-health.sh" \
               --compose-dir "{{ docker_compose_data_dir }}" \
               --timeout {{ health_check_timeout | default(300) }} \
@@ -63,6 +84,8 @@
           register: health_check_result
           become: true
           changed_when: false
+          async: "{{ health_check_timeout | default(300) | int + 120 }}"
+          poll: 10
 
       rescue:
         - name: Health check failed - collecting diagnostics
