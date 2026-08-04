@@ -1,0 +1,28 @@
+---
+# Host-level disk housekeeping for Docker hosts.
+#
+# Deliberately NOT part of the `docker` role: site.yml gates that role behind
+# manage_docker_daemon, which is false on every redeploy over a live stack. A
+# host that is already running would therefore never receive these rules — which
+# is exactly the situation that filled gbif-es-docker-prod-2026-{1,3} to 100%.
+# Nothing here restarts the Docker daemon, so it is safe on every run.
+
+# Container log rotation, as a safety net under the daemon-level log-opts in the
+# `docker` role. copytruncate keeps the container's open file descriptor valid,
+# so running containers are never touched.
+docker_housekeeping_logrotate_enabled: true
+docker_housekeeping_logrotate_size: 100M
+docker_housekeeping_logrotate_rotate: 3
+
+# Image-layer GC. With the containerd snapshotter, layers live in
+# /var/lib/containerd (12-15 GB on the prod hosts), not /var/lib/docker/overlay2.
+# Runs as a systemd timer rather than a deploy step: in production
+# enforce-production-safety.yml rejects destructive flags, and pruning mid-deploy
+# would race with images the deploy is about to use.
+docker_housekeeping_gc_enabled: true
+docker_housekeeping_gc_keep: 168h
+docker_housekeeping_gc_oncalendar: "*-*-* 02:00:00"
+
+# Journal cap. ~390 MB per host with no declared ceiling.
+docker_housekeeping_journal_enabled: true
+docker_housekeeping_journal_max_use: 200M

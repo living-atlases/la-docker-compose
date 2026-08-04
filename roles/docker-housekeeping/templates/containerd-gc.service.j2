@@ -1,0 +1,13 @@
+{{ ansible_managed | comment }}
+[Unit]
+Description=Reclaim unreferenced Docker/containerd image layers
+Documentation=https://github.com/AtlasOfLivingAustralia/la-docker-compose
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/containerd-gc.sh
+# Housekeeping must never compete with the stack for IO.
+Nice=10
+IOSchedulingClass=idle

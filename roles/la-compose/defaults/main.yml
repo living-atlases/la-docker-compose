@@ -402,3 +402,26 @@ pre_deploy_backup: "{{ (la_env | default('ci')) == 'production' }}"
 la_backup_dir: "{{ data_dir }}/backups/pre-deploy"
 # How many timestamped backup sets to keep (older ones are pruned).
 pre_deploy_backup_keep: 7
+
+# Free-space thresholds for validate-pre-deploy.yml. The fail threshold only
+# applies when la_env=production.
+#
+# Both numbers come from measuring gbif-es-docker-prod-2026 after the 2026-08-04
+# ENOSPC outage, not from a round-number guess:
+#
+#   fail (5 GB) — what a deploy needs to finish rather than die half way. The
+#   namematching Lucene index dominates: ~3x its tarball on both the staging and
+#   the destination filesystem (see ala-install's download-nameindex.yml), which
+#   is ~4.5 GB on these hosts. Below this, starting a deploy is worse than not
+#   deploying: 2026-08-04 left /data/lucene/namematching-nm empty on two hosts
+#   and namematching crash-looping.
+#
+#   warn (15 GB) — deliberately set where it will fire on every gbif-es prod
+#   deploy, because it should. Those hosts have a single 29 GB volume carrying
+#   /var/lib/docker, /var/lib/containerd and /data, and `docker system df`
+#   reports the image working set alone at 11.6-14.2 GB with 0% reclaimable.
+#   That leaves ~8 GB of real headroom on a good day. The warning is not noise to
+#   be tuned away — it is the signal that the hosts need a bigger disk, or
+#   /var/lib/docker moved to its own volume.
+disk_warn_gb: 15
+disk_fail_gb: 5

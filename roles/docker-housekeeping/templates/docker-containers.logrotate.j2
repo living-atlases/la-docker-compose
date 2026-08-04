@@ -1,0 +1,18 @@
+{{ ansible_managed | comment }}
+# Safety net for container stdout/stderr. The daemon-level log-opts in
+# /etc/docker/daemon.json only apply to containers created after the daemon was
+# configured, and only when the `docker` role was allowed to run at all. This
+# rule covers everything already on disk, right now, without a daemon restart.
+#
+# copytruncate is required: the container holds the *-json.log open, so a plain
+# rename would leave it writing to an unlinked inode and the space would not come
+# back until the container restarted.
+{{ docker_dir | default('/var/lib/docker') }}/containers/*/*-json.log {
+  rotate {{ docker_housekeeping_logrotate_rotate }}
+  size {{ docker_housekeeping_logrotate_size }}
+  missingok
+  notifempty
+  copytruncate
+  compress
+  delaycompress
+}

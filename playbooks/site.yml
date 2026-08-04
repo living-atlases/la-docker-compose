@@ -47,6 +47,21 @@
         - always
         - docker
 
+    # UNGATED, on purpose. The daemon-level log-opts above only reach a host when
+    # manage_docker_daemon is true, i.e. on a first install — so a long-running
+    # cluster never gets them. That is how gbif-es-docker-prod-2026-{1,3} ran for
+    # months with unrotated container logs and reached 100% on a 29 GB root disk,
+    # which is what actually killed the 2026-08-04 deploy (ENOSPC creating
+    # ~/.ansible/tmp, before a single real task could run). None of these tasks
+    # restart the Docker daemon, so they are safe over a live stack.
+    - name: Ensure host disk housekeeping is in place
+      import_role:
+        name: docker-housekeeping
+      tags:
+        - always
+        - docker
+        - docker-housekeeping
+
     - name: Generate docker-compose deployment files
       import_role:
         name: la-compose

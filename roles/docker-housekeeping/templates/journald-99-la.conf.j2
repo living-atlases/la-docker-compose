@@ -1,0 +1,5 @@
+{{ ansible_managed | comment }}
+# journald defaults to 10% of the filesystem, which on a 29 GB root is ~2.9 GB of
+# headroom quietly handed to logs on a host that has none to spare.
+[Journal]
+SystemMaxUse={{ docker_housekeeping_journal_max_use }}

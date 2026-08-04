@@ -1,0 +1,37 @@
+#!/bin/bash
+{{ ansible_managed | comment }}
+#
+# Reclaim unreferenced Docker image layers.
+#
+# With the containerd snapshotter (Storage Driver: overlayfs) the layers are under
+# /var/lib/containerd/io.containerd.snapshotter.v1.overlayfs, NOT under
+# /var/lib/docker/overlay2 — `du` on the Docker root badly understates the real
+# cost. On gbif-es-docker-prod-2026 this had grown to 12-15 GB per host on a
+# 29 GB disk.
+#
+# Scope is deliberately narrow:
+#   - `image prune` only, never `system prune --volumes`: the stack's data lives
+#     in named volumes (la_mysql-data, la_mongodb-data, la_ala-i18n-data) and
+#     wiping those is a data-loss event, not housekeeping.
+#   - `--filter until=` keeps recent images so a rollback still has something to
+#     roll back to.
+# Images referenced by a running or stopped container are never candidates.
+
+set -euo pipefail
+
+KEEP="{{ docker_housekeeping_gc_keep }}"
+
+before=$(df --output=avail -B1 / | tail -1)
+
+echo "containerd-gc: pruning images unused for more than ${KEEP}"
+docker image prune -af --filter "until=${KEEP}"
+
+echo "containerd-gc: pruning build cache"
+docker builder prune -af --filter "until=${KEEP}"
+
+after=$(df --output=avail -B1 / | tail -1)
+freed=$(( after - before ))
+
+printf 'containerd-gc: freed %s MB, / now %s%% used\n' \
+  "$(( freed / 1024 / 1024 ))" \
+  "$(df --output=pcent / | tail -1 | tr -dc '0-9')"

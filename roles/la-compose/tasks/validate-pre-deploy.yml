@@ -95,26 +95,51 @@
         verbosity: 2
         msg: "Docker version: {{ docker_version.stdout }}"
 
+    # Report bytes and compare numerically. The previous version formatted the
+    # result as "<N> GB available" and matched it with regex_search('[0-4] GB
+    # available'), which also fires on "14 GB available" — and its failure
+    # condition, '^0 GB available', only triggers on a disk with under 1 GB left.
+    # By then it is already too late: on 2026-08-04 the prod hosts were at 0
+    # bytes and Ansible could not even create ~/.ansible/tmp, so this task never
+    # got the chance to run.
     - name: Check available disk space
-      shell: |
-        df "{{ docker_compose_data_dir }}" | awk 'NR==2 {print int($4/1024/1024) " GB available"}'
+      command: df --output=avail -B1 -- "{{ docker_compose_data_dir }}"
       register: disk_available
       changed_when: false
-      ignore_errors: true
+      failed_when: false
 
-    - name: Warn if low disk space (< 5GB)
+    - name: Record available disk space in GB
+      set_fact:
+        disk_available_gb: "{{ (disk_available.stdout_lines | last | trim | int / 1024 / 1024 / 1024) | round(1) }}"
+      when: disk_available.rc == 0
+
+    - name: Warn if low disk space
       debug:
-        msg: "WARNING: Low disk space available - {{ disk_available.stdout }}"
+        msg: >-
+          WARNING: only {{ disk_available_gb }} GB free on
+          {{ docker_compose_data_dir }} (want >= {{ disk_warn_gb }} GB). Container
+          logs and unreferenced image layers are the usual cause — see the
+          docker-housekeeping role.
       when:
         - disk_available.rc == 0
-        - disk_available.stdout | regex_search('[0-4] GB available')
+        - (disk_available_gb | float) < (disk_warn_gb | float)
 
-    - name: Fail if critically low disk space (< 1GB)
+    # Hard stop in production only. CI runs on freshly wiped disposable hosts
+    # where a tighter margin is normal and a hard fail would just be noise.
+    - name: Fail if critically low disk space
       fail:
-        msg: "CRITICAL: Insufficient disk space - {{ disk_available.stdout }}. Please free up at least 1GB."
+        msg: >-
+          CRITICAL: {{ disk_available_gb }} GB free on {{ docker_compose_data_dir }},
+          {{ disk_fail_gb }} GB needed. Refusing to deploy — a deploy that runs out
+          of disk half way through leaves the stack in a worse state than not
+          deploying at all (2026-08-04: empty /data/lucene/namematching-nm on two
+          hosts, namematching crash-looping). Free space first:
+          `sudo logrotate -f /etc/logrotate.d/docker-containers` and
+          `sudo /usr/local/bin/containerd-gc.sh`.
       when:
         - disk_available.rc == 0
-        - disk_available.stdout | regex_search('^0 GB available')
+        - la_env | default('ci') == 'production'
+        - (disk_available_gb | float) < (disk_fail_gb | float)
 
     - name: Check if required configuration directories exist
       stat:

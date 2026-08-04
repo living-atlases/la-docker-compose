@@ -1,0 +1,143 @@
+---
+# Keep a Docker host's root filesystem from filling up on its own.
+#
+# Every task here is safe on a live stack: nothing restarts the Docker daemon and
+# nothing touches container data. That is the whole point of it being a separate
+# role — see defaults/main.yml.
+
+- name: housekeeping | logrotate is present
+  package:
+    name: logrotate
+    state: present
+  when: docker_housekeeping_logrotate_enabled | bool
+  tags:
+    - docker-housekeeping
+    - logrotate
+
+- name: housekeeping | rotate container json logs
+  template:
+    src: docker-containers.logrotate.j2
+    dest: /etc/logrotate.d/docker-containers
+    owner: root
+    group: root
+    mode: "0644"
+  when: docker_housekeeping_logrotate_enabled | bool
+  tags:
+    - docker-housekeeping
+    - logrotate
+
+- name: housekeeping | journald drop-in directory exists
+  file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: docker_housekeeping_journal_enabled | bool
+  tags:
+    - docker-housekeeping
+    - journald
+
+- name: housekeeping | cap the systemd journal
+  template:
+    src: journald-99-la.conf.j2
+    dest: /etc/systemd/journald.conf.d/99-la.conf
+    owner: root
+    group: root
+    mode: "0644"
+  register: journald_conf
+  when: docker_housekeeping_journal_enabled | bool
+  tags:
+    - docker-housekeeping
+    - journald
+
+# Restarting journald is not disruptive to the stack (it is not in the request
+# path); the cap only takes effect on the next rotation otherwise.
+- name: housekeeping | apply the journal cap
+  systemd:
+    name: systemd-journald
+    state: restarted
+  when:
+    - docker_housekeeping_journal_enabled | bool
+    - journald_conf is changed
+  tags:
+    - docker-housekeeping
+    - journald
+
+- name: housekeeping | install the image GC script
+  template:
+    src: containerd-gc.sh.j2
+    dest: /usr/local/bin/containerd-gc.sh
+    owner: root
+    group: root
+    mode: "0755"
+  when: docker_housekeeping_gc_enabled | bool
+  tags:
+    - docker-housekeeping
+    - containerd-gc
+
+- name: housekeeping | install the image GC systemd units
+  template:
+    src: "containerd-gc.{{ item }}.j2"
+    dest: "/etc/systemd/system/containerd-gc.{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - service
+    - timer
+  register: gc_units
+  when: docker_housekeeping_gc_enabled | bool
+  tags:
+    - docker-housekeeping
+    - containerd-gc
+
+- name: housekeeping | reload systemd for the GC units
+  systemd:
+    daemon_reload: true
+  when:
+    - docker_housekeeping_gc_enabled | bool
+    - gc_units is changed
+  tags:
+    - docker-housekeeping
+    - containerd-gc
+
+# Skipped under --check: the unit file is only written for real in a live run, so
+# systemd cannot resolve containerd-gc.timer and the whole dry-run fails on a
+# host where nothing is actually wrong.
+- name: housekeeping | enable the daily image GC
+  systemd:
+    name: containerd-gc.timer
+    enabled: true
+    state: started
+  when:
+    - docker_housekeeping_gc_enabled | bool
+    - not ansible_check_mode
+  tags:
+    - docker-housekeeping
+    - containerd-gc
+
+# Report, don't act. Acting on a full disk mid-play is how the 2026-08-04 outage
+# got worse; the preflight assert in validate-pre-deploy.yml is what stops the
+# deploy. This is here so the operator sees the number in the play output.
+- name: housekeeping | measure root filesystem usage
+  command: df --output=pcent /
+  register: root_usage
+  changed_when: false
+  # Read-only, and the warning below is the main reason to dry-run this role at
+  # all — skipping it under --check leaves stdout_lines empty and the conditional
+  # blows up with "No last item, sequence was empty".
+  check_mode: false
+  tags:
+    - docker-housekeeping
+
+- name: housekeeping | warn when the root filesystem is filling up
+  debug:
+    msg: >-
+      WARNING: / on {{ inventory_hostname }} is at
+      {{ root_usage.stdout_lines | last | trim }} — container logs and image
+      layers are the usual cause. Run /usr/local/bin/containerd-gc.sh and check
+      `du -sh {{ docker_dir | default('/var/lib/docker') }}/containers`.
+  when: (root_usage.stdout_lines | last | trim | regex_replace('%', '') | int) > 80
+  tags:
+    - docker-housekeeping
