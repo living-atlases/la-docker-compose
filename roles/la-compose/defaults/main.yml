@@ -438,7 +438,10 @@ disk_fail_gb: 5
 # three gbif-es prod hosts hit 100% and one of them was not the gatus host.
 docker_metrics_enabled: true
 docker_metrics_port: 8081
-docker_metrics_bind: "{{ ansible_host }}"
+# Bind to the host's private IP like every other published infra port (solr/mysql/…). Docker
+# rejects a hostname in a port binding ('invalid IP address'); ansible_host is a hostname in the
+# generated inventories, so reuse host_private_ip (the generator sets it per host; 0.0.0.0 default).
+docker_metrics_bind: "{{ host_private_ip }}"
 # Gatus alerts above this; the point is to hear about it at 80%, not at ENOSPC.
 gatus_disk_used_pct_threshold: 80
 gatus_disk_interval: 5m

@@ -93,7 +93,7 @@ services:
    inventory's ansible_host is not the interface gatus should reach.
    NOTE: additional list item under the SAME ports: key — a second `ports:` mapping
    key is invalid YAML (docker compose refuses to parse the file). #}
-      - "{{ docker_metrics_bind | default(ansible_host) }}:{{ docker_metrics_port | default(8081) }}:{{ docker_metrics_port | default(8081) }}"
+      - "{{ docker_metrics_bind | default(host_private_ip) }}:{{ docker_metrics_port | default(8081) }}:{{ docker_metrics_port | default(8081) }}"
 {% endif %}
     volumes:
       - "{{ nginx_conf_dir }}/nginx.conf:/etc/nginx/nginx.conf:ro"
