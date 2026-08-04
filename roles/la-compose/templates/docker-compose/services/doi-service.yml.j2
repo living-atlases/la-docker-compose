@@ -24,9 +24,13 @@ services:
     networks:
       default: {}
       {{ docker_network | default('internal') }}:
-    # doi-service uses PostgreSQL; gate only when postgres is co-located on this host.
-{% if datastore_endpoints.get('postgres', {}).get('colocated', false) %}
+    # doi-service's grails-elasticsearch client connects to the ES7 sidecar on boot and crash-loops
+    # if it is not up yet (the original "doi never healthy" cause). The sidecar is always co-located
+    # with doi-service, so wait for it to be healthy. postgres is added only when co-located here.
     depends_on:
+      doi-elasticsearch:
+        condition: service_healthy
+{% if datastore_endpoints.get('postgres', {}).get('colocated', false) %}
       postgres:
         condition: service_healthy
 {% endif %}
