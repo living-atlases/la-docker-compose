@@ -19,9 +19,16 @@
       failed_when: false
       tags: [always, docker]
 
+    # Compute UNCONDITIONALLY from the probe — do NOT `| default(manage_docker_daemon)`:
+    # site.yml import_role's la-compose statically, so its role default
+    # (manage_docker_daemon: true) is already defined at play start, which made the
+    # default() a no-op and left it true even with a live stack (#319: the probe
+    # returned a container id but the daemon was reconfigured+restarted anyway).
+    # set_fact from the probe is authoritative; an explicit -e manage_docker_daemon=…
+    # still wins because extra-vars outrank set_fact.
     - name: "Decide whether to manage the Docker daemon this run"
       set_fact:
-        manage_docker_daemon: "{{ manage_docker_daemon | default((la_stack_live_probe.stdout | default('') | trim) == '') }}"
+        manage_docker_daemon: "{{ (la_stack_live_probe.stdout | default('') | trim) == '' }}"
       tags: [always, docker]
 
     - name: "Report Docker-daemon management decision"
