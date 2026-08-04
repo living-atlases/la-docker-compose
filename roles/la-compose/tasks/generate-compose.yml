@@ -1397,6 +1397,9 @@
   vars:
     nginx_vhost_fast_mode: true
     sensitive_data_user: "{{ docker_default_user }}"
+    # deployment_type is already 'container' here (enforced for the whole generate-compose flow),
+    # so the sds role skips its legacy standalone stack-create (see docker-tasks.yml) while still
+    # running the data downloads (nameindex, sensitivity XMLs, sds-layers) the service needs.
     # The nameindex is downloaded and mounted at .../namematching-nm (matching
     # namematching-service). Upstream SDS templates still use namematching-{{ nameindex_datestamp }}.
     # Override here so both SDS configs resolve to the real container path.
