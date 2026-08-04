@@ -80,26 +80,17 @@ pipeline {
         )
         string(
             name: 'SKIP_SERVICES',
-            // Deferred (out of scope for now): sds-static-home, sensitive-data-service.
-            //  - doi-service: STILL STARTING/INITIALIZING (CI #234/#235). Root cause known: it is a
-            //    GRAILS app using the grails-elasticsearch plugin, which on boot
-            //    (SearchableClassMappingConfigurator.installMappings -> ElasticSearchAdminService
-            //    .indexExists) connects to ES and, with no elasticSearch.client.hosts config,
-            //    defaults to localhost:9200 -> Connection refused -> never healthy. (SPRING_
-            //    ELASTICSEARCH_URIS does NOT help — that is Spring Boot config, not Grails.) Fix is
-            //    to set the grails-elasticsearch host (-> elasticsearch:9200) in doi-service-config
-            //    .yml; deferred until validated locally to avoid burning 47-min CI cycles.
-            // Re-enabled (tanda 1, CI #232 green): spatial, spatial-service, geoserver — healthy;
-            // geoserver has the ALA workspace + LayersDB datastore (functional init). Fixes: ship
-            // spatial-logback.xml + -Dlogging.config (Logback rejected the role's log4j.properties),
-            // spatial-service security.cas.appServerName (CAS filter init), layersdb uuid-ossp.
-            // Re-enabled (tanda 2, CI #233 green): geonetwork — postgres md5 (password_encryption=md5
-            // + pg_hba rewrite) for the image's old libpq that can't do SCRAM; healthy end-to-end.
-            // Removing any token re-enables that service. Goal: keep CI green while these are fixed.
-            // sds (legacy sds-webapp2): newly containerised (livingatlases/sds-webapp2 image + ES-free);
-            //   skipped until validated end-to-end. Remove the token to deploy. Requires sds_version to
-            //   be a PUBLISHED tag (1.7.1/1.7.0/1.6.4) — the old 1.6.2 pin has no image.
-            defaultValue: 'sds-static-home,sensitive-data-service,doi-service,sds',
+            // Legacy-service support (doi-service, sds, sensitive-data-service) is now ENABLED to
+            // validate end-to-end in CI:
+            //  - doi-service: runs against a dedicated ES7 sidecar (doi-elasticsearch) — grails-
+            //    elasticsearch uses the ES transport client, removed in ES8; the shared stack is ES8.
+            //  - sds: legacy sds-webapp2 (livingatlases/sds-webapp2 image, no datastore). sds_version
+            //    must be a PUBLISHED tag (1.7.1/1.7.0/1.6.4); the old 1.6.2 pin has no image.
+            //  - sensitive-data-service: nextgen ala-sensitive-data-server (downloads nameindex +
+            //    sensitivity XMLs + sds-layers; heavier first run).
+            // sds-static-home stays skipped (nextgen static home, not part of this workstream).
+            // Add a token back here (or via the build param) to skip a service if it turns CI red.
+            defaultValue: 'sds-static-home',
             description: 'Comma-separated inventory groups to skip (temporary: immature/crash-looping services). Empty to deploy everything.'
         )
         booleanParam(
