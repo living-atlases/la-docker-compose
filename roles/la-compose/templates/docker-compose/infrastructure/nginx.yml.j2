@@ -82,9 +82,24 @@ services:
     ports:
       - "80:80"
       - "443:443"
+{% if docker_metrics_enabled | default(true) %}
+{# Disk metric for Gatus, bound to this host's PRIVATE address — never 0.0.0.0.
+   `expose:` alone would be tighter, but gatus runs on exactly one host of the
+   cluster and an exposed port is reachable only inside that host's own compose
+   network, which leaves every other host unmonitored. On gbif-es-docker-prod-2026
+   that means -1 watched and -2/-3 blind — and -3 is one of the two that filled up
+   on 2026-08-04. The server block behind this port serves /disk.json and 404s
+   everything else (conf.d/metrics.conf). Override docker_metrics_bind when the
+   inventory's ansible_host is not the interface gatus should reach. #}
+    ports:
+      - "{{ docker_metrics_bind | default(ansible_host) }}:{{ docker_metrics_port | default(8081) }}:{{ docker_metrics_port | default(8081) }}"
+{% endif %}
     volumes:
       - "{{ nginx_conf_dir }}/nginx.conf:/etc/nginx/nginx.conf:ro"
       - "{{ nginx_conf_dir }}/conf.d:/etc/nginx/conf.d:ro"
+{% if docker_metrics_enabled | default(true) %}
+      - "{{ nginx_conf_dir }}/metrics:/etc/nginx/metrics:ro"
+{% endif %}
       - "{{ nginx_conf_dir }}/sites-enabled:/etc/nginx/sites-enabled:ro"
       - "{{ nginx_conf_dir }}/sites-available:/etc/nginx/sites-available:ro"
 {# branding may run on THIS physical host via physical_server_groups even when the

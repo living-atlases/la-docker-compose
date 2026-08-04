@@ -1,0 +1,27 @@
+# Internal-only metrics endpoint — GENERATED, do not edit by hand.
+#
+# Serves the disk-usage JSON that disk-metrics.timer writes on the host, so Gatus
+# (which speaks HTTP, not df) can alert before a host fills up. 2026-08-04: the
+# cluster reached 100% with nothing watching and the first symptom was a deploy
+# dying on ENOSPC.
+#
+# Listens on {{ docker_metrics_port | default(8081) }}, which nginx.yml.j2 binds
+# to this host's PRIVATE address only — never 0.0.0.0, and never a public vhost.
+# Host disk state is infrastructure detail, and nginx_vhost has no allow-list key
+# that would make a public location safe. Everything except /disk.json 404s.
+server {
+    listen {{ docker_metrics_port | default(8081) }};
+    server_name _;
+
+    access_log off;
+
+    location = /disk.json {
+        alias /etc/nginx/metrics/disk.json;
+        default_type application/json;
+        add_header Cache-Control "no-store";
+    }
+
+    location / {
+        return 404;
+    }
+}

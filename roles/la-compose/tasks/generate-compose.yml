@@ -610,6 +610,21 @@
   tags:
     - docker-compose
 
+# conf.d is ours: nginx_vhost only ever writes sites-available/sites-enabled, so
+# a drop-in here is safe from being clobbered on the next deploy.
+- name: Ensure nginx serves the internal disk metric
+  template:
+    src: nginx-metrics.conf.j2
+    dest: "{{ nginx_conf_dir }}/conf.d/metrics.conf"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when:
+    - "'nginx' in services_enabled"
+    - docker_metrics_enabled | default(true) | bool
+  tags:
+    - docker-compose
+
 # Load nginx role defaults WITHOUT clobbering inventory-provided nginx_* vars.
 # A plain include_vars has higher precedence than inventory group_vars, so it
 # would override host customizations (nginx_other_log_formats, client_max_body_size,

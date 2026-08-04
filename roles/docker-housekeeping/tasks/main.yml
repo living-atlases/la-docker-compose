@@ -117,6 +117,79 @@
     - docker-housekeeping
     - containerd-gc
 
+- name: housekeeping | metrics directory exists
+  file:
+    path: "{{ docker_housekeeping_metrics_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: docker_housekeeping_metrics_enabled | bool
+  tags:
+    - docker-housekeeping
+    - disk-metrics
+
+- name: housekeeping | install the disk metric publisher
+  template:
+    src: disk-metrics.sh.j2
+    dest: /usr/local/bin/disk-metrics.sh
+    owner: root
+    group: root
+    mode: "0755"
+  when: docker_housekeeping_metrics_enabled | bool
+  tags:
+    - docker-housekeeping
+    - disk-metrics
+
+- name: housekeeping | install the disk metric systemd units
+  template:
+    src: "disk-metrics.{{ item }}.j2"
+    dest: "/etc/systemd/system/disk-metrics.{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - service
+    - timer
+  register: metrics_units
+  when: docker_housekeeping_metrics_enabled | bool
+  tags:
+    - docker-housekeeping
+    - disk-metrics
+
+- name: housekeeping | reload systemd for the metric units
+  systemd:
+    daemon_reload: true
+  when:
+    - docker_housekeeping_metrics_enabled | bool
+    - metrics_units is changed
+  tags:
+    - docker-housekeeping
+    - disk-metrics
+
+- name: housekeeping | enable the disk metric timer
+  systemd:
+    name: disk-metrics.timer
+    enabled: true
+    state: started
+  when:
+    - docker_housekeeping_metrics_enabled | bool
+    - not ansible_check_mode
+  tags:
+    - docker-housekeeping
+    - disk-metrics
+
+# Write it once now rather than leaving Gatus red until the first timer tick.
+- name: housekeeping | publish the disk metric immediately
+  command: /usr/local/bin/disk-metrics.sh
+  changed_when: false
+  when:
+    - docker_housekeeping_metrics_enabled | bool
+    - not ansible_check_mode
+  tags:
+    - docker-housekeeping
+    - disk-metrics
+
 # Report, don't act. Acting on a full disk mid-play is how the 2026-08-04 outage
 # got worse; the preflight assert in validate-pre-deploy.yml is what stops the
 # deploy. This is here so the operator sees the number in the play output.

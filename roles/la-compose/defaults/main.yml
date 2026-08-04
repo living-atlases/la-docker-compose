@@ -425,3 +425,20 @@ pre_deploy_backup_keep: 7
 #   /var/lib/docker moved to its own volume.
 disk_warn_gb: 15
 disk_fail_gb: 5
+
+# Internal disk-usage metric for Gatus. The host's disk-metrics.timer
+# (docker-housekeeping role) writes {{ nginx_conf_dir }}/metrics/disk.json and
+# nginx serves it on docker_metrics_port, bound to docker_metrics_bind — the
+# host's own private address, never 0.0.0.0. The server block behind that port
+# serves /disk.json and 404s everything else.
+#
+# It is a published port rather than a bare `expose` because gatus runs on a
+# single host of the cluster: an exposed port would only be reachable inside that
+# host's compose network, leaving the rest unmonitored. On 2026-08-04 two of the
+# three gbif-es prod hosts hit 100% and one of them was not the gatus host.
+docker_metrics_enabled: true
+docker_metrics_port: 8081
+docker_metrics_bind: "{{ ansible_host }}"
+# Gatus alerts above this; the point is to hear about it at 80%, not at ENOSPC.
+gatus_disk_used_pct_threshold: 80
+gatus_disk_interval: 5m

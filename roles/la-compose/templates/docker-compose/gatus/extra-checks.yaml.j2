@@ -31,7 +31,10 @@
 {%   endif %}
 {% endfor %}
 {% set deep = gatus_extra_endpoints | default([]) | selectattr('service', 'in', resolved) | list %}
-{% if deep | length > 0 or fqdns | length > 0 %}
+{# Host disk checks are per-machine, not per-service, so they do not go through the
+   `resolved` URL machinery above — they are keyed off the inventory group directly. #}
+{% set disk_hosts = (groups['docker_compose'] | default([])) if (docker_metrics_enabled | default(true)) else [] %}
+{% if deep | length > 0 or fqdns | length > 0 or disk_hosts | length > 0 %}
 endpoints:
 {% for ep in deep %}
   - name: "{{ ep.name }}"
@@ -84,5 +87,21 @@ endpoints:
     conditions:
       - "[DNS_RCODE] == NOERROR"
       - "[BODY] != "
+{% endfor %}
+{# Host disk usage — one check per docker_compose host.
+   Gatus speaks HTTP, not df, so each host publishes its own root-filesystem usage as
+   JSON (disk-metrics.timer in the docker-housekeeping role) and its nginx serves it on
+   docker_metrics_port, bound to that host's private address.
+   Iterating the whole group matters: gatus runs on ONE machine of the cluster, and on
+   2026-08-04 the hosts that reached 100% included one with no gatus on it. Checking
+   only "the local disk" would have missed exactly the failure this exists for. #}
+{% for h in disk_hosts %}
+  - name: "Disk - {{ h }}"
+    group: "Hosts"
+    url: "http://{{ hostvars[h].docker_metrics_bind | default(hostvars[h].ansible_host) }}:{{ hostvars[h].docker_metrics_port | default(8081) }}/disk.json"
+    interval: {{ gatus_disk_interval | default('5m') }}
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY].used_pct < {{ gatus_disk_used_pct_threshold | default(80) }}"
 {% endfor %}
 {% endif %}

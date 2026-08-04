@@ -1,0 +1,26 @@
+#!/bin/bash
+{{ ansible_managed | comment }}
+#
+# Publish root-filesystem usage as a tiny JSON document for Gatus to poll.
+#
+# Gatus speaks HTTP/TCP/ICMP/DNS — it cannot read a host's disk. So the host
+# writes the number and nginx serves it on an internal-only port. This is the
+# missing signal from 2026-08-04: the cluster went from "fine" to 100% with
+# nothing watching, and the first symptom was a deploy dying on ENOSPC.
+
+set -euo pipefail
+
+OUT="{{ docker_housekeeping_metrics_dir }}/disk.json"
+
+read -r used_pct avail_bytes < <(
+  df --output=pcent,avail -B1 / | tail -1 | tr -d '%'
+)
+
+tmp=$(mktemp "${OUT}.XXXXXX")
+printf '{"used_pct":%d,"avail_gb":%.1f}\n' \
+  "${used_pct}" \
+  "$(awk -v b="${avail_bytes}" 'BEGIN{printf "%.1f", b/1024/1024/1024}')" \
+  > "$tmp"
+chmod 0644 "$tmp"
+# Rename so a poll never sees a half-written file.
+mv -f "$tmp" "$OUT"

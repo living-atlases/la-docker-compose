@@ -26,3 +26,10 @@ docker_housekeeping_gc_oncalendar: "*-*-* 02:00:00"
 # Journal cap. ~390 MB per host with no declared ceiling.
 docker_housekeeping_journal_enabled: true
 docker_housekeeping_journal_max_use: 200M
+
+# Disk-usage metric for Gatus. Gatus cannot read a host filesystem, so a timer
+# writes the number and nginx serves it on an internal-only port (see
+# docker_metrics_port in the la-compose role). Nothing here is published.
+docker_housekeeping_metrics_enabled: true
+docker_housekeeping_metrics_interval: 5min
+docker_housekeeping_metrics_dir: "{{ nginx_conf_dir | default(docker_compose_data_dir | default('/data/docker-compose') ~ '/nginx') }}/metrics"

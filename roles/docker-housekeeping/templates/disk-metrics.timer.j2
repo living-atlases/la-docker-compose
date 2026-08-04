@@ -1,0 +1,13 @@
+{{ ansible_managed | comment }}
+[Unit]
+Description=Publish root filesystem usage for Gatus every {{ docker_housekeeping_metrics_interval }}
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec={{ docker_housekeeping_metrics_interval }}
+# Without this the file is missing until the first tick after a reboot and Gatus
+# reports the endpoint down for no real reason.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
