@@ -90,8 +90,9 @@ services:
    that means -1 watched and -2/-3 blind — and -3 is one of the two that filled up
    on 2026-08-04. The server block behind this port serves /disk.json and 404s
    everything else (conf.d/metrics.conf). Override docker_metrics_bind when the
-   inventory's ansible_host is not the interface gatus should reach. #}
-    ports:
+   inventory's ansible_host is not the interface gatus should reach.
+   NOTE: additional list item under the SAME ports: key — a second `ports:` mapping
+   key is invalid YAML (docker compose refuses to parse the file). #}
       - "{{ docker_metrics_bind | default(ansible_host) }}:{{ docker_metrics_port | default(8081) }}:{{ docker_metrics_port | default(8081) }}"
 {% endif %}
     volumes:
