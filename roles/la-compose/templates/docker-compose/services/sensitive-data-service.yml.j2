@@ -2,7 +2,11 @@ services:
    sensitive-data-service:
      container_name: la_sensitive_data_service
      profiles: [app-core, full]
-     image: {% set svc_reg = sensitive_data_registry | default(docker_registry | default('')) %}{{ svc_reg }}{% if svc_reg %}/{% endif %}ala-sensitive-data-server:{{ sensitive_data_docker_tag | default('latest') }}
+     # LEGACY image: atlasoflivingaustralia/ala-sensitive-data-service, built for the community
+     # namematching-20210811 index (tag date matches {{ data_dir }}/lucene/namematching-nm). The
+     # nextgen livingatlases/ala-sensitive-data-server:latest crash-loops on this index (it needs a
+     # newer/atlas-index one). Override sensitive_data_image to use a different build.
+     image: {{ sensitive_data_image | default('atlasoflivingaustralia/ala-sensitive-data-service:1.1.1-20210811-3') }}
      ports:
        - "{{ sensitive_data_service_port }}:9189"
        - "{{ sensitive_data_admin_port }}:9190"

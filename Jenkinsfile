@@ -80,18 +80,17 @@ pipeline {
         )
         string(
             name: 'SKIP_SERVICES',
-            // Legacy-service support: doi-service + sds (legacy sds-webapp2) are ENABLED.
+            // Legacy-service support: doi-service, sds, sensitive-data-service ENABLED (all legacy).
             //  - doi-service: runs against a dedicated ES7 sidecar (doi-elasticsearch) and waits for
             //    it to be healthy (grails-elasticsearch transport client, gone in ES8; shared is ES8).
             //  - sds: legacy sds-webapp2 (livingatlases/sds-webapp2). sds_version must be a PUBLISHED
             //    tag (1.7.1/1.7.0/1.6.4); the old 1.6.2 pin has no image. Verified healthy (CI #325).
-            // Skipped for now:
-            //  - sensitive-data-service: the nextgen ala-sensitive-data-server crash-loops loading the
-            //    community namematching index (namematching-20210811) — it needs a newer/compatible
-            //    index (atlas-index migration). Its ~GB nameindex download also slows the cold deploy.
-            //  - sds-static-home: nextgen static home, not part of this workstream.
+            //  - sensitive-data-service: LEGACY atlasoflivingaustralia/ala-sensitive-data-service
+            //    (tag date matches the community namematching-20210811 index). The nextgen
+            //    livingatlases/ala-sensitive-data-server:latest crash-loops on that index.
+            //  - sds-static-home stays skipped (nextgen static home, not part of this workstream).
             // Add a token back here (or via the build param) to skip a service if it turns CI red.
-            defaultValue: 'sds-static-home,sensitive-data-service',
+            defaultValue: 'sds-static-home',
             description: 'Comma-separated inventory groups to skip (temporary: immature/crash-looping services). Empty to deploy everything.'
         )
         booleanParam(

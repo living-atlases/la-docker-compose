@@ -333,7 +333,7 @@ run_tests() {
 
         # Local default: skip immature optional services (mirror Jenkinsfile SKIP_SERVICES).
         # Override with SKIP_SERVICES="" to deploy/test SDS locally.
-        SKIP_SERVICES="${SKIP_SERVICES-sds-static-home,sensitive-data-service}"
+        SKIP_SERVICES="${SKIP_SERVICES-sds-static-home}"
 
         (
             cd "$ROOT_DIR/inventories/testing/lademo-inventories" || exit 1
