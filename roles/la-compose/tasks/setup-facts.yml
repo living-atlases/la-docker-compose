@@ -108,6 +108,41 @@
     - always
     - docker-compose
 
+# Which inventory groups own each datastore, plus the port and compose aliases used to
+# reach it. Consumed by generate-compose.yml for cross-host reachability (extra_hosts,
+# port publishing, depends_on gating) and, right below, by the *_docker_local facts.
+# Defined here rather than there so both derive from ONE group list.
+- name: Define datastore cross-host spec
+  set_fact:
+    datastore_cluster_spec:
+      cassandra:
+        groups: ['cassandra5', 'cassandra3', 'cassandra']
+        port: 9042
+        aliases: ['cassandra', 'la_cassandra']
+      solr:
+        groups: ['solrcloud', 'solr']
+        port: 8983
+        aliases: ['solr', 'la_solr']
+      zookeeper:
+        groups: ['solrcloud', 'solr', 'zookeeper']
+        port: 2181
+        aliases: ['zookeeper', 'la_zookeeper']
+      mysql:
+        groups: ['mysql', 'cas-servers', 'collectory', 'species-list', 'logger-service', 'alerts-service']
+        port: 3306
+        aliases: ['mysql', 'la_mysql']
+      postgres:
+        groups: ['postgres', 'spatial', 'image-service', 'doi-service', 'data_quality_filter_service']
+        port: 5432
+        aliases: ['postgres', 'la_postgres']
+      mongodb:
+        groups: ['mongo', 'mongodb', 'cas-servers', 'ecodata']
+        port: 27017
+        aliases: ['mongodb', 'la_mongodb']
+  tags:
+    - always
+    - docker-compose
+
 # Is SolrCloud deployed inside THIS docker stack, or external (VMs)?
 # Deployment-wide test (NOT per-host physical_server_groups): true iff any host in the
 # [solrcloud]/[solr] groups is also a docker_compose host. This matters for multi-host
@@ -120,6 +155,23 @@
   set_fact:
     solr_docker_local: >-
       {{ (((groups['solrcloud'] | default([])) + (groups['solr'] | default([])))
+          | intersect(groups['docker_compose'] | default([])) | length) > 0 }}
+  tags:
+    - always
+    - docker-compose
+
+# Same test for Cassandra, and for the same reason: biocache's `la_cassandra` is a compose
+# alias that only resolves if Cassandra runs somewhere in this docker stack. On gbif-es
+# (mixed VM+Docker) it does not — Cassandra lives on the VM leg — so biocache-service was
+# handed an unresolvable host and the dependency validator reported
+# `la_cassandra:9042 unreachable` on 2026-08-05. Deployment-wide, exactly like Solr: the
+# alias works cross-host between docker hosts (extra_hosts + published port), so the answer
+# must be the same on every docker host, not per-host.
+- name: Determine if Cassandra is deployed inside this docker stack (vs external VMs)
+  set_fact:
+    cassandra_docker_local: >-
+      {{ (datastore_cluster_spec.cassandra.groups
+          | map('extract', groups) | select('defined') | flatten
           | intersect(groups['docker_compose'] | default([])) | length) > 0 }}
   tags:
     - always

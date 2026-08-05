@@ -81,38 +81,11 @@
 #     `restart: unless-stopped` + app retry converge (swarm converge-by-retry).
 # Single-host: every datastore is co-located => no remote aliases, no publishing,
 # native depends_on preserved. No behaviour change.
+#
+# `datastore_cluster_spec` itself is defined in setup-facts.yml, which runs before this
+# file: the group lists in it are also what the *_docker_local facts intersect against,
+# and one spec beats two copies drifting apart.
 # ============================================================================
-
-- name: Define datastore cross-host spec
-  set_fact:
-    datastore_cluster_spec:
-      cassandra:
-        groups: ['cassandra5', 'cassandra3', 'cassandra']
-        port: 9042
-        aliases: ['cassandra', 'la_cassandra']
-      solr:
-        groups: ['solrcloud', 'solr']
-        port: 8983
-        aliases: ['solr', 'la_solr']
-      zookeeper:
-        groups: ['solrcloud', 'solr', 'zookeeper']
-        port: 2181
-        aliases: ['zookeeper', 'la_zookeeper']
-      mysql:
-        groups: ['mysql', 'cas-servers', 'collectory', 'species-list', 'logger-service', 'alerts-service']
-        port: 3306
-        aliases: ['mysql', 'la_mysql']
-      postgres:
-        groups: ['postgres', 'spatial', 'image-service', 'doi-service', 'data_quality_filter_service']
-        port: 5432
-        aliases: ['postgres', 'la_postgres']
-      mongodb:
-        groups: ['mongo', 'mongodb', 'cas-servers', 'ecodata']
-        port: 27017
-        aliases: ['mongodb', 'la_mongodb']
-  tags:
-    - always
-    - docker-compose
 
 # MailHog is the DEV mail catcher (not a datastore), but it has the same
 # cross-host reachability need: a SINGLE instance runs on the cas/auth host
@@ -1139,9 +1112,14 @@
 # swarm names (la_solrcloud_zoo_*). Used by the repoint task below to restore the VM
 # ensemble when Solr is external (solr_docker_local=false). Separate fact name so it is
 # not clobbered by the override.
-- name: Capture inventory Solr/ZK ensemble (external-solr fallback)
+# Same for the Cassandra host: the two include_role calls below force biocache_db_host to
+# the compose alias, so the inventory value (already normalized in setup-facts.yml) has to
+# be parked under another name — a self-referential `else biocache_db_host` inside `vars:`
+# is a recursive template, not a fallback.
+- name: Capture inventory datastore endpoints (external-datastore fallback)
   set_fact:
     solr_url_ext: "{{ solr_url | default('zookeeper:2181') }}"
+    biocache_db_host_ext: "{{ biocache_db_host | default('cassandra') }}"
   when:
     - "'biocache_service' in services_enabled"
     - "service_aliases.get('biocache-service-clusterdb') is defined"
@@ -1157,7 +1135,10 @@
       become: true
   vars:
     biocache_service_docker_host: la_biocache-service
-    biocache_db_host: la_cassandra
+    # docker-local: the compose alias (resolvable cross-host via extra_hosts). External
+    # Cassandra (mixed VM+Docker): keep the inventory host, or biocache initialises its
+    # session against a name that does not resolve. Same shape as index_*_url above.
+    biocache_db_host: "{{ 'la_cassandra' if (cassandra_docker_local | default(true)) else biocache_db_host_ext }}"
     nginx_vhost_fast_mode: true
   when:
     - "'biocache_service' in services_enabled"
@@ -1201,7 +1182,9 @@
     # docker-local: nginx must proxy to the app container, not 127.0.0.1 (which is
     # nginx itself). biocache3-service reads biocache_service_upstream_host (not _docker_host).
     biocache_service_upstream_host: la_biocache-service
-    biocache_db_host: la_cassandra
+    # See the properties task above: compose alias when Cassandra is in this stack,
+    # inventory host when it lives on the VM leg.
+    biocache_db_host: "{{ 'la_cassandra' if (cassandra_docker_local | default(true)) else biocache_db_host_ext }}"
     nginx_vhost_fast_mode: true
     # Exclude param-less endpoints from the gatus auto-check (false reds): /chart, /density/*
     # and /occurrences/static NPE (500) on a bare GET — they need a `facets` arg ("Cannot
