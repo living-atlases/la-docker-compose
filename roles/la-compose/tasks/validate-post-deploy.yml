@@ -73,9 +73,18 @@
         #   - ServerAliveInterval in playbooks/ansible.cfg tears down a dead SSH channel.
         # rc 124 is timeout(1)'s "deadline reached" and lands in the rescue block below with
         # the diagnostics, same as a genuine unhealthy stack.
+        #
+        # The first belt must be looser than the script's OWN worst case, or it stops being a
+        # safety net and becomes the failure: it used to be health_check_timeout + 60 (780s)
+        # while the script could legitimately run health_check_timeout + rounds x converge_timeout
+        # (4320s with the old 4x900 defaults), so every converge attempt died at exactly 13:00
+        # with rc=124 and the converge logic never completed a second round. That is what failed
+        # the gbif-es production deploy on 2026-08-05. Hence: the script's two converge knobs are
+        # injected from role defaults here, and the budget below is DERIVED from the same three
+        # variables, so wrapper and script cannot drift apart again.
         - name: Run health check with custom timeout
           command: |
-            timeout -k 30 {{ health_check_timeout | default(300) | int + 60 }} \
+            timeout -k 30 {{ health_gate_budget }} \
             "{{ docker_compose_data_dir }}/wait-for-health.sh" \
               --compose-dir "{{ docker_compose_data_dir }}" \
               --timeout {{ health_check_timeout | default(300) }} \
@@ -84,7 +93,14 @@
           register: health_check_result
           become: true
           changed_when: false
-          async: "{{ health_check_timeout | default(300) | int + 120 }}"
+          # wait-for-health.sh reads both from the environment (CONVERGE_ROUNDS/CONVERGE_TIMEOUT,
+          # with its own defaults as the standalone fallback). It is deployed with `copy`, not
+          # `template`, so the environment is the only injection point — and the right one: the
+          # script stays runnable by hand for diagnostics.
+          environment:
+            CONVERGE_ROUNDS: "{{ health_converge_rounds | default(2) }}"
+            CONVERGE_TIMEOUT: "{{ health_converge_timeout | default(600) }}"
+          async: "{{ health_gate_budget | int + 120 }}"
           poll: 10
 
       rescue:

@@ -1,0 +1,36 @@
+# Fixture for scripts/test-wait-for-health-converge.sh — NOT a deployable stack.
+#
+# Models the failure mode converge-by-retry exists for: a service that initialises
+# something ONCE at startup and never retries, so it stays "Up (unhealthy)" until
+# something restarts it (biocache-service caching its Cassandra session; bie-hub
+# caching a null branding header and serving 500 on /).
+#
+# The container counts its own boots in a file on its writable layer, which survives
+# `docker compose restart` (same container, not recreated). It reports healthy only
+# from the 3rd boot on, i.e. after TWO restarts — so it converges in round 2 and not
+# before. That is the case the gate could never reach: timeout(1) killed the script
+# during round 1.
+#
+# `$$` is a literal `$` after compose interpolation.
+---
+services:
+  heals-on-second-restart:
+    image: alpine:3.20
+    container_name: la_test_heals_on_second_restart
+    command:
+      - sh
+      - -c
+      - |
+        trap 'exit 0' TERM
+        n=$$(cat /tmp/boots 2>/dev/null || echo 0)
+        echo $$((n + 1)) > /tmp/boots
+        while true; do sleep 1 & wait $$!; done
+    healthcheck:
+      test: ["CMD-SHELL", "[ \"$$(cat /tmp/boots 2>/dev/null || echo 0)\" -ge 3 ]"]
+      interval: 2s
+      timeout: 3s
+      retries: 1
+      start_period: 0s
+    # Keep restarts snappy: without this each `compose restart` costs the default 10s
+    # SIGKILL grace period and the test spends more time stopping than converging.
+    stop_grace_period: 2s

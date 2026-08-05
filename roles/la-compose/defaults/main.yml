@@ -320,6 +320,33 @@ gatus_dns_interval: "15m"
 # branded 200 without the restart.
 health_check_timeout: 720
 
+# Converge-by-retry budget for the same gate. wait-for-health.sh restarts the services
+# still 'unhealthy' after the first wait and re-waits, a few bounded rounds, so a cross-host
+# startup race (biocache-service caches its Cassandra connection ONCE; bie-hub caches null
+# branding ONCE) converges instead of needing a manual restart. The script reads both from
+# the environment; validate-post-deploy.yml injects them and derives the timeout(1) budget
+# from the SAME values, which is the whole point: before this, the wrapper allowed 780s while
+# the script's worst case was 4320s (4 rounds x 900s), so timeout(1) killed the gate at exactly
+# 13:00 with rc=124 and converge was dead code. It cost a gbif-es production deploy (2026-08-05).
+# 2x600 (not 4x900): 2 rounds still cover the dependency chain depth that motivated converge
+# (cassandra -> biocache-service -> biocache-hub: round 1 restarts the middle, round 2 the hub),
+# and 600s fits a cold Grails re-boot + branding fetch (~5-8 min). 4x900 would put the failure
+# deadline at 73 min. Note this ceiling is time-to-admit-failure, not waiting: wait_for_all_healthy
+# returns as soon as everything is healthy, so the green path is unaffected.
+health_converge_rounds: 2
+health_converge_timeout: 600
+
+# Wall-clock budget for the timeout(1) wrapper around the gate, in seconds: the script's
+# worst case plus 60s of slack for its own startup and the final diagnostics dump.
+# Defined here rather than inlined in the task so it is derived, not transcribed — Jinja in
+# defaults resolves lazily, so an inventory that raises health_check_timeout (or either
+# converge knob) still gets a wrapper that outlives the script instead of decapitating it.
+# 720 + 2*600 + 60 = 1980s.
+health_gate_budget: >-
+  {{ (health_check_timeout | default(300) | int)
+     + (health_converge_rounds | default(2) | int) * (health_converge_timeout | default(600) | int)
+     + 60 }}
+
 # ============================================
 # SSL / Certificates
 # ============================================

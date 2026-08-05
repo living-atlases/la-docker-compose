@@ -209,3 +209,51 @@
           doi_db_hostname={{ doi_db_hostname }},
           ticket_registry_db_hostname={{ ticket_registry_db_hostname }},
           solr_url={{ solr_url }}
+
+# ── Test case 5: post-deploy health gate timeout budget ──────────────────────
+#
+# Separate play: it loads the role defaults wholesale, which must not leak into the
+# normalize-hostnames cases above.
+#
+# The gate wraps wait-for-health.sh in `timeout -k 30 <health_gate_budget>`. The script's
+# own worst case is health_check_timeout + health_converge_rounds x health_converge_timeout,
+# so the wrapper MUST exceed that or it decapitates the very thing it is guarding — which is
+# what it did until 2026-08-05, killing a gbif-es production deploy at exactly 13:00 (rc=124)
+# and turning converge-by-retry into dead code. These assertions pin the invariant and, more
+# importantly, that the budget is DERIVED: TC5b overrides all three inputs and expects the
+# budget to move with them. A transcribed literal passes TC5a and fails TC5b.
+- name: Unit test health gate timeout budget
+  hosts: all
+  gather_facts: false
+  vars_files:
+    - ../../roles/la-compose/defaults/main.yml
+
+  tasks:
+
+    - name: "[TC5a] Assert the shipped budget outlives the script's worst case"
+      ansible.builtin.assert:
+        that:
+          - health_gate_budget | int
+            == (health_check_timeout | int)
+               + (health_converge_rounds | int) * (health_converge_timeout | int) + 60
+          - health_gate_budget | int
+            > (health_check_timeout | int)
+              + (health_converge_rounds | int) * (health_converge_timeout | int)
+        msg: >
+          FAIL TC5a: health_gate_budget={{ health_gate_budget }} does not cover
+          health_check_timeout={{ health_check_timeout }} +
+          {{ health_converge_rounds }} x {{ health_converge_timeout }}.
+          timeout(1) would kill the gate mid-converge with rc=124.
+
+    - name: "[TC5b] Assert the budget is derived, not a transcribed literal"
+      ansible.builtin.assert:
+        that:
+          - health_gate_budget | int == 900 + 3 * 300 + 60
+        msg: >
+          FAIL TC5b: with health_check_timeout=900, rounds=3, converge_timeout=300 the
+          budget should be 1860 but is {{ health_gate_budget }} — it is hardcoded
+          somewhere instead of derived from the three variables.
+      vars:
+        health_check_timeout: 900
+        health_converge_rounds: 3
+        health_converge_timeout: 300

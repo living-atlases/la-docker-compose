@@ -5,6 +5,6 @@
   hosts: all
   gather_facts: false
   tasks:
-    - name: All normalize-hostnames.yml assertions passed in converge
+    - name: All unit assertions passed in converge
       ansible.builtin.debug:
-        msg: "PASS: All 4 test cases completed successfully in converge.yml"
+        msg: "PASS: normalize-hostnames (TC1-4) and health gate budget (TC5a-b) completed in converge.yml"

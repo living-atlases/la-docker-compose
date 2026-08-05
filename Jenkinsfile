@@ -302,6 +302,11 @@ EOF
                     "$VENV_MOL/bin/pip" install --quiet --upgrade pip
                     "$VENV_MOL/bin/pip" install --quiet molecule ansible-core
                     VENV_MOLECULE="$VENV_MOL" PATH="$VENV_MOL/bin:$PATH" "$VENV_MOL/bin/molecule" test -s unit
+
+                    # Behavioural half of the health-gate regression (the molecule unit
+                    # scenario only asserts the budget arithmetic): one throwaway alpine
+                    # container, ~90s, no inventory and no deployed stack.
+                    bash scripts/test-wait-for-health-converge.sh
                 '''
                 // NOTE: the per-host-artifact guard (Lucene nameindex must not be run_once)
                 // runs in 'Prepare environment', AFTER the ala-install submodule is synced —
