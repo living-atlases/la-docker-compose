@@ -2,9 +2,10 @@ services:
    sensitive-data-service:
      container_name: la_sensitive_data_service
      profiles: [app-core, full]
-     # LEGACY image: atlasoflivingaustralia/ala-sensitive-data-service, built for the community
-     # namematching-20210811 index (tag date matches {{ data_dir }}/lucene/namematching-nm). The
-     # nextgen livingatlases/ala-sensitive-data-server:latest crash-loops on this index (it needs a
+     # LEGACY image: atlasoflivingaustralia/ala-sensitive-data-service, built against the older
+     # Lucene major the inventory points this service at
+     # (ala_sensitive_data_service_namematching_source). The nextgen
+     # livingatlases/ala-sensitive-data-server:latest crash-loops on that index (it needs a
      # newer/atlas-index one). Override sensitive_data_image to use a different build.
      image: {{ sensitive_data_image | default('atlasoflivingaustralia/ala-sensitive-data-service:1.1.1-20210811-3') }}
      ports:
@@ -14,7 +15,9 @@ services:
        - JAVA_OPTS=-Xmx2g -Xms1g
        - SENSITIVE_DATA_SERVICE_JAVA_OPTS=-Xmx2g -Xms1g
      volumes:
-       - "{{ data_dir }}/lucene/namematching-nm:/data/lucene/namematching-nm:ro"
+       # Its own index, NOT namematching-service's .../namematching-nm (different Lucene major).
+       # Same path inside and outside: config.yml renders conservation.index with this suffix.
+       - "{{ data_dir }}/lucene/namematching-{{ sds_nameindex_datestamp }}:/data/lucene/namematching-{{ sds_nameindex_datestamp }}:ro"
        - "{{ data_dir }}/sds:/data/sds:ro"
        - "{{ data_dir }}/biocache/layers:/data/biocache/layers:ro"
        # El contenedor lee la config en .../ala-sensitive-data-service/config (la app dropwizard

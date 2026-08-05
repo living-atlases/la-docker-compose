@@ -166,6 +166,15 @@ sensitive_data_service_port: 9189
 sensitive_data_admin_port: 9190
 species_list_port: 8080
 
+# Directory suffix of the Lucene index the sensitive-data-service reads:
+# {{ data_dir }}/lucene/namematching-{{ sds_nameindex_datestamp }}. It is its own index, not
+# namematching-service's one (.../namematching-nm) — the inventory points each service at a
+# different artifact (ala_sensitive_data_service_namematching_source vs
+# ala_namemaching_service_source, e.g. the lucene-6 and lucene-8 builds of the same backbone),
+# and the legacy SDS cannot open the newer one. The fallback only matters for inventories that
+# declare no nameindex_datestamp at all; it must never resolve to 'nm'.
+sds_nameindex_datestamp: "{{ nameindex_datestamp | default('sds') }}"
+
 # ============================================
 # Docker Container Hostnames for Nginx
 # ============================================

@@ -1387,6 +1387,18 @@
     - config
     - bulk-load
 
+# Resolve it to a literal BEFORE the include below overrides nameindex_datestamp with it:
+# left as the lazy default, "{{ nameindex_datestamp | default('sds') }}" would be re-evaluated
+# inside the include, where nameindex_datestamp is itself "{{ sds_nameindex_datestamp }}" —
+# Ansible then fails with "recursive loop detected in template string".
+- name: Resolve the nameindex directory of the sensitive-data-service
+  set_fact:
+    sds_nameindex_datestamp: "{{ sds_nameindex_datestamp }}"
+  tags:
+    - sensitive-data-service
+    - config
+    - docker-compose
+
 - name: Run sensitive-data-service configuration generation (config + data download)
   include_role:
     name: sensitive-data-service
@@ -1400,11 +1412,13 @@
     # deployment_type is already 'container' here (enforced for the whole generate-compose flow),
     # so the sds role skips its legacy standalone stack-create (see docker-tasks.yml) while still
     # running the data downloads (nameindex, sensitivity XMLs, sds-layers) the service needs.
-    # The nameindex is downloaded and mounted at .../namematching-nm (matching
-    # namematching-service). Upstream SDS templates still use namematching-{{ nameindex_datestamp }}.
-    # Override here so both SDS configs resolve to the real container path.
-    # VM deploys never go through this block, so they keep their datestamped dirs.
-    nameindex_datestamp: nm
+    # The SDS reads its OWN nameindex — the one the inventory points it at
+    # (ala_sensitive_data_service_namematching_source) — installed and mounted at
+    # .../lucene/namematching-{{ sds_nameindex_datestamp }}, which is what both the role's
+    # config template and services/sensitive-data-service.yml.j2 resolve to. It used to be
+    # pinned to 'nm' (namematching-service's index): that index is built for a different Lucene
+    # major and the service died at boot with "Unable to initialise searcher: null".
+    nameindex_datestamp: "{{ sds_nameindex_datestamp }}"
   when:
     - "'sensitiveDataService' in services_enabled"
     - "service_aliases.get('sensitive-data-service') is defined"
