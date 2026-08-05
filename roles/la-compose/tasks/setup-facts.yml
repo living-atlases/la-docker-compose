@@ -167,12 +167,21 @@
 # `la_cassandra:9042 unreachable` on 2026-08-05. Deployment-wide, exactly like Solr: the
 # alias works cross-host between docker hosts (extra_hosts + published port), so the answer
 # must be the same on every docker host, not per-host.
+#
+# The intersection is on ansible_host, NOT on inventory_hostname. The generated inventory
+# gives every service its own alias for the same machine (`la-mh-3.cassandra` and
+# `la-mh-3.docker_compose` are one host), so intersecting the raw group members is empty
+# by construction and the fact reads false on an all-docker deployment. Build #335 caught
+# exactly that. ansible_host is the physical server the aliases share.
 - name: Determine if Cassandra is deployed inside this docker stack (vs external VMs)
   set_fact:
     cassandra_docker_local: >-
       {{ (datastore_cluster_spec.cassandra.groups
           | map('extract', groups) | select('defined') | flatten
-          | intersect(groups['docker_compose'] | default([])) | length) > 0 }}
+          | map('extract', hostvars, 'ansible_host') | select('defined') | list
+          | intersect(groups['docker_compose'] | default([])
+                      | map('extract', hostvars, 'ansible_host') | select('defined') | list)
+          | length) > 0 }}
   tags:
     - always
     - docker-compose

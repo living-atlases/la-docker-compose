@@ -1119,7 +1119,11 @@
 - name: Capture inventory datastore endpoints (external-datastore fallback)
   set_fact:
     solr_url_ext: "{{ solr_url | default('zookeeper:2181') }}"
-    biocache_db_host_ext: "{{ biocache_db_host | default('cassandra') }}"
+    # default(..., true): the inventory can carry biocache_db_host as an EMPTY string (it
+    # does in the CI one), which `default()` alone happily passes through -- and an empty
+    # Cassandra host is worse than a wrong one. Falls back to the compose alias short name,
+    # the same value setup-facts.yml normalizes a localhost to.
+    biocache_db_host_ext: "{{ biocache_db_host | default('cassandra', true) }}"
   when:
     - "'biocache_service' in services_enabled"
     - "service_aliases.get('biocache-service-clusterdb') is defined"
