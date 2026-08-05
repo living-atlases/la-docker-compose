@@ -1,0 +1,63 @@
+---
+# Fixups to the data the sensitive-data-service role downloads, applied after it runs.
+#
+# They live HERE and not in the ala-install role on purpose. That role is kept to the minimum
+# a PR upstream could carry — adaptations to running in a container — and neither of these
+# qualifies: one works around OUR sds-webapp2 answering the data paths with an error page, the
+# other patches data ALA publishes about their own taxa. Upstream would (rightly) fix the
+# webapp and the data instead of carrying a downstream repair. Both are idempotent and only
+# touch {{ data_dir }}/sds, so they also stay out of the way of VM deploys.
+
+# The role's rescue only fires on an HTTP error. An sds-webapp2 that answers /sensitive-species-
+# data.xml with its own error page (200 + text/html) is downloaded verbatim, and the service then
+# dies parsing HTML as XML ("Content is not allowed in prolog"). Check what actually landed.
+- name: SDS data | check the downloaded files really are XML
+  ansible.builtin.command: "head -c 5 {{ data_dir }}/sds/{{ item }}"
+  changed_when: false
+  loop: &sds_xml_files
+    - sensitive-species-data.xml
+    - sensitivity-zones.xml
+    - sensitivity-categories.xml
+  register: sds_xml_head
+
+- name: SDS data | re-download from the ALA archive whatever did not come back as XML
+  ansible.builtin.get_url:
+    url: "https://sds.ala.org.au/{{ item.item }}"
+    dest: "{{ data_dir }}/sds/{{ item.item }}"
+    timeout: 60
+    force: true
+  loop: "{{ sds_xml_head.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: item.stdout is not match('<\?xml')
+
+- name: SDS data | re-check the files
+  ansible.builtin.command: "head -c 5 {{ data_dir }}/sds/{{ item }}"
+  changed_when: false
+  loop: *sds_xml_files
+  register: sds_xml_head_final
+
+- name: SDS data | fail if a file is still not XML
+  ansible.builtin.assert:
+    that:
+      - item.stdout is match('<\?xml')
+    fail_msg: >-
+      {{ data_dir }}/sds/{{ item.item }} is not XML (starts with {{ item.stdout | trim }}).
+      Neither {{ sds_url }} nor https://sds.ala.org.au served it — the sensitive-data-service
+      would crash-loop parsing it.
+  loop: "{{ sds_xml_head_final.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+# ALA's file names some categories and zones by display name ("Critically Endangered", "New
+# South Wales") where the service only resolves ids ("CR", "NSW"). Those instances end up with a
+# null category/zone and SensitivityInstance.equals then NPEs while the taxon store verifies the
+# species list, so the service never finishes booting. 732 of 6677 instances on 2026-08-05.
+- name: SDS data | normalize the category and zone references to ids
+  ansible.builtin.script: >-
+    normalize-sds-species.py
+    {{ data_dir }}/sds/sensitive-species-data.xml
+    {{ data_dir }}/sds/sensitivity-categories.xml
+    {{ data_dir }}/sds/sensitivity-zones.xml
+  register: sds_species_normalized
+  changed_when: "'rewrote 0 ' not in sds_species_normalized.stdout"

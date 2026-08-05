@@ -1415,6 +1415,19 @@
     - nginx_vhost
     - docker-compose
 
+- name: Repair the sensitive-data-service data files the role just downloaded
+  include_tasks: sds-data-fixups.yml
+  args:
+    apply:
+      become: true
+  when:
+    - "'sensitiveDataService' in services_enabled"
+    - "service_aliases.get('sensitive-data-service') is defined"
+  tags:
+    - sensitive-data-service
+    - config
+    - docker-compose
+
 # Bulk load all ALERTS variables from service alias context
 - name: "Bulk load ALERTS variables from service alias context"
   set_fact:
