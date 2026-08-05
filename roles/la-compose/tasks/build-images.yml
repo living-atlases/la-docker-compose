@@ -51,11 +51,21 @@
   when:
     - "'branding' in services_enabled"
 
+# Docker Hub fails transiently on its own token endpoint and `docker compose pull` aborts every
+# in-flight layer with it (2026-08-05, build #331: "auth.docker.io/token: 500 Internal Server
+# Error" while pulling db-backup). Unretried, that single 500 fails the task, drops the host out
+# of the play and leaves it with NO containers at all — which is what emptied
+# gbif-es-docker-cluster-2023-1 and turned every one of its vhosts red in Gatus.
 - name: Pull Docker images
   command: docker compose pull
   args:
     chdir: "{{ docker_compose_data_dir }}"
   become: true
+  register: compose_pull
+  until: compose_pull.rc == 0
+  retries: 3
+  delay: 30
+  changed_when: true
   when:
     - docker_registry | default('') != ''
 
