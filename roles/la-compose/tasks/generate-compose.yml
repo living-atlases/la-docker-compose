@@ -1397,6 +1397,10 @@
   vars:
     nginx_vhost_fast_mode: true
     sensitive_data_user: "{{ docker_default_user }}"
+    # container mode: nginx runs in a container, so the role's 127.0.0.1 default is nginx itself
+    # and the vhost 502s. Proxy to the compose service name instead (VM/bare-metal untouched).
+    nginx_upstream_host: "sensitive-data-service"
+    sensitive_data_service_upstream_host: "sensitive-data-service"
     # deployment_type is already 'container' here (enforced for the whole generate-compose flow),
     # so the sds role skips its legacy standalone stack-create (see docker-tasks.yml) while still
     # running the data downloads (nameindex, sensitivity XMLs, sds-layers) the service needs.
