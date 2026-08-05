@@ -2,11 +2,11 @@ services:
    sensitive-data-service:
      container_name: la_sensitive_data_service
      profiles: [app-core, full]
-     # LEGACY image: atlasoflivingaustralia/ala-sensitive-data-service, built against the older
-     # Lucene major the inventory points this service at
-     # (ala_sensitive_data_service_namematching_source). The nextgen
-     # livingatlases/ala-sensitive-data-server:latest crash-loops on that index (it needs a
-     # newer/atlas-index one). Override sensitive_data_image to use a different build.
+     # LEGACY image: atlasoflivingaustralia/ala-sensitive-data-service. It links Lucene 8 and
+     # only opens index formats 7-9, so ala_sensitive_data_service_namematching_source must name
+     # a lucene-8 build. The nextgen livingatlases/ala-sensitive-data-server:latest crash-loops
+     # on this index (it needs a newer/atlas-index one). Override sensitive_data_image to use a
+     # different build.
      image: {{ sensitive_data_image | default('atlasoflivingaustralia/ala-sensitive-data-service:1.1.1-20210811-3') }}
      ports:
        - "{{ sensitive_data_service_port }}:9189"

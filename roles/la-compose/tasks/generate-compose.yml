@@ -1387,18 +1387,6 @@
     - config
     - bulk-load
 
-# Resolve it to a literal BEFORE the include below overrides nameindex_datestamp with it:
-# left as the lazy default, "{{ nameindex_datestamp | default('sds') }}" would be re-evaluated
-# inside the include, where nameindex_datestamp is itself "{{ sds_nameindex_datestamp }}" —
-# Ansible then fails with "recursive loop detected in template string".
-- name: Resolve the nameindex directory of the sensitive-data-service
-  set_fact:
-    sds_nameindex_datestamp: "{{ sds_nameindex_datestamp }}"
-  tags:
-    - sensitive-data-service
-    - config
-    - docker-compose
-
 - name: Run sensitive-data-service configuration generation (config + data download)
   include_role:
     name: sensitive-data-service
@@ -1416,8 +1404,7 @@
     # (ala_sensitive_data_service_namematching_source) — installed and mounted at
     # .../lucene/namematching-{{ sds_nameindex_datestamp }}, which is what both the role's
     # config template and services/sensitive-data-service.yml.j2 resolve to. It used to be
-    # pinned to 'nm' (namematching-service's index): that index is built for a different Lucene
-    # major and the service died at boot with "Unable to initialise searcher: null".
+    # pinned to 'nm', silently reading whatever namematching-service had installed there.
     nameindex_datestamp: "{{ sds_nameindex_datestamp }}"
   when:
     - "'sensitiveDataService' in services_enabled"
@@ -3185,6 +3172,11 @@
     include_jackknife: "false"
     include_clustering: "false"
     check_solr: "false"
+    # Keep >= 2 while the fix is unmerged: IndexRecordToSolrPipeline salts the join key with
+    # nextInt(numOfPartitions - 1), so 1 throws "bound must be positive" the moment
+    # include_sampling is turned on, and the effective bucket count is one less than set here.
+    # https://github.com/AtlasOfLivingAustralia/pipelines/pull/17
+    solr_num_of_partitions: "10"
     pipelines_jvm_def_options: "-Xmx3g -XX:+UseG1GC"
     pipelines_api_key: "{{ ala_api_key | default('changeme') }}"
   tags:
