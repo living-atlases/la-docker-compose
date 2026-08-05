@@ -1553,11 +1553,12 @@
     # doi uses jdbc:postgresql, but the inventory mis-sets doi_db_hostname=la_mysql; point it
     # at the postgres container (scoped here; VM deploys keep the inventory value).
     doi_db_hostname: "postgres"
-    # container mode: point the grails-elasticsearch TransportClient at the dedicated ES 7.x
-    # sidecar (transport port 9300). Scoped here so VM deploys keep the packaged localhost:9200
-    # default rendered by doi-service-config.yml.
+    # container mode: point grails-elasticsearch at the dedicated ES 7.x sidecar. doi 4.x uses the
+    # REST (HTTP) client, so it must hit the HTTP port 9200 — NOT the transport port 9300 (which
+    # crash-loops with "Not a valid protocol version: This is not an HTTP port", CI #327). Scoped
+    # here so VM deploys keep the packaged localhost:9200 default rendered by doi-service-config.yml.
     doi_es_host: "doi-elasticsearch"
-    doi_es_port: "9300"
+    doi_es_port: "9200"
   when:
     - "'doi' in services_enabled"
     - "service_aliases.get('doi-service') is defined"
