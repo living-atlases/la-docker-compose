@@ -85,15 +85,12 @@ pipeline {
             //    it to be healthy (grails-elasticsearch transport client, gone in ES8; shared is ES8).
             //  - sds: legacy sds-webapp2 (livingatlases/sds-webapp2). sds_version must be a PUBLISHED
             //    tag (1.7.1/1.7.0/1.6.4); the old 1.6.2 pin has no image. Verified healthy (CI #325).
-            //  - sds-static-home stays skipped (nextgen static home, not part of this workstream).
             //  - sensitive-data-service: LEGACY atlasoflivingaustralia/ala-sensitive-data-service
-            //    (image now correct; matches the namematching-20210811 index). Still skipped: it
-            //    also needs 20210811-VINTAGE sds data files. The current sds.ala.org.au
-            //    sensitive-species-data.xml makes the legacy code NPE
-            //    (SensitivityInstance.equals) — sourcing the vintage species XML is a separate task.
-            //    layers.json must come from spatial /ws/layers (not sds). Re-enable once sourced.
+            //    (matches the namematching-20210811 index). Its sds data files are repaired at
+            //    deploy time and species category/zone refs normalized; verified healthy.
+            //  - sds-static-home stays skipped (nextgen static home, not part of this workstream).
             // Add a token back here (or via the build param) to skip a service if it turns CI red.
-            defaultValue: 'sds-static-home,sensitive-data-service',
+            defaultValue: 'sds-static-home',
             description: 'Comma-separated inventory groups to skip (temporary: immature/crash-looping services). Empty to deploy everything.'
         )
         booleanParam(
