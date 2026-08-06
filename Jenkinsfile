@@ -1017,7 +1017,14 @@ EOF
             steps {
                 script {
                     def hosts = env.TARGET_HOSTS.trim().split(/\s+/)
-                    def mode = params.E2E_BLOCKING ? '--blocking' : '--report-only'
+                    // Always --blocking: --report-only makes the script exit 0 even when the
+                    // ingest failed, so the catchError below never fired and a dead pipeline
+                    // read as a green build for months (#338 shipped green with add_steps
+                    // failing in 0.3s). Letting it exit non-zero lets catchError do its job:
+                    // stage UNSTABLE with the build still SUCCESS when E2E_BLOCKING is false,
+                    // and a real build failure when it is true. Same policy either way — the
+                    // difference is now visible instead of swallowed.
+                    def mode = '--blocking'
                     def run = {
                         def ran = false
                         for (h in hosts) {
