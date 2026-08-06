@@ -33,8 +33,13 @@ PIPELINES_CONTAINER="${PIPELINES_CONTAINER:-la_pipelines}"
 DR_UID="${DR_UID:-dr-e2e-test}"
 DAG_ID="${DAG_ID:-Ingest_small_datasets}"
 SOLR_COLLECTION="${SOLR_COLLECTION:-biocache}"
-SOLR_URL="${SOLR_URL:-http://solr:8983/solr}"                 # reachable from la_airflow (overlay var)
-BIOCACHE_WS="${BIOCACHE_WS:-http://biocache-service:8080/ws}" # reachable from la_airflow (overlay var)
+SOLR_URL="${SOLR_URL:-http://solr:8983/solr}"                 # reachable from la_airflow (extra_hosts)
+# Left EMPTY on purpose — resolved after the container wrappers are defined, from the
+# overlay's own `biocache_url` Airflow Variable. Hardcoding http://biocache-service:8080/ws
+# only works when biocache-service is co-located; on multihost the alias is NXDOMAIN and
+# the verification silently reported -1 while the ingest had actually worked. Ansible
+# already renders that Variable from biocache_service_base_url, so reuse it.
+BIOCACHE_WS="${BIOCACHE_WS:-}"
 COLLECTORY_WS="${COLLECTORY_WS:-http://collectory:8080/ws}"
 # Where la-pipelines' dwca-avro reads the archive: {{dwca_import_dir}}/{dr}/{dr}.zip.
 # In container mode the generator sets dwca_import_dir=/data/la-pipelines/dwca-import
@@ -88,6 +93,14 @@ afi() { docker exec -i "$AIRFLOW_CONTAINER" "$@"; }
 # NOT $AIRFLOW_CONTAINER — they share the metadata DB but not the logs volume, so
 # /opt/airflow/logs in la_airflow holds only scheduler/, no task logs at all. Discover the
 # scheduler by name; fall back to $AIRFLOW_CONTAINER for single-container deployments.
+# Public, cross-host-safe biocache WS. `airflow variables get` prints the sitecustomize
+# banner and deprecation warnings first, so take the last line.
+resolve_biocache_ws() {
+  local v
+  v=$(af airflow variables get biocache_url 2>/dev/null | tr -d '\r' | grep -E '^https?://' | tail -1)
+  printf '%s\n' "${v:-http://biocache-service:8080/ws}"
+}
+
 tasklog_container() {
   if [[ -n "${AIRFLOW_TASKLOG_CONTAINER:-}" ]]; then printf '%s\n' "$AIRFLOW_TASKLOG_CONTAINER"; return; fi
   docker ps --format '{{.Names}}' 2>/dev/null | grep -m1 -E 'airflow-scheduler' \
@@ -155,17 +168,32 @@ collectory_ws=$(docker exec "$PIPELINES_CONTAINER" bash -lc \
   "sed -nE '/^collectory:/,/^[a-zA-Z]/s#^[[:space:]]+wsUrl:[[:space:]]*(.+)[[:space:]]*\$#\1#p' \
    /data/la-pipelines/config/la-pipelines-local.yaml | head -1" 2>/dev/null | tr -d '\r')
 collectory_ws="${collectory_ws:-$COLLECTORY_WS}"
+# Send the SAME Authorization header la-pipelines sends (read from its config), because
+# even a plain GET of one dataResource goes through CollectoryAuthService: unauthenticated
+# it reaches checkJWT(), which in collectory 6.0.0 calls pac4j's FindBest — a class removed
+# in the pac4j 6.0.6 the image ships — and 500s. With a VALID key the check returns before
+# that call. So a 500 here almost always means the key is not registered in the apikey DB,
+# not that collectory is down.
+collectory_key=$(docker exec "$PIPELINES_CONTAINER" bash -lc \
+  "sed -nE '/^collectory:/,/^[a-zA-Z]/s#^[[:space:]]+Authorization:[[:space:]]*(.+)[[:space:]]*\$#\1#p' \
+   /data/la-pipelines/config/la-pipelines-local.yaml | head -1" 2>/dev/null | tr -d '\r')
 # `|| true` INSIDE the container shell: curl exits non-zero when the host does not
 # resolve, and an outer `|| echo 000` would append to curl's own "000" -> "000000",
 # which then misses the 000 case and reports the wrong reason.
 dr_http=$(docker exec "$PIPELINES_CONTAINER" bash -lc \
-  "curl -s -o /dev/null -w '%{http_code}' --max-time 20 '${collectory_ws%/}/dataResource/${DR_UID}' || true" 2>/dev/null | tail -c 3)
+  "curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
+   -H 'Authorization: ${collectory_key}' '${collectory_ws%/}/dataResource/${DR_UID}' || true" 2>/dev/null | tail -c 3)
 dr_http="${dr_http:-000}"
 case "$dr_http" in
   200) log "collectory: dataResource '$DR_UID' registered (${collectory_ws})" ;;
   000) err "collectory unreachable from ${PIPELINES_CONTAINER} at ${collectory_ws}."
        err "interpret would silently skip (exit 0) and the run would fail later in 'solr'."
        err "On multihost the internal alias does not resolve — la-pipelines needs the public URL."
+       exit 2 ;;
+  500) err "collectory returned 500 for '$DR_UID' at ${collectory_ws}."
+       err "Most likely la-pipelines' API key is not registered in the apikey DB, so the"
+       err "request falls through to collectory's checkJWT() and dies on pac4j FindBest."
+       err "Check: curl '<apikey-service>/ws/check?apikey=<key>' should report valid:true."
        exit 2 ;;
   *)   err "collectory has no dataResource '$DR_UID' (HTTP $dr_http at ${collectory_ws})."
        err "interpret would silently skip (exit 0) and the run would fail later in 'solr'."
@@ -272,6 +300,18 @@ print(int(d))
 PY
 }
 
+# IndexRecordToSolrPipeline does NOT commit, and the collection has no aggressive
+# autoCommit, so a count taken right after the DAG succeeds reads the PRE-ingest index
+# and reports 0 — the ingest looks broken when it worked. Commit explicitly (idempotent,
+# and the harness already deletes this dataResource before the solr stage anyway).
+log "committing the ${SOLR_COLLECTION} collection before counting"
+af curl -s -o /dev/null --max-time 60 \
+  "${SOLR_URL}/${SOLR_COLLECTION}/update?commit=true" \
+  -H 'Content-Type: text/xml' --data-binary '<commit/>' \
+  || warn "solr commit failed; counts below may lag behind the ingest"
+
+BIOCACHE_WS="${BIOCACHE_WS:-$(resolve_biocache_ws)}"
+log "verifying against Solr ${SOLR_URL}/${SOLR_COLLECTION} and biocache ${BIOCACHE_WS}"
 solr_n=$(count solr "${SOLR_URL}/${SOLR_COLLECTION}")
 bio_n=$(count biocache "$BIOCACHE_WS")
 log "indexed records — Solr(${SOLR_COLLECTION})=${solr_n}  biocache-service=${bio_n}  (expected ≥ ${EXPECTED_MIN})"
