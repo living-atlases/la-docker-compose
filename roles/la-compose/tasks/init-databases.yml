@@ -347,76 +347,11 @@
     - db-init
     - db-password-sync
 
-# --- apikey seeding ---------------------------------------------------------
-# ala-install's apikey role DOES insert every service's key (roles/apikey/tasks/main.yml
-# "add apikeys if do not exist" -> apikey-add), but the whole loop is gated on
-# `deployment_type == 'vm' or deployment_type is undefined`. In container mode it is
-# skipped, so we create the apikey DB and user above and then leave both tables EMPTY.
-#
-# What that costs, verified live: every key answers {"valid":false}, so collectory's
-# CollectoryAuthService.isAuthorisedWsRequest falls through to checkJWT() — and in
-# collectory 6.0.0 that method calls pac4j's FindBest, a class REMOVED in the pac4j
-# 6.0.6 the image ships. Result: every authenticated WS write 500s with
-# "MissingPropertyException: No such property: FindBest", with or without credentials.
-# A valid API key returns before checkJWT is ever reached, so seeding the keys both
-# restores authorisation and routes around the upstream crash. Concretely it unblocks
-# registering dataResources, without which la-pipelines' interpret stage silently
-# no-ops ("Collectory metadata no available") and no ingest ever indexes anything.
-#
-# Same SQL shape as apikey-add's add-key.sql (insert-if-absent, CONVERT USING latin1
-# so the compare matches the column collation), so a host later migrated VM<->container
-# converges to the same rows instead of duplicating them.
-- name: "DB Init: Seed service API keys (ala-install seeds these VM-only)"
-  ansible.builtin.command: >
-    docker exec la_mysql mysql -u root -p{{ mysql_root_password }}
-    {{ apikey_db_name | default('apikey') }} -e "
-    INSERT INTO app (name, date_created, user_email, user_id)
-      SELECT name, date_created, user_email, user_id FROM
-      (SELECT '{{ item.app }}' as name, NOW() as date_created,
-              '{{ apikey_def_creator_email }}' as user_email,
-              '{{ apikey_def_creator_userid }}' as user_id) t
-      WHERE NOT EXISTS (SELECT 1 FROM app a WHERE a.name = CONVERT(t.name USING latin1));
-    INSERT INTO apikey (apikey, app_id, date_created, user_email, user_id, enabled)
-      SELECT apikey, app_id, date_created, user_email, user_id, enabled FROM
-      (SELECT '{{ item.key }}' as apikey, '{{ item.app }}' as app_id, NOW() as date_created,
-              '{{ apikey_def_creator_email }}' as user_email,
-              '{{ apikey_def_creator_userid }}' as user_id, 1 as enabled) t
-      WHERE NOT EXISTS (SELECT 1 FROM apikey a WHERE a.apikey = CONVERT(t.apikey USING latin1));"
-  become: true
-  loop: "{{ _apikey_seed_list | rejectattr('key', 'equalto', '') | list }}"
-  loop_control:
-    label: "{{ item.app }}"
-  vars:
-    # Mirrors ala-install's apikey-add list. The extra 'pipelines' entry for
-    # ala_api_key is deliberate: generate-compose.yml shadows pipelines_api_key with
-    # `ala_api_key | default('changeme')` for the la-pipelines config render, so the
-    # key la_pipelines actually sends is ala_api_key — seeding only the inventory's
-    # pipelines_api_key would leave it rejected.
-    _apikey_seed_list:
-      - { app: "alerts", key: "{{ alerts_apikey | default('') }}" }
-      - { app: "bie-index", key: "{{ bie_index_api_key | default('') }}" }
-      - { app: "biocache", key: "{{ biocache_api_key | default('') }}" }
-      - { app: "collectory", key: "{{ api_key | default('') }}" }
-      - { app: "collectory", key: "{{ registry_api_key | default('') }}" }
-      - { app: "doi-service", key: "{{ doi_service_apiKey | default('') }}" }
-      - { app: "image-service", key: "{{ image_service_apiKey | default('') }}" }
-      - { app: "spatialportal", key: "{{ spatial_service_api_key | default('') }}" }
-      - { app: "spatialportal", key: "{{ spatial_service_service_key | default('') }}" }
-      - { app: "spatialportal", key: "{{ spatial_service_slave_key | default('') }}" }
-      - { app: "specieslists", key: "{{ speciesList_api_key | default('') }}" }
-      - { app: "pipelines", key: "{{ pipelines_api_key | default('') }}" }
-      - { app: "pipelines", key: "{{ ala_api_key | default('') }}" }
-      - { app: "data-quality", key: "{{ data_quality_api_key | default('') }}" }
-      - { app: "ecodata", key: "{{ ecodata_api_key | default('') }}" }
-  when:
-    - "'cas-servers' in physical_server_groups"
-    - apikey_def_creator_email is defined
-    - apikey_def_creator_userid is defined
-  changed_when: false
-  no_log: true
-  tags:
-    - db-init
-    - apikeys-add
+# The apikey DB is created here but left with no tables: `app` and `apikey` are
+# created by Flyway/GORM when la_apikey first boots, which happens in the
+# `docker compose up` further down main.yml. Seeding the service keys therefore
+# CANNOT live here — see seed-apikeys.yml, included post-deploy alongside
+# init-cas-admin.yml, for why the keys have to be seeded at all.
 
 # Closes the race where docker compose up recreates la_cas before FLUSH
 # PRIVILEGES finishes propagating, surfacing as a transient Hikari

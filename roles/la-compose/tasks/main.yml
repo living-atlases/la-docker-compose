@@ -772,6 +772,21 @@
         - deploy
         - cas-admin
 
+    # Post-up, not in init-databases: the apikey schema only exists once la_apikey
+    # has booted and run its migrations. The `apikey in services_enabled` gate keeps
+    # a topology that does not deploy the service from waiting on a container that
+    # will never appear.
+    - name: "API keys: Seed service keys (ala-install seeds these VM-only)"
+      ansible.builtin.include_tasks: seed-apikeys.yml
+      when:
+        - auto_deploy | default(true) | bool
+        - "'cas-servers' in hostvars[inventory_hostname].service_aliases"
+        - "'apikey' in services_enabled"
+      tags:
+        - docker-compose
+        - deploy
+        - apikeys-add
+
     - name: "Geoserver: Initialize ALA workspace, LayersDB datastore, styles, feature types"
       ansible.builtin.include_tasks: init-geoserver.yml
       when:
