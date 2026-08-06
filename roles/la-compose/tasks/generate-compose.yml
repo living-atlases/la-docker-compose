@@ -664,19 +664,10 @@
 # Bulk load all CAS-related variables from service alias context (single pass)
 # CAS5, USERDETAILS, APIKEY and CAS-MANAGEMENT all share the same source
 # (service_aliases['cas-servers']), so one load + one normalize is enough.
-- name: "Bulk load CAS-related variables from service alias context"
-  ansible.builtin.set_fact:
-    "{{ item.key }}": "{{ item.value }}"
-  loop: >-
-    {{ hostvars[service_aliases.get('cas-servers', '')] | default({})
-       | dict2items
-       | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
-       | rejectattr('key', 'match', '^ansible_.*')
-       | rejectattr('key', 'in', system_vars_blacklist)
-       | list }}
-  loop_control:
-    label: "{{ item.key }}"
-  when: service_aliases.get('cas-servers') is defined
+- name: Load CAS-related variables from service alias context
+  ansible.builtin.include_tasks: bulk-load-service-vars.yml
+  vars:
+    bulk_service_key: cas-servers
   tags:
     - cas
     - userdetails
@@ -685,16 +676,6 @@
     - config
     - nginx_vhost
     - bulk-load
-
-- name: Re-normalize database hostnames after CAS bulk load
-  ansible.builtin.include_tasks: normalize-hostnames.yml
-  when: service_aliases.get('cas-servers') is defined
-  tags:
-    - cas
-    - userdetails
-    - apikey
-    - cas-management
-    - config
     - normalize
 
 # CRITICAL: Build MongoDB URIs AFTER all CAS-related bulk loads
@@ -808,32 +789,15 @@
     - docker-compose
 
 # Now run collectory and other services
-# Bulk load all COLLECTORY variables from service alias context
-- name: "Bulk load COLLECTORY variables from service alias context"
-  ansible.builtin.set_fact:
-    "{{ item.key }}": "{{ item.value }}"
-  loop: >-
-    {{ hostvars[service_aliases.get('collectory', '')] | default({})
-       | dict2items
-       | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
-       | rejectattr('key', 'match', '^ansible_.*')
-       | rejectattr('key', 'in', system_vars_blacklist)
-       | list }}
-  loop_control:
-    label: "{{ item.key }}"
-  when: service_aliases.get('collectory') is defined
+- name: Load COLLECTORY variables from service alias context
+  ansible.builtin.include_tasks: bulk-load-service-vars.yml
+  vars:
+    bulk_service_key: collectory
   tags:
     - collectory
     - config
     - nginx_vhost
     - bulk-load
-
-- name: Re-normalize database hostnames after COLLECTORY bulk load
-  ansible.builtin.include_tasks: normalize-hostnames.yml
-  when: service_aliases.get('collectory') is defined
-  tags:
-    - collectory
-    - config
     - normalize
 
 - name: Run collectory configuration generation (asset copy, config templates)
@@ -855,31 +819,14 @@
     - nginx_vhost
     - docker-compose
 
-# Bulk load all SPECIES-LIST variables from service alias context
-- name: "Bulk load SPECIES-LIST variables from service alias context"
-  ansible.builtin.set_fact:
-    "{{ item.key }}": "{{ item.value }}"
-  loop: >-
-    {{ hostvars[service_aliases.get('species-list', '')] | default({})
-       | dict2items
-       | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
-       | rejectattr('key', 'match', '^ansible_.*')
-       | rejectattr('key', 'in', system_vars_blacklist)
-       | list }}
-  loop_control:
-    label: "{{ item.key }}"
-  when: service_aliases.get('species-list') is defined
+- name: Load SPECIES-LIST variables from service alias context
+  ansible.builtin.include_tasks: bulk-load-service-vars.yml
+  vars:
+    bulk_service_key: species-list
   tags:
     - species-list
     - config
     - bulk-load
-
-- name: Re-normalize database hostnames after SPECIES-LIST bulk load
-  ansible.builtin.include_tasks: normalize-hostnames.yml
-  when: service_aliases.get('species-list') is defined
-  tags:
-    - species-list
-    - config
     - normalize
 
 - name: Run species-list configuration generation (asset copy, config templates)
@@ -898,20 +845,11 @@
     - config
     - docker-compose
 
-# Bulk load all BIE-HUB variables from service alias context
-- name: "Bulk load BIE-HUB variables from service alias context"
-  ansible.builtin.set_fact:
-    "{{ item.key }}": "{{ item.value }}"
-  loop: >-
-    {{ hostvars[service_aliases.get('bie-hub', '')] | default({})
-       | dict2items
-       | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
-       | rejectattr('key', 'match', '^ansible_.*')
-       | rejectattr('key', 'in', system_vars_blacklist)
-       | list }}
-  loop_control:
-    label: "{{ item.key }}"
-  when: service_aliases.get('bie-hub') is defined
+- name: Load BIE-HUB variables from service alias context
+  ansible.builtin.include_tasks: bulk-load-service-vars.yml
+  vars:
+    bulk_service_key: bie-hub
+    bulk_run_normalize: false
   tags:
     - bie-hub
     - config
@@ -943,20 +881,11 @@
     - config
     - docker-compose
 
-# Bulk load all BIE-INDEX variables from service alias context
-- name: "Bulk load BIE-INDEX variables from service alias context"
-  ansible.builtin.set_fact:
-    "{{ item.key }}": "{{ item.value }}"
-  loop: >-
-    {{ hostvars[service_aliases.get('bie-index', '')] | default({})
-       | dict2items
-       | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
-       | rejectattr('key', 'match', '^ansible_.*')
-       | rejectattr('key', 'in', system_vars_blacklist)
-       | list }}
-  loop_control:
-    label: "{{ item.key }}"
-  when: service_aliases.get('bie-index') is defined
+- name: Load BIE-INDEX variables from service alias context
+  ansible.builtin.include_tasks: bulk-load-service-vars.yml
+  vars:
+    bulk_service_key: bie-index
+    bulk_run_normalize: false
   tags:
     - bie-index
     - config
@@ -1008,20 +937,11 @@
     - config
     - docker-compose
 
-# Bulk load all BIOCACHE-HUB variables from service alias context
-- name: "Bulk load BIOCACHE-HUB variables from service alias context"
-  ansible.builtin.set_fact:
-    "{{ item.key }}": "{{ item.value }}"
-  loop: >-
-    {{ hostvars[service_aliases.get('biocache-hub', '')] | default({})
-       | dict2items
-       | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
-       | rejectattr('key', 'match', '^ansible_.*')
-       | rejectattr('key', 'in', system_vars_blacklist)
-       | list }}
-  loop_control:
-    label: "{{ item.key }}"
-  when: service_aliases.get('biocache-hub') is defined
+- name: Load BIOCACHE-HUB variables from service alias context
+  ansible.builtin.include_tasks: bulk-load-service-vars.yml
+  vars:
+    bulk_service_key: biocache-hub
+    bulk_run_normalize: false
   tags:
     - biocache-hub
     - config
@@ -1080,31 +1000,14 @@
     - config
     - docker-compose
 
-# Bulk load all BIOCACHE-SERVICE variables from service alias context
-- name: "Bulk load BIOCACHE-SERVICE variables from service alias context"
-  ansible.builtin.set_fact:
-    "{{ item.key }}": "{{ item.value }}"
-  loop: >-
-    {{ hostvars[service_aliases.get('biocache-service-clusterdb', '')] | default({})
-       | dict2items
-       | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
-       | rejectattr('key', 'match', '^ansible_.*')
-       | rejectattr('key', 'in', system_vars_blacklist)
-       | list }}
-  loop_control:
-    label: "{{ item.key }}"
-  when: service_aliases.get('biocache-service-clusterdb') is defined
+- name: Load BIOCACHE-SERVICE variables from service alias context
+  ansible.builtin.include_tasks: bulk-load-service-vars.yml
+  vars:
+    bulk_service_key: biocache-service-clusterdb
   tags:
     - biocache-service
     - config
     - bulk-load
-
-- name: Re-normalize database hostnames after BIOCACHE-SERVICE bulk load
-  ansible.builtin.include_tasks: normalize-hostnames.yml
-  when: service_aliases.get('biocache-service-clusterdb') is defined
-  tags:
-    - biocache-service
-    - config
     - normalize
 
 # Capture the inventory-provided Solr/ZK ensemble BEFORE biocache3-properties runs
@@ -1207,31 +1110,14 @@
     - config
     - docker-compose
 
-# Bulk load all LOGGER-SERVICE variables from service alias context
-- name: "Bulk load LOGGER-SERVICE variables from service alias context"
-  ansible.builtin.set_fact:
-    "{{ item.key }}": "{{ item.value }}"
-  loop: >-
-    {{ hostvars[service_aliases.get('logger-service', '')] | default({})
-       | dict2items
-       | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
-       | rejectattr('key', 'match', '^ansible_.*')
-       | rejectattr('key', 'in', system_vars_blacklist)
-       | list }}
-  loop_control:
-    label: "{{ item.key }}"
-  when: service_aliases.get('logger-service') is defined
+- name: Load LOGGER-SERVICE variables from service alias context
+  ansible.builtin.include_tasks: bulk-load-service-vars.yml
+  vars:
+    bulk_service_key: logger-service
   tags:
     - logger-service
     - config
     - bulk-load
-
-- name: Re-normalize database hostnames after LOGGER-SERVICE bulk load
-  ansible.builtin.include_tasks: normalize-hostnames.yml
-  when: service_aliases.get('logger-service') is defined
-  tags:
-    - logger-service
-    - config
     - normalize
 
 - name: Run logger-service configuration generation
@@ -1255,31 +1141,14 @@
     - nginx_vhost
     - docker-compose
 
-# Bulk load all IMAGE-SERVICE variables from service alias context
-- name: "Bulk load IMAGE-SERVICE variables from service alias context"
-  ansible.builtin.set_fact:
-    "{{ item.key }}": "{{ item.value }}"
-  loop: >-
-    {{ hostvars[service_aliases.get('image-service', '')] | default({})
-       | dict2items
-       | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
-       | rejectattr('key', 'match', '^ansible_.*')
-       | rejectattr('key', 'in', system_vars_blacklist)
-       | list }}
-  loop_control:
-    label: "{{ item.key }}"
-  when: service_aliases.get('image-service') is defined
+- name: Load IMAGE-SERVICE variables from service alias context
+  ansible.builtin.include_tasks: bulk-load-service-vars.yml
+  vars:
+    bulk_service_key: image-service
   tags:
     - image-service
     - config
     - bulk-load
-
-- name: Re-normalize database hostnames after IMAGE-SERVICE bulk load
-  ansible.builtin.include_tasks: normalize-hostnames.yml
-  when: service_aliases.get('image-service') is defined
-  tags:
-    - image-service
-    - config
     - normalize
 
 - name: Run image-service configuration generation
@@ -1313,20 +1182,11 @@
     - nginx_vhost
     - docker-compose
 
-# Bulk load all NAMEMATCHING-SERVICE variables from service alias context
-- name: "Bulk load NAMEMATCHING-SERVICE variables from service alias context"
-  ansible.builtin.set_fact:
-    "{{ item.key }}": "{{ item.value }}"
-  loop: >-
-    {{ hostvars[service_aliases.get('namematching-service', '')] | default({})
-       | dict2items
-       | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
-       | rejectattr('key', 'match', '^ansible_.*')
-       | rejectattr('key', 'in', system_vars_blacklist)
-       | list }}
-  loop_control:
-    label: "{{ item.key }}"
-  when: service_aliases.get('namematching-service') is defined
+- name: Load NAMEMATCHING-SERVICE variables from service alias context
+  ansible.builtin.include_tasks: bulk-load-service-vars.yml
+  vars:
+    bulk_service_key: namematching-service
+    bulk_run_normalize: false
   tags:
     - namematching-service
     - config
@@ -1355,20 +1215,11 @@
     - nginx_vhost
     - docker-compose
 
-# Bulk load all SENSITIVE-DATA-SERVICE variables from service alias context
-- name: "Bulk load SENSITIVE-DATA-SERVICE variables from service alias context"
-  ansible.builtin.set_fact:
-    "{{ item.key }}": "{{ item.value }}"
-  loop: >-
-    {{ hostvars[service_aliases.get('sensitive-data-service', '')] | default({})
-       | dict2items
-       | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
-       | rejectattr('key', 'match', '^ansible_.*')
-       | rejectattr('key', 'in', system_vars_blacklist)
-       | list }}
-  loop_control:
-    label: "{{ item.key }}"
-  when: service_aliases.get('sensitive-data-service') is defined
+- name: Load SENSITIVE-DATA-SERVICE variables from service alias context
+  ansible.builtin.include_tasks: bulk-load-service-vars.yml
+  vars:
+    bulk_service_key: sensitive-data-service
+    bulk_run_normalize: false
   tags:
     - sensitive-data-service
     - config
@@ -1419,31 +1270,14 @@
     - config
     - docker-compose
 
-# Bulk load all ALERTS variables from service alias context
-- name: "Bulk load ALERTS variables from service alias context"
-  ansible.builtin.set_fact:
-    "{{ item.key }}": "{{ item.value }}"
-  loop: >-
-    {{ hostvars[service_aliases.get('alerts-service', '')] | default({})
-       | dict2items
-       | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
-       | rejectattr('key', 'match', '^ansible_.*')
-       | rejectattr('key', 'in', system_vars_blacklist)
-       | list }}
-  loop_control:
-    label: "{{ item.key }}"
-  when: service_aliases.get('alerts-service') is defined
+- name: Load ALERTS variables from service alias context
+  ansible.builtin.include_tasks: bulk-load-service-vars.yml
+  vars:
+    bulk_service_key: alerts-service
   tags:
     - alerts
     - config
     - bulk-load
-
-- name: Re-normalize database hostnames after ALERTS bulk load
-  ansible.builtin.include_tasks: normalize-hostnames.yml
-  when: service_aliases.get('alerts-service') is defined
-  tags:
-    - alerts
-    - config
     - normalize
 
 - name: Run alerts configuration generation
@@ -1469,20 +1303,11 @@
     - nginx_vhost
     - docker-compose
 
-# Bulk load all REGIONS variables from service alias context
-- name: "Bulk load REGIONS variables from service alias context"
-  ansible.builtin.set_fact:
-    "{{ item.key }}": "{{ item.value }}"
-  loop: >-
-    {{ hostvars[service_aliases.get('regions', '')] | default({})
-       | dict2items
-       | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
-       | rejectattr('key', 'match', '^ansible_.*')
-       | rejectattr('key', 'in', system_vars_blacklist)
-       | list }}
-  loop_control:
-    label: "{{ item.key }}"
-  when: service_aliases.get('regions') is defined
+- name: Load REGIONS variables from service alias context
+  ansible.builtin.include_tasks: bulk-load-service-vars.yml
+  vars:
+    bulk_service_key: regions
+    bulk_run_normalize: false
   tags:
     - regions
     - config
@@ -1512,31 +1337,14 @@
     - nginx_vhost
     - docker-compose
 
-# Bulk load all DOI-SERVICE variables from service alias context
-- name: "Bulk load DOI-SERVICE variables from service alias context"
-  ansible.builtin.set_fact:
-    "{{ item.key }}": "{{ item.value }}"
-  loop: >-
-    {{ hostvars[service_aliases.get('doi-service', '')] | default({})
-       | dict2items
-       | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
-       | rejectattr('key', 'match', '^ansible_.*')
-       | rejectattr('key', 'in', system_vars_blacklist)
-       | list }}
-  loop_control:
-    label: "{{ item.key }}"
-  when: service_aliases.get('doi-service') is defined
+- name: Load DOI-SERVICE variables from service alias context
+  ansible.builtin.include_tasks: bulk-load-service-vars.yml
+  vars:
+    bulk_service_key: doi-service
   tags:
     - doi-service
     - config
     - bulk-load
-
-- name: Re-normalize database hostnames after DOI-SERVICE bulk load
-  ansible.builtin.include_tasks: normalize-hostnames.yml
-  when: service_aliases.get('doi-service') is defined
-  tags:
-    - doi-service
-    - config
     - normalize
 
 - name: Run doi-service configuration generation
@@ -1573,31 +1381,14 @@
     - nginx_vhost
     - docker-compose
 
-# Bulk load all SDS (legacy sds-webapp2) variables from service alias context
-- name: "Bulk load SDS variables from service alias context"
-  ansible.builtin.set_fact:
-    "{{ item.key }}": "{{ item.value }}"
-  loop: >-
-    {{ hostvars[service_aliases.get('sds', '')] | default({})
-       | dict2items
-       | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
-       | rejectattr('key', 'match', '^ansible_.*')
-       | rejectattr('key', 'in', system_vars_blacklist)
-       | list }}
-  loop_control:
-    label: "{{ item.key }}"
-  when: service_aliases.get('sds') is defined
+- name: Load SDS variables from service alias context
+  ansible.builtin.include_tasks: bulk-load-service-vars.yml
+  vars:
+    bulk_service_key: sds
   tags:
     - sds
     - config
     - bulk-load
-
-- name: Re-normalize database hostnames after SDS bulk load
-  ansible.builtin.include_tasks: normalize-hostnames.yml
-  when: service_aliases.get('sds') is defined
-  tags:
-    - sds
-    - config
     - normalize
 
 - name: Run sds (legacy sds-webapp2) configuration generation
@@ -1625,31 +1416,14 @@
     - nginx_vhost
     - docker-compose
 
-# Bulk load all DATA-QUALITY-FILTER-SERVICE variables from service alias context
-- name: "Bulk load DATA-QUALITY-FILTER-SERVICE variables from service alias context"
-  ansible.builtin.set_fact:
-    "{{ item.key }}": "{{ item.value }}"
-  loop: >-
-    {{ hostvars[service_aliases.get('data_quality_filter_service', '')] | default({})
-       | dict2items
-       | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
-       | rejectattr('key', 'match', '^ansible_.*')
-       | rejectattr('key', 'in', system_vars_blacklist)
-       | list }}
-  loop_control:
-    label: "{{ item.key }}"
-  when: service_aliases.get('data_quality_filter_service') is defined
+- name: Load DATA-QUALITY-FILTER-SERVICE variables from service alias context
+  ansible.builtin.include_tasks: bulk-load-service-vars.yml
+  vars:
+    bulk_service_key: data_quality_filter_service
   tags:
     - data-quality
     - config
     - bulk-load
-
-- name: Re-normalize database hostnames after DATA-QUALITY-FILTER-SERVICE bulk load
-  ansible.builtin.include_tasks: normalize-hostnames.yml
-  when: service_aliases.get('data_quality_filter_service') is defined
-  tags:
-    - data-quality
-    - config
     - normalize
 
 - name: Run data-quality-filter-service configuration generation
@@ -1685,31 +1459,14 @@
     - nginx_vhost
     - docker-compose
 
-# Bulk load all SPATIAL-HUB variables from service alias context
-- name: "Bulk load SPATIAL-HUB variables from service alias context"
-  ansible.builtin.set_fact:
-    "{{ item.key }}": "{{ item.value }}"
-  loop: >-
-    {{ hostvars[service_aliases.get('spatial', '')] | default({})
-       | dict2items
-       | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
-       | rejectattr('key', 'match', '^ansible_.*')
-       | rejectattr('key', 'in', system_vars_blacklist)
-       | list }}
-  loop_control:
-    label: "{{ item.key }}"
-  when: service_aliases.get('spatial') is defined
+- name: Load SPATIAL-HUB variables from service alias context
+  ansible.builtin.include_tasks: bulk-load-service-vars.yml
+  vars:
+    bulk_service_key: spatial
   tags:
     - spatial-hub
     - config
     - bulk-load
-
-- name: Re-normalize database hostnames after SPATIAL-HUB bulk load
-  ansible.builtin.include_tasks: normalize-hostnames.yml
-  when: service_aliases.get('spatial') is defined
-  tags:
-    - spatial-hub
-    - config
     - normalize
 
 # Auto-detect the base-branding Spatial Portal skin and flip skin.layout BEFORE the spatial-hub role
@@ -1852,31 +1609,14 @@
     - nginx_vhost
     - docker-compose
 
-# Bulk load all SPATIAL-SERVICE variables from service alias context
-- name: "Bulk load SPATIAL-SERVICE variables from service alias context"
-  ansible.builtin.set_fact:
-    "{{ item.key }}": "{{ item.value }}"
-  loop: >-
-    {{ hostvars[service_aliases.get('spatial-service', '')] | default({})
-       | dict2items
-       | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
-       | rejectattr('key', 'match', '^ansible_.*')
-       | rejectattr('key', 'in', system_vars_blacklist)
-       | list }}
-  loop_control:
-    label: "{{ item.key }}"
-  when: service_aliases.get('spatial-service') is defined
+- name: Load SPATIAL-SERVICE variables from service alias context
+  ansible.builtin.include_tasks: bulk-load-service-vars.yml
+  vars:
+    bulk_service_key: spatial-service
   tags:
     - spatial-service
     - config
     - bulk-load
-
-- name: Re-normalize database hostnames after SPATIAL-SERVICE bulk load
-  ansible.builtin.include_tasks: normalize-hostnames.yml
-  when: service_aliases.get('spatial-service') is defined
-  tags:
-    - spatial-service
-    - config
     - normalize
 
 - name: Run spatial-service configuration generation
@@ -3226,6 +2966,94 @@
         - "{{ data_dir }}/la-pipelines/jackknife"
         - "{{ data_dir }}/la-pipelines/clustering"
         - "{{ data_dir }}/la-pipelines/outlier"
+
+    # ala-install downloads these from the GBIF API ("Get Gbif API vocabularies") and
+    # pushes them into HDFS, but both tasks are gated `deployment_type != 'container'`,
+    # so in container mode vocabularies/ stays empty. The interpret stage then dies with
+    # "The vocabulary file doesn't exist - .../DegreeOfEstablishment.json", which only
+    # surfaces once a dataset actually reaches interpretation. Same four files upstream
+    # fetches, straight into the bind-mounted vocabulariesPath.
+    # force: false — once present, a later GBIF API outage must not fail a redeploy of an
+    # otherwise working host. A first install still fails loudly if they cannot be fetched,
+    # which is right: without them no ingest can interpret anything.
+    #
+    # Two steps, because ala-install's one-shot URL is dead: .../releases/latest/export
+    # now 404s. The current API returns release METADATA at .../releases/latest, carrying
+    # an `exportUrl` pinned to a concrete version (.../releases/1.0.3/export). Resolve it,
+    # then download that.
+    # The geocode shapefiles. ala-install's pipelines role downloads and unpacks these
+    # ("Download SHP files" / "Unpack SHP files") and those tasks are NOT gated on
+    # deployment_type — they simply never run here, because la-compose renders the
+    # pipelines config itself instead of invoking that role, so /data/pipelines-shp is
+    # created (above) and left empty. interpret's LocationTransform then aborts with
+    # "FATAL: SHP file of State: /data/pipelines-shp/cw_state_poly.dbf does not exist!".
+    # ~243MB, so creates/unarchive are keyed on a marker file to stay idempotent.
+    - name: Download the pipelines geocode shapefiles
+      ansible.builtin.get_url:
+        url: "{{ pipelines_shapefiles_url | default('https://pipelines-shp.s3-ap-southeast-2.amazonaws.com/pipelines-shapefiles.zip') }}"
+        dest: "{{ data_dir }}/pipelines-shp/pipelines-shapefiles.zip"
+        checksum: "{{ pipelines_shapefiles_checksum | default('sha1:d4755425902e109e749c319f8d4ee98fa7ef2c4d') }}"
+        owner: "{{ docker_container_uid }}"
+        group: "{{ docker_container_gid }}"
+        mode: '0644'
+      become: true
+      register: pipelines_shp_download
+      retries: 2
+      delay: 10
+      until: pipelines_shp_download is succeeded
+      tags:
+        - pipelines
+        - pipelines-layers
+
+    - name: Unpack the pipelines geocode shapefiles
+      ansible.builtin.unarchive:
+        src: "{{ data_dir }}/pipelines-shp/pipelines-shapefiles.zip"
+        dest: "{{ data_dir }}/pipelines-shp"
+        remote_src: true
+        owner: "{{ docker_container_uid }}"
+        group: "{{ docker_container_gid }}"
+        creates: "{{ data_dir }}/pipelines-shp/cw_state_poly.dbf"
+      become: true
+      tags:
+        - pipelines
+        - pipelines-layers
+
+    - name: Resolve the current export URL for each GBIF vocabulary
+      ansible.builtin.uri:
+        url: "https://api.gbif.org/v1/vocabularies/{{ item }}/releases/latest"
+        return_content: true
+      register: pipelines_vocab_release
+      retries: 3
+      delay: 5
+      until: pipelines_vocab_release is succeeded
+      loop:
+        - LifeStage
+        - DegreeOfEstablishment
+        - EstablishmentMeans
+        - Pathway
+      tags:
+        - pipelines
+        - la-pipelines-config
+
+    - name: Fetch the GBIF vocabularies the interpret stage requires
+      ansible.builtin.get_url:
+        url: "{{ item.json.exportUrl }}"
+        dest: "{{ data_dir }}/la-pipelines/vocabularies/{{ item.item }}.json"
+        owner: "{{ docker_container_uid }}"
+        group: "{{ docker_container_gid }}"
+        mode: '0644'
+        force: false
+      become: true
+      register: pipelines_vocab_fetch
+      retries: 3
+      delay: 5
+      until: pipelines_vocab_fetch is succeeded
+      loop: "{{ pipelines_vocab_release.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+      tags:
+        - pipelines
+        - la-pipelines-config
 
     - name: Render la-pipelines-local.yaml from the ala-install pipelines template
       ansible.builtin.template:
