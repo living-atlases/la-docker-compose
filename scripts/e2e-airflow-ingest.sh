@@ -37,6 +37,9 @@ PIPELINES_CONTAINER="${PIPELINES_CONTAINER:-la_pipelines}"
 # arbitrary label like "dr-e2e-test" — it is the uid of the resource registered on the
 # target deployment (dr0 on a freshly seeded one, being the first dataResource created).
 DR_UID="${DR_UID:-dr0}"
+# Identifies OUR dataResource across runs. The precondition looks it up by name before
+# creating anything, so repeated runs reuse one resource instead of leaving dr0, dr1, dr2…
+DR_NAME="${DR_NAME:-Living Atlas E2E Test Dataset}"
 DAG_ID="${DAG_ID:-Ingest_small_datasets}"
 SOLR_COLLECTION="${SOLR_COLLECTION:-biocache}"
 SOLR_URL="${SOLR_URL:-http://solr:8983/solr}"                 # reachable from la_airflow (extra_hosts)
@@ -190,6 +193,51 @@ dr_http=$(docker exec "$PIPELINES_CONTAINER" bash -lc \
   "curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
    -H 'Authorization: ${collectory_key}' '${collectory_ws%/}/dataResource/${DR_UID}' || true" 2>/dev/null | tail -c 3)
 dr_http="${dr_http:-000}"
+
+# Self-seeding, so a CLEAN deployment can be tested without a manual step: collectory
+# starts empty, and DR_UID's default (dr0) only exists once something created it. Reuse a
+# resource with our name if one is there — otherwise every run would leave behind dr0,
+# dr1, dr2... Creation is POST with NO uid (the /<uid> route is an UPDATE and 404s when
+# absent); collectory assigns the uid and returns it in the Location header.
+# The container has curl but no python3, hence the sed/grep JSON handling.
+if [[ "$dr_http" == 404 || "$SEED_COLLECTORY" == true ]]; then
+  if [[ "$SEED_COLLECTORY" != true ]]; then
+    log "collectory has no '$DR_UID' — looking for '${DR_NAME}' before creating one"
+    # Trailing `|| true`: under `set -euo pipefail` the grep exits 1 when the name is
+    # absent — exactly the case we are handling — and would kill the script silently
+    # right before the branch that creates the resource.
+    found=$(docker exec "$PIPELINES_CONTAINER" bash -lc \
+      "curl -s --max-time 20 '${collectory_ws%/}/dataResource' || true" 2>/dev/null \
+      | sed 's/},{/}\n{/g' | grep -F "\"name\":\"${DR_NAME}\"" \
+      | sed -nE 's/.*"uid":"([^"]+)".*/\1/p' | head -1 || true)
+    if [[ -n "$found" ]]; then
+      log "collectory: reusing existing dataResource '$found' (${DR_NAME})"
+      DR_UID="$found"
+      dr_http=200
+    fi
+  fi
+  if [[ "$dr_http" != 200 ]]; then
+    [[ -n "$collectory_key" ]] || { err "no collectory API key in la-pipelines config; cannot create the dataResource"; exit 2; }
+    log "creating dataResource '${DR_NAME}' in collectory"
+    created=$(docker exec "$PIPELINES_CONTAINER" bash -lc \
+      "curl -s -D - -o /dev/null --max-time 60 -X POST '${collectory_ws%/}/dataResource' \
+       -H 'Authorization: ${collectory_key}' -H 'Content-Type: application/json' \
+       -d '{\"name\":\"${DR_NAME}\",\"acronym\":\"LAE2E\",\"resourceType\":\"records\",\"licenseType\":\"CC0\",\"connectionParameters\":{\"protocol\":\"DwCA\",\"termsForUniqueKey\":[\"occurrenceID\"]}}' \
+       || true" 2>/dev/null | tr -d '\r')
+    new_uid=$(printf '%s\n' "$created" | sed -nE 's#^[Ll]ocation:.*/dataResource/([^/[:space:]]+).*#\1#p' | head -1)
+    if [[ -z "$new_uid" ]]; then
+      err "could not create a dataResource in collectory. Response headers:"
+      printf '%s\n' "$created" | head -5 >&2
+      err "A 500 here means la-pipelines' API key is not registered in the apikey DB"
+      err "(collectory then falls through to checkJWT() and dies on pac4j FindBest)."
+      exit 2
+    fi
+    log "collectory: created dataResource '$new_uid'"
+    DR_UID="$new_uid"
+    dr_http=200
+  fi
+fi
+
 case "$dr_http" in
   200) log "collectory: dataResource '$DR_UID' registered (${collectory_ws})" ;;
   000) err "collectory unreachable from ${PIPELINES_CONTAINER} at ${collectory_ws}."
@@ -233,30 +281,9 @@ print("uploaded to MinIO")
 PY
 fi
 
-# --- 2c. (optional) register the data resource in collectory (attribution) --------
-# CREATE is POST /ws/dataResource with NO uid — collectory assigns one and returns it in
-# the Location header. POST /ws/dataResource/<uid> is an UPDATE and 404s when the entity
-# does not exist, so the uid cannot be chosen by the caller. Prints the assigned uid;
-# pass it back as DR_UID (the run below still uses whatever DR_UID currently holds).
-if [[ "$SEED_COLLECTORY" == true ]]; then
-  [[ -n "${COLLECTORY_API_KEY:-}" ]] || { err "--seed-collectory needs COLLECTORY_API_KEY"; exit 2; }
-  log "creating a data resource in collectory (uid assigned by collectory)"
-  afi env CW="$COLLECTORY_WS" KEY="$COLLECTORY_API_KEY" python3 - <<'PY' \
-    || warn "collectory seed failed — the run WILL fail; interpret needs this metadata"
-import os, json, urllib.request
-body = {"name": "Living Atlas E2E Test Dataset", "acronym": "LAE2E",
-        "resourceType": "records", "licenseType": "CC0",
-        "connectionParameters": {"protocol": "DwCA", "termsForUniqueKey": ["occurrenceID"]}}
-req = urllib.request.Request(f"{os.environ['CW'].rstrip('/')}/dataResource",
-                            data=json.dumps(body).encode(), method="POST",
-                            headers={"Authorization": os.environ["KEY"],
-                                     "Content-Type": "application/json"})
-with urllib.request.urlopen(req, timeout=60) as r:
-    loc = r.headers.get("Location", "")
-    print("collectory:", r.status, "uid:", loc.rsplit("/", 1)[-1] or "(no Location header)")
-    print("re-run with DR_UID=<uid> to ingest into it")
-PY
-fi
+# (collectory registration happens in the preconditions above, which already resolve the
+# WS URL and the API key from la-pipelines' own config — a second copy here would just
+# drift. --seed-collectory forces creating a fresh dataResource instead of reusing ours.)
 
 # --- 3. trigger Ingest_small_datasets directly (run_indexing=true → reaches Solr) --
 RUN_ID="e2e__${DR_UID}__$(date +%s)"
