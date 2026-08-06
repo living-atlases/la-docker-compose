@@ -9,6 +9,10 @@ import shlex
 import subprocess
 
 LOG_PREFIX = "[no-aws-overlay]"
+# How much of a failed step's output to echo into the Airflow task log. la-pipelines
+# is very chatty at DEBUG, so a tail keeps the log readable while still carrying the
+# stacktrace, which is always at the end.
+LOG_TAIL_LINES = int(os.environ.get("PIPELINES_LOCAL_LOG_TAIL", "120"))
 
 
 def translate_step(step: dict) -> dict:
@@ -75,6 +79,17 @@ def run_local_step(action: dict):
     if action["kind"] == "exec":
         argv = build_argv(action)
         print(f"{LOG_PREFIX} exec: " + " ".join(shlex.quote(a) for a in argv))
-        subprocess.run(argv, check=True)
+        # Capture instead of inheriting the fds: the task runner forks, so anything
+        # la-pipelines writes to its own stdout/stderr never reaches the Airflow task
+        # log. Without this, a failing step shows only CalledProcessError and the real
+        # cause (stacktrace, missing input, OOM) is invisible. Echo a bounded tail on
+        # failure, then let check_returncode() raise exactly as before.
+        proc = subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        if proc.returncode != 0:
+            out = (proc.stdout or b"").decode("utf-8", "replace").splitlines()
+            print(f"{LOG_PREFIX} step failed (rc={proc.returncode}); last {LOG_TAIL_LINES} lines:")
+            for line in out[-LOG_TAIL_LINES:]:
+                print(f"{LOG_PREFIX} | {line}")
+        proc.check_returncode()
         return f"ran:{action['name']}"
     raise RuntimeError(f"{LOG_PREFIX} unhandled EMR step (overlay out of date?): {action}")

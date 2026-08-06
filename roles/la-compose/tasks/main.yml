@@ -669,10 +669,24 @@
           become: true
           when: airflow_dags_src.stat.exists
 
+        # The shim runs `docker exec la_pipelines` from INSIDE the Airflow containers over
+        # the bind-mounted socket, but they run as uid 50000 gid 0 while /var/run/docker.sock
+        # is root:docker 0660 -> "permission denied ... dial unix /var/run/docker.sock".
+        # That made every add_steps task fail in ~0.3s with an opaque CalledProcessError.
+        # The docker group's gid is host-specific (999 on Ubuntu, 998/other elsewhere), so
+        # read it from the target host rather than hardcoding it.
+        - name: "Airflow: read the docker socket's group id on the pipelines host"
+          stat:
+            path: "{{ docker_socket | regex_replace('^unix://', '') }}"
+          become: true
+          register: airflow_docker_sock
+          when: airflow_dags_src.stat.exists
+
         # Cross-host reachability for the overlay: render an override giving the Airflow
         # containers the same docker_extra_hosts_dict every other consumer gets, so the
         # DAGs resolve the public service domains (biocache/collectory) to the owning
         # host and reach solr/zookeeper — instead of hitting the local nginx (404).
+        # The same override carries the docker-socket group (above).
         - name: "Airflow: render cross-host extra_hosts override"
           template:
             src: docker-compose.airflow.override.yml.j2

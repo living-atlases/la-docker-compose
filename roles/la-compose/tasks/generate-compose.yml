@@ -3166,8 +3166,16 @@
     spark_master: ""
     namematching_service_url: "http://namematching-service:9179"
     sensitive_data_service_url: "http://sensitive-data-service:9189"
-    collectory_url: "http://collectory:8080"
-    collectory_service_slash_url: "http://collectory:8080/ws/"
+    # Co-location gate. The internal alias only resolves when collectory runs on THIS
+    # host; on multihost (collectory elsewhere) it is a plain NXDOMAIN and — this is the
+    # nasty part — ALAVerbatimToInterpretedPipeline treats a collectory lookup failure as
+    # "Collectory metadata no available for <dr>. Will not run interpretation" and exits
+    # 0. Every downstream stage then finds no input, and `solr` is the first to actually
+    # fail, pointing at the wrong place. Fall back to the public URL, which is reachable
+    # cross-host (same choice the rest of this file already makes for
+    # namematching/images/lists/spatial).
+    collectory_url: "{{ 'http://collectory:8080' if 'collectory' in (services_enabled | default([])) else 'https://' ~ collectory_hostname }}"
+    collectory_service_slash_url: "{{ 'http://collectory:8080/ws/' if 'collectory' in (services_enabled | default([])) else 'https://' ~ collectory_hostname ~ '/ws/' }}"
     image_service_url: "http://image-service:8080"
     layers_service_url: "http://spatial-service:8080/ws"
     specieslist_base_url: "http://species-list:8080"
@@ -3208,6 +3216,16 @@
         - "{{ data_dir }}/dwca-tmp"
         - "{{ data_dir }}/dwca-export"
         - "{{ data_dir }}/pipelines-shp"
+        # Cross-dataset working paths, bound into the container at /pipelines-*
+        # (see pipelines.yml.j2). Upstream creates them with `hdfs dfs -mkdir` and
+        # skips that when deployment_type == 'container', so without these the solr
+        # stage fails on a missing /pipelines-all-datasets. Created here so they are
+        # owned by uid 1000 rather than root-created by the docker daemon.
+        - "{{ data_dir }}/la-pipelines/all-datasets"
+        - "{{ data_dir }}/la-pipelines/species"
+        - "{{ data_dir }}/la-pipelines/jackknife"
+        - "{{ data_dir }}/la-pipelines/clustering"
+        - "{{ data_dir }}/la-pipelines/outlier"
 
     - name: Render la-pipelines-local.yaml from the ala-install pipelines template
       ansible.builtin.template:

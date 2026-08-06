@@ -27,6 +27,18 @@ services:
       - ${DATA_DIR:-/data}/pipelines-shp:/data/pipelines-shp
       - ${DATA_DIR:-/data}/dwca-tmp:/data/dwca-tmp
       - ${DATA_DIR:-/data}/dwca-export:/data/dwca-export
+      # Cross-dataset working paths. la-pipelines-local.yaml renders these as bare
+      # root-level paths ({{ '{{ fs }}' }}/pipelines-all-datasets etc.) because upstream they are
+      # HDFS paths; ala-install only mkdirs them via `hdfs dfs -mkdir` and skips that
+      # entirely when deployment_type == 'container'. Nothing then creates them, so
+      # `la-pipelines solr` died with "No files matched spec:
+      # /pipelines-all-datasets/index-record/<dr>/*.avro". Bind them into the data
+      # volume so the paths exist, persist, and stay inside DATA_DIR.
+      - ${DATA_DIR:-/data}/la-pipelines/all-datasets:/pipelines-all-datasets
+      - ${DATA_DIR:-/data}/la-pipelines/species:/pipelines-species
+      - ${DATA_DIR:-/data}/la-pipelines/jackknife:/pipelines-jackknife
+      - ${DATA_DIR:-/data}/la-pipelines/clustering:/pipelines-clustering
+      - ${DATA_DIR:-/data}/la-pipelines/outlier:/pipelines-outlier
     networks:
       - ${DOCKER_NETWORK:-internal}
     # LA Pipelines is a stateful service, healthcheck verifies data dirs exist

@@ -14,9 +14,10 @@
 #
 # Triggers `Ingest_small_datasets` DIRECTLY with run_indexing=true so a single
 # dataset reaches Solr (Load_dataset triggers ingest with run_indexing=false).
-# SDS is made optional via the overlay's runtime skip (pipelines_skip_stages in the
-# DAG run conf -> sitecustomize no-ops the `sds` stage) so sensitive-data-service
-# need not be deployed.
+# SDS now runs as part of the ingest (sensitive-data-service is deployed). It can still
+# be skipped without a redeploy via the overlay's runtime skip — export SKIP_STAGES=sds
+# and it lands in pipelines_skip_stages in the DAG run conf, where sitecustomize no-ops
+# that stage.
 #
 # Exit codes: 0 = records indexed (or report-only) | 1 = ingest/verify failed | 2 = preconditions unmet
 # Report-only by default (exits 0, prints WARN); pass --blocking to gate CI.
@@ -41,7 +42,10 @@ COLLECTORY_WS="${COLLECTORY_WS:-http://collectory:8080/ws}"
 # inventory carries. Override if your deployment differs.
 DWCA_IMPORT_DIR="${DWCA_IMPORT_DIR:-/data/la-pipelines/dwca-import}"
 PIPELINES_UID="${PIPELINES_UID:-1000}"   # la_pipelines runs as this uid (pipelines.yml.j2)
-SKIP_STAGES="${SKIP_STAGES:-sds}"        # -> pipelines_skip_stages in the DAG run conf
+# -> pipelines_skip_stages in the DAG run conf. Empty = run every stage, SDS included.
+# Note the `-` (not `:-`): an explicitly empty SKIP_STAGES="" must stay empty, otherwise
+# there is no way to ask for "skip nothing" from the environment.
+SKIP_STAGES="${SKIP_STAGES-}"
 EXPECTED_MIN="${EXPECTED_MIN:-1}"        # min indexed records to call it a success
 TIMEOUT="${TIMEOUT:-1800}"               # seconds to wait for the DAG run
 POLL_INTERVAL="${POLL_INTERVAL:-15}"
@@ -80,6 +84,16 @@ finish() {   # honest exit under --blocking; report-only otherwise
 af()  { docker exec "$AIRFLOW_CONTAINER" "$@"; }
 afi() { docker exec -i "$AIRFLOW_CONTAINER" "$@"; }
 
+# Task logs are written by whoever RUNS the task, which is the scheduler (LocalExecutor),
+# NOT $AIRFLOW_CONTAINER — they share the metadata DB but not the logs volume, so
+# /opt/airflow/logs in la_airflow holds only scheduler/, no task logs at all. Discover the
+# scheduler by name; fall back to $AIRFLOW_CONTAINER for single-container deployments.
+tasklog_container() {
+  if [[ -n "${AIRFLOW_TASKLOG_CONTAINER:-}" ]]; then printf '%s\n' "$AIRFLOW_TASKLOG_CONTAINER"; return; fi
+  docker ps --format '{{.Names}}' 2>/dev/null | grep -m1 -E 'airflow-scheduler' \
+    || printf '%s\n' "$AIRFLOW_CONTAINER"
+}
+
 # Dump the Airflow task log(s) for the run's failed task(s). states-for-dag-run only
 # reports state=failed, not *why*; without the actual log the overlay shims (e.g. the
 # EMR add_steps shim) fail opaquely. Best-effort: never let this fail the harness.
@@ -99,15 +113,24 @@ print(" ".join(t.get("task_id","") for t in d if t.get("state")=="failed"))' 2>/
     warn "no 'failed' task found to dump the log of (see the state table above)"
     return 0
   fi
+  local logc
+  logc=$(tasklog_container)
   for t in $tasks; do
-    log "----- log tail for failed task '$t' (run=$RUN_ID) -----"
+    log "----- log tail for failed task '$t' (run=$RUN_ID, container=$logc) -----"
     # newest matching *.log across new-style (run_id=…/task_id=…) and legacy
     # (<DAG>/<task>/<date>) log layouts. GNU find/xargs (present in the airflow image).
-    af bash -lc "find '$base' -type f -name '*.log' \
+    local found
+    found=$(docker exec "$logc" bash -lc "find '$base' -type f -name '*.log' \
         \( -path '*run_id=${RUN_ID}*task_id=${t}*' -o -path '*/${DAG_ID}/${t}/*' \) \
         -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -1 | cut -d' ' -f2- \
-        | xargs -r tail -n 120" 2>/dev/null \
-      || warn "could not read a log file for task '$t' under $base"
+        | xargs -r tail -n 120" 2>/dev/null || true)
+    if [[ -n "$found" ]]; then
+      printf '%s\n' "$found"
+    else
+      warn "no log file for task '$t' under $base in '$logc'."
+      warn "task logs are written by whichever container RUNS the task; set"
+      warn "AIRFLOW_TASKLOG_CONTAINER=<name> if auto-detection picked the wrong one."
+    fi
   done
 }
 
@@ -119,6 +142,36 @@ for c in "$AIRFLOW_CONTAINER" "$PIPELINES_CONTAINER"; do
 done
 [[ -f "$FIXTURE_DIR/meta.xml" && -f "$FIXTURE_DIR/occurrence.txt" ]] \
   || { err "fixture not found at $FIXTURE_DIR"; exit 2; }
+
+# The dataset MUST be registered in collectory before the run: interpret asks collectory
+# for the dataResource metadata and, when the lookup fails, logs "Collectory metadata no
+# available for <dr>. Will not run interpretation" and STILL EXITS 0. The whole chain then
+# runs on empty input and the first hard failure lands six stages later in `solr` ("No
+# files matched spec: /pipelines-all-datasets/index-record/<dr>/*.avro"), which points at
+# entirely the wrong thing. Check it up front so the diagnosis is one line, not one hour.
+# Uses the URL la-pipelines itself is configured with, so a wrong/unreachable collectory
+# URL is caught here too.
+collectory_ws=$(docker exec "$PIPELINES_CONTAINER" bash -lc \
+  "sed -nE '/^collectory:/,/^[a-zA-Z]/s#^[[:space:]]+wsUrl:[[:space:]]*(.+)[[:space:]]*\$#\1#p' \
+   /data/la-pipelines/config/la-pipelines-local.yaml | head -1" 2>/dev/null | tr -d '\r')
+collectory_ws="${collectory_ws:-$COLLECTORY_WS}"
+# `|| true` INSIDE the container shell: curl exits non-zero when the host does not
+# resolve, and an outer `|| echo 000` would append to curl's own "000" -> "000000",
+# which then misses the 000 case and reports the wrong reason.
+dr_http=$(docker exec "$PIPELINES_CONTAINER" bash -lc \
+  "curl -s -o /dev/null -w '%{http_code}' --max-time 20 '${collectory_ws%/}/dataResource/${DR_UID}' || true" 2>/dev/null | tail -c 3)
+dr_http="${dr_http:-000}"
+case "$dr_http" in
+  200) log "collectory: dataResource '$DR_UID' registered (${collectory_ws})" ;;
+  000) err "collectory unreachable from ${PIPELINES_CONTAINER} at ${collectory_ws}."
+       err "interpret would silently skip (exit 0) and the run would fail later in 'solr'."
+       err "On multihost the internal alias does not resolve — la-pipelines needs the public URL."
+       exit 2 ;;
+  *)   err "collectory has no dataResource '$DR_UID' (HTTP $dr_http at ${collectory_ws})."
+       err "interpret would silently skip (exit 0) and the run would fail later in 'solr'."
+       err "Register it first (see --seed-collectory), then re-run."
+       exit 2 ;;
+esac
 
 # --- 1. package the fixture DwCA -------------------------------------------------
 ZIP="/tmp/${DR_UID}.zip"
@@ -151,7 +204,7 @@ if [[ "$SEED_COLLECTORY" == true ]]; then
   [[ -n "${COLLECTORY_API_KEY:-}" ]] || { err "--seed-collectory needs COLLECTORY_API_KEY"; exit 2; }
   log "registering data resource '${DR_UID}' in collectory"
   afi env CW="$COLLECTORY_WS" KEY="$COLLECTORY_API_KEY" DR="$DR_UID" python3 - <<'PY' \
-    || warn "collectory seed failed (non-fatal; ingest does not require it)"
+    || warn "collectory seed failed — the run WILL fail; interpret needs this metadata"
 import os, json, urllib.request
 body = {"name": "Living Atlas E2E Test Dataset", "acronym": "LAE2E",
         "resourceType": "records", "licenseType": "CC0",

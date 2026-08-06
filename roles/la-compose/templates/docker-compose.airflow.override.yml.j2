@@ -11,10 +11,32 @@
 #
 # Generic: docker_extra_hosts_dict is per-host computed from the inventory topology.
 # Single-host: the dict is empty -> extra_hosts: {} -> no-op.
+#
+# Also grants the containers the docker socket's group, so the NO-AWS shim can run
+# `docker exec la_pipelines` over the bind-mounted socket. The images run as uid 50000
+# gid 0 and the socket is root:docker 0660, so without this EVERY step fails with
+# "permission denied ... dial unix /var/run/docker.sock" — fast and opaque, since the
+# shim only surfaces a CalledProcessError. The gid is read from the target host
+# (docker's gid is not portable across distros); if the stat is unavailable the key is
+# omitted and behaviour is exactly as before.
+{% if airflow_docker_sock is defined and airflow_docker_sock.stat is defined and airflow_docker_sock.stat.exists %}
+{%   set _sock_gid = [airflow_docker_sock.stat.gid | string] %}
+{% else %}
+{%   set _sock_gid = [] %}
+{% endif %}
 services:
   airflow-init:
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+{% if _sock_gid %}
+    group_add: {{ _sock_gid | to_json }}
+{% endif %}
   airflow-webserver:
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+{% if _sock_gid %}
+    group_add: {{ _sock_gid | to_json }}
+{% endif %}
   airflow-scheduler:
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+{% if _sock_gid %}
+    group_add: {{ _sock_gid | to_json }}
+{% endif %}
