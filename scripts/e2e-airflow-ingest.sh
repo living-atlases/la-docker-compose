@@ -30,7 +30,13 @@ set -euo pipefail
 # --- config (env-overridable; defaults match the la-docker-compose stack) --------
 AIRFLOW_CONTAINER="${AIRFLOW_CONTAINER:-la_airflow}"
 PIPELINES_CONTAINER="${PIPELINES_CONTAINER:-la_pipelines}"
-DR_UID="${DR_UID:-dr-e2e-test}"
+# Must be a uid collectory ACTUALLY holds — interpret asks it for the dataResource
+# metadata and silently skips the whole run when the lookup fails (see the precondition
+# below). collectory assigns uids itself: POST /ws/dataResource/<uid> is an UPDATE and
+# 404s when absent, creation is POST /ws/dataResource with no uid. So this cannot be an
+# arbitrary label like "dr-e2e-test" — it is the uid of the resource registered on the
+# target deployment (dr0 on a freshly seeded one, being the first dataResource created).
+DR_UID="${DR_UID:-dr0}"
 DAG_ID="${DAG_ID:-Ingest_small_datasets}"
 SOLR_COLLECTION="${SOLR_COLLECTION:-biocache}"
 SOLR_URL="${SOLR_URL:-http://solr:8983/solr}"                 # reachable from la_airflow (extra_hosts)
@@ -228,21 +234,27 @@ PY
 fi
 
 # --- 2c. (optional) register the data resource in collectory (attribution) --------
+# CREATE is POST /ws/dataResource with NO uid — collectory assigns one and returns it in
+# the Location header. POST /ws/dataResource/<uid> is an UPDATE and 404s when the entity
+# does not exist, so the uid cannot be chosen by the caller. Prints the assigned uid;
+# pass it back as DR_UID (the run below still uses whatever DR_UID currently holds).
 if [[ "$SEED_COLLECTORY" == true ]]; then
   [[ -n "${COLLECTORY_API_KEY:-}" ]] || { err "--seed-collectory needs COLLECTORY_API_KEY"; exit 2; }
-  log "registering data resource '${DR_UID}' in collectory"
-  afi env CW="$COLLECTORY_WS" KEY="$COLLECTORY_API_KEY" DR="$DR_UID" python3 - <<'PY' \
+  log "creating a data resource in collectory (uid assigned by collectory)"
+  afi env CW="$COLLECTORY_WS" KEY="$COLLECTORY_API_KEY" python3 - <<'PY' \
     || warn "collectory seed failed — the run WILL fail; interpret needs this metadata"
 import os, json, urllib.request
 body = {"name": "Living Atlas E2E Test Dataset", "acronym": "LAE2E",
         "resourceType": "records", "licenseType": "CC0",
         "connectionParameters": {"protocol": "DwCA", "termsForUniqueKey": ["occurrenceID"]}}
-req = urllib.request.Request(f"{os.environ['CW']}/dataResource/{os.environ['DR']}",
+req = urllib.request.Request(f"{os.environ['CW'].rstrip('/')}/dataResource",
                             data=json.dumps(body).encode(), method="POST",
                             headers={"Authorization": os.environ["KEY"],
                                      "Content-Type": "application/json"})
 with urllib.request.urlopen(req, timeout=60) as r:
-    print("collectory:", r.status)
+    loc = r.headers.get("Location", "")
+    print("collectory:", r.status, "uid:", loc.rsplit("/", 1)[-1] or "(no Location header)")
+    print("re-run with DR_UID=<uid> to ingest into it")
 PY
 fi
 
