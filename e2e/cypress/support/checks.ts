@@ -2,7 +2,14 @@
 // judge "the deployment serves a working page/API", not specific demo content.
 import { hasService } from "./services";
 
-// Framework/server error markers — the same signals Gatus body-patterns look for.
+// Framework/server error markers. These MUST mirror `gatus_html_error_markers` in
+// roles/la-compose/vars/gatus-extra-endpoints.yml, which expands them into
+// `[BODY] != pat(*marker*)` conditions for every check marked `html: true`.
+//
+// The two lists had drifted: gatus only looked for "Application error" on the species hub,
+// while the ALA Grails hubs actually render "An error has occurred". That is why this suite
+// caught a broken bie-index -> Solr link and gatus reported the whole Deep checks group
+// green. Add a marker here and there, or neither.
 const SERVER_ERROR_MARKERS = [
   "HTTP Status 500",
   "Application error",

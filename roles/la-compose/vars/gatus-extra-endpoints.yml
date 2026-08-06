@@ -109,12 +109,41 @@ gatus_url_sources:
     host_var: "gatus_url"
 
 # ---------------------------------------------------------------------------
+# Framework/server error markers for HTML pages. THE SAME LIST as
+# SERVER_ERROR_MARKERS in e2e/cypress/support/checks.ts — keep both in sync, and see
+# the note there.
+#
+# This list exists because the two layers had silently drifted apart: checks.ts claimed
+# parity while gatus only looked for "Application error" on the species hub and "An error
+# has occurred" on geoserver. The ALA Grails hubs render "An error has occurred", so the
+# species check stayed GREEN through a completely broken bie-index -> Solr link, and the
+# cypress spec was the only thing that caught it. One list, expanded by the template for
+# every endpoint marked `html: true`, so a marker can never again be present in one layer
+# and missing from the other.
+# ---------------------------------------------------------------------------
+gatus_html_error_markers:
+  - "HTTP Status 500"
+  - "Application error"
+  - "An error has occurred"
+  - "Whitelabel Error Page"
+  - "grails.gsp"
+
+# ---------------------------------------------------------------------------
 # Deep API / functional checks — status plus framework error patterns only
 # (nothing that depends on a particular deployment's data).
 #
 # `service` picks the base URL from gatus_url_sources; `path` is appended to it.
 # Mind that the resolved base already carries the service context path: for example
 # spatial_service_url ends in /ws, so the fields check is just "/fields".
+#
+# `html: true` appends one `[BODY] != pat(*marker*)` condition per entry of
+# gatus_html_error_markers. Use it for anything that serves a rendered page.
+#
+# A NOTE ON `[STATUS] < 400` ALONE: several ALA services answer 200 with an error
+# payload, so the status says nothing. bie-index returns 200 + `{"error": "IOException
+# ..."}` when it cannot reach Solr, and biocache returns 200 + `[]` for the index fields
+# when it cannot read the schema. Any check whose failure mode is a well-formed 200 needs
+# a SHAPE condition (`has(...)`, `len(...)`) on top of the status.
 #
 # Renderer defaults: conditions=['[STATUS] < 400'], interval=gatus_interval (1m).
 # ---------------------------------------------------------------------------
@@ -126,23 +155,41 @@ gatus_extra_endpoints:
     path: "/occurrences/search?q=*:*&pageSize=0"
     conditions: ["[STATUS] < 400"]
 
+  # len() guards the hollow-green case: with an unreadable schema biocache answers 200
+  # with `[]` (two bytes), which a status-only condition happily accepts.
+  # CONFIRM ON FIRST DEPLOY whether gatus evaluates `len([BODY])` on a top-level JSON
+  # array as the element count (0 -> red, what we want) or as the raw string length
+  # (2 -> green). If it is the string length this check is merely as weak as it was
+  # before, never spuriously red, so it is safe to ship unconfirmed — but then switch it
+  # to an indexed shape condition such as `has([BODY][0].name) == true`.
   - name: "records-ws index fields"
     group: "Deep checks"
     service: "records-ws"
     path: "/index/fields"
-    conditions: ["[STATUS] < 400"]
+    conditions: ["[STATUS] < 400", "len([BODY]) > 0"]
+
+  # The hub HTML page, the one thing the cypress suite covered and gatus did not — and
+  # the one that 500s right after a deploy. Data-agnostic: an empty index renders a
+  # perfectly good "No records found" page.
+  - name: "records search page"
+    group: "Deep checks"
+    service: "records"
+    path: "/occurrences/search?q=*:*"
+    html: true
 
   - name: "species search"
     group: "Deep checks"
     service: "species"
     path: "/search?q=Acacia"
-    conditions: ["[STATUS] < 400", "[BODY] != pat(*Application error*)"]
+    html: true
 
+  # A healthy bie-index answers with `searchResults`; a broken one answers 200 with
+  # `{"error": "IOException ..."}`. Status alone cannot tell them apart.
   - name: "species-ws name search"
     group: "Deep checks"
     service: "species-ws"
     path: "/search?q=Acacia"
-    conditions: ["[STATUS] < 400"]
+    conditions: ["[STATUS] < 400", "has([BODY].searchResults) == true"]
 
   - name: "collections ws"
     group: "Deep checks"
@@ -156,11 +203,13 @@ gatus_extra_endpoints:
     path: "/fields"
     conditions: ["[STATUS] < 400"]
 
+  # /web/ answers 302 to a ;jsessionid= URL; gatus follows redirects by default
+  # (client.ignore-redirect is false), so the body condition does see the real page.
   - name: "spatial geoserver"
     group: "Deep checks"
     service: "geoserver"
     path: "/web/"
-    conditions: ["[STATUS] < 400", "[BODY] != pat(*An error has occurred*)"]
+    html: true
 
   - name: "lists ws"
     group: "Deep checks"

@@ -45,6 +45,13 @@ endpoints:
 {% for c in ep.conditions | default(['[STATUS] < 400']) %}
       - "{{ c }}"
 {% endfor %}
+{# `html: true` -> one body pattern per shared error marker, so gatus and the cypress
+   suite (e2e/cypress/support/checks.ts) can never drift apart again. #}
+{% if ep.html | default(false) %}
+{% for marker in gatus_html_error_markers | default([]) %}
+      - "[BODY] != pat(*{{ marker }}*)"
+{% endfor %}
+{% endif %}
 {% if ep.client is defined %}
     client:
 {% for k, v in ep.client.items() %}

@@ -72,6 +72,30 @@
          else ('postfix' if (not (docker_mail_development_mode | default(false) | bool) and
          mail_smtp_host | default('localhost') in ['localhost', '127.0.0.1'])
          else mail_smtp_host | default('postfix')) }}
+
+    # Mail PORT, same reason as the host right above but a different failure mode.
+    # setup-facts.yml already resolves these, and the bulk-load undoes it: the demo
+    # inventory carries `mail_smtp_port = 25` in [all:vars], so it lives in EVERY alias's
+    # hostvars and every bulk-load re-imports it. biocache-service is rendered after its
+    # own bulk-load, so it ended up with `mail.smtp.host=mailhog` next to
+    # `mail.smtp.port=25` -- mailing into a closed port, no error in the log, no download
+    # notification. userdetails escaped it only because `mail_port` (grails-mail
+    # convention) is absent from the inventory, so there was nothing to re-import.
+    #
+    # The gate is docker_mail_development_mode ONLY, never the host: this file runs AFTER
+    # the host above has been rewritten to 'mailhog', so a host-gated form falls straight
+    # through to the inventory's 25. That is the bug, not the fix.
+    #
+    # Production is untouched by construction: with development mode off the expression
+    # reduces to `mail_smtp_port | default(mail_port) | default(25)`, i.e. exactly the
+    # value the bulk-load just restored. Keeps the three cases b02f5c8 settled on
+    # (dev -> mailhog:1025, external inventory SMTP as-is, otherwise postfix:25).
+    mail_smtp_port: >-
+      {{ 1025 if (docker_mail_development_mode | default(false) | bool)
+         else (mail_smtp_port | default(mail_port) | default(25)) }}
+    mail_port: >-
+      {{ 1025 if (docker_mail_development_mode | default(false) | bool)
+         else (mail_port | default(mail_smtp_port) | default(25)) }}
   tags:
     - config
     - normalize

@@ -1111,8 +1111,34 @@ EOF
             }
             post {
                 always {
+                    // Archive the hubs' own logs alongside the results. The records hub 500s on
+                    // /occurrences/search right after a deploy and serves 200 later, so by the time
+                    // anyone reads a red build the evidence is gone — the spec can report the error
+                    // page, but only the container log carries the stacktrace behind it. Written to
+                    // files rather than the console so green builds stay quiet, and never fatal:
+                    // the hub may legitimately not exist on a given host.
+                    script {
+                        // Guarded: this is diagnostics in a post block, so it must never be
+                        // the reason a build goes red.
+                        def hosts = env.TARGET_HOSTS?.trim() ? env.TARGET_HOSTS.trim().split(/\s+/) : []
+                        sh 'mkdir -p e2e/logs'
+                        for (h in hosts) {
+                            sh """
+                                set +e
+                                for svc in la_biocache-hub la_bie-hub; do
+                                    if [ "${h}" = "localhost" ] || [ "${h}" = "127.0.0.1" ]; then
+                                        docker logs --tail 200 "\$svc" > "e2e/logs/${h}-\$svc.log" 2>&1
+                                    else
+                                        ssh -o BatchMode=yes -o StrictHostKeyChecking=no ${h} "docker logs --tail 200 \$svc" > "e2e/logs/${h}-\$svc.log" 2>&1
+                                    fi
+                                    [ -s "e2e/logs/${h}-\$svc.log" ] || rm -f "e2e/logs/${h}-\$svc.log"
+                                done
+                                exit 0
+                            """
+                        }
+                    }
                     junit allowEmptyResults: true, testResults: 'e2e/results/*.xml'
-                    archiveArtifacts artifacts: 'e2e/cypress/screenshots/**, e2e/cypress/videos/**', allowEmptyArchive: true
+                    archiveArtifacts artifacts: 'e2e/cypress/screenshots/**, e2e/cypress/videos/**, e2e/logs/**', allowEmptyArchive: true
                 }
             }
         }

@@ -154,18 +154,50 @@
     - name: "[TC3] Set mail hostname to localhost with dev mail mode enabled"
       ansible.builtin.set_fact:
         mail_smtp_host: "localhost"
+        mail_smtp_port: 25
+        mail_port: 25
         docker_mail_development_mode: true
 
     - name: "[TC3] Run normalize-hostnames.yml with dev mail mode"
       ansible.builtin.include_tasks: ../../roles/la-compose/tasks/normalize-hostnames.yml
 
-    - name: "[TC3] Assert mail_smtp_host → 'mailhog' in dev mode"
+    - name: "[TC3] Assert mail host AND port both land on mailhog in dev mode"
       ansible.builtin.assert:
         that:
           - mail_smtp_host == 'mailhog'
+          - mail_smtp_port | int == 1025
+          - mail_port | int == 1025
         msg: >
-          FAIL TC3: expected mail_smtp_host='mailhog' in dev mode,
-          got mail_smtp_host={{ mail_smtp_host }}
+          FAIL TC3: expected mailhog:1025 in dev mode, got
+          {{ mail_smtp_host }}:{{ mail_smtp_port }} (mail_port={{ mail_port }})
+
+    # ── Test case 3b: the bulk-load clobber ──────────────────────────────────
+    #
+    # The real failure. `mail_smtp_port = 25` lives in [all:vars] of the demo inventory, so
+    # it sits in EVERY service alias's hostvars and every bulk-load re-imports it — AFTER
+    # the host has already been rewritten to 'mailhog'. biocache-service is rendered right
+    # after its own bulk-load, so it shipped `mail.smtp.host=mailhog` next to
+    # `mail.smtp.port=25`, mailing into a closed port with no error in the log and no
+    # download notification (e2e 2-biocache/download.cy.ts (d), red from build #308).
+    #
+    # This is why the port gate must be docker_mail_development_mode and NOT the host: at
+    # this point the host no longer reads 'localhost', so a host-gated form falls straight
+    # back through to the inventory's 25.
+    - name: "[TC3b] Simulate a bulk-load re-importing the inventory port after normalization"
+      ansible.builtin.set_fact:
+        mail_smtp_port: 25
+
+    - name: "[TC3b] Run normalize-hostnames.yml again"
+      ansible.builtin.include_tasks: ../../roles/la-compose/tasks/normalize-hostnames.yml
+
+    - name: "[TC3b] Assert the re-imported port is corrected back to 1025"
+      ansible.builtin.assert:
+        that:
+          - mail_smtp_host == 'mailhog'
+          - mail_smtp_port | int == 1025
+        msg: >
+          FAIL TC3b: a bulk-load re-imported mail_smtp_port and it survived normalization.
+          Got {{ mail_smtp_host }}:{{ mail_smtp_port }} — biocache would mail into a closed port.
 
     # ── Test case 4: External hostnames preserved ─────────────────────────────
 
@@ -183,6 +215,13 @@
         solr_zk_host: "zk.internal.example.com:2181"
         zookeeper_address: "zk.internal.example.com:2181"
         mail_smtp_host: "smtp.internal.example.com"
+        # Production non-regression for real-mail deployments (gbif.es): with development
+        # mode off the port expression must be a pass-through, so an inventory that runs
+        # submission on 587 keeps 587. This is the case that ruled out blacklisting the
+        # port in system_vars_blacklist — that would have let setup-facts' one-time value
+        # win over the inventory everywhere.
+        mail_smtp_port: 587
+        mail_port: 587
         docker_mail_development_mode: false
 
     - name: "[TC4] Run normalize-hostnames.yml with external hostnames"
@@ -203,8 +242,11 @@
           - solr_zk_host == 'zk.internal.example.com:2181'
           - zookeeper_address == 'zk.internal.example.com:2181'
           - mail_smtp_host == 'smtp.internal.example.com'
+          - mail_smtp_port | int == 587
+          - mail_port | int == 587
         msg: >
           FAIL TC4: External hostname was incorrectly overwritten.
+          mail={{ mail_smtp_host }}:{{ mail_smtp_port }},
           cas_db_hostname={{ cas_db_hostname }},
           doi_db_hostname={{ doi_db_hostname }},
           ticket_registry_db_hostname={{ ticket_registry_db_hostname }},

@@ -19,7 +19,19 @@ describe("Biocache occurrence search", () => {
   });
 
   it("records hub renders the search results page", () => {
-    cy.visit(serviceUrl("records", "/occurrences/search?q=*:*"));
+    const hubUrl = serviceUrl("records", "/occurrences/search?q=*:*");
+    // Fetch before visiting so a 5xx reports the hub's OWN error page instead of dying
+    // inside cy.visit with a bare status code. The hub 500s right after a deploy and
+    // recovers later; without the body there is nothing to root-cause from a CI run.
+    // Same idea as assertDownloadAccepted in support/downloads.ts.
+    cy.request({ url: hubUrl, failOnStatusCode: false }).then((resp) => {
+      expect(
+        resp.status,
+        `GET ${hubUrl} — first 500 chars of the response: ` +
+          `${String(resp.body).replace(/\s+/g, " ").slice(0, 500)}`
+      ).to.be.lessThan(400);
+    });
+    cy.visit(hubUrl);
     pageRenders();
     // Results UI present (tolerant to hub markup differences).
     cy.get("#results, .results, [class*='result'], #totalRecords, .totalRecords", {

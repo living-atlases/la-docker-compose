@@ -7,4 +7,4 @@
   tasks:
     - name: All unit assertions passed in converge
       ansible.builtin.debug:
-        msg: "PASS: normalize-hostnames (TC1-4) and health gate budget (TC5a-b) completed in converge.yml"
+        msg: "PASS: normalize-hostnames (TC1-4, incl. TC3b mail-port clobber) and health gate budget (TC5a-b) completed in converge.yml"
