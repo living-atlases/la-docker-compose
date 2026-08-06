@@ -21,6 +21,41 @@ clone it directly — the [Prerequisites](#prerequisites) and
 [Testing & local development](#testing--local-development) sections below are
 aimed at contributors working on this repo itself.
 
+## Project status
+
+What works, and what you should not rely on yet. Read this before planning a
+deployment around it.
+
+**Deployed and exercised on every CI run.** The core stack — nginx, CAS, the
+datastores (MySQL, PostgreSQL, MongoDB, Cassandra, Solr/ZooKeeper,
+Elasticsearch), collectory, biocache (service and hub), bie (index and hub),
+species-list, spatial, image-service, logger, alerts, regions, data-quality,
+geoserver, geonetwork, doi and the sensitive-data services — is deployed on
+every build of the CI matrix, across four host topologies (1, 2 and 3 hosts),
+and gated on all containers reporting healthy.
+
+**Experimental — Airflow / pipelines ingestion.** The ingestion side is not
+finished. The `pipelines-airflow` submodule is not even initialized in a default
+checkout, heap tuning for `la_pipelines` is still pending, and paths have not
+been moved from `hdfs://` to `file:///data/...`. There is an end-to-end ingest
+test, but treat the whole area as a preview.
+
+**Caveats worth knowing before you start.**
+
+- `sensitive-data-service` runs the *legacy* ALA image, matched to a vintage
+  name index. Its upstream data files need repairing at deploy time (malformed
+  XML, and species entries referencing categories and zones by display name
+  instead of id), which this repo does for you — but it means the service is
+  pinned to that legacy combination.
+- `sds-static-home` (the nextgen static home) is not deployed.
+- The `ala-install` submodule points at
+  [`vjrj/ala-install@docker-compose-min-pr`](https://github.com/vjrj/ala-install/tree/docker-compose-min-pr),
+  a fork carrying the container-mode adaptations. Splitting it into minimal PRs
+  to upstream ALA is pending, so expect that pin to move.
+- A deployment split across VMs *and* containers (some datastores on VMs, the
+  rest in Compose) is supported but is the least-travelled path; it is where
+  most of the recent bugs have surfaced.
+
 ## Overview
 
 Unlike a traditional deployment, where `ala-install` directly mutates the state of
@@ -82,6 +117,14 @@ The generated runtime stack lives in `/data/docker-compose/` (configurable via t
 
 > For contributors working on this repo directly. Regular users go through
 > [la-toolkit](https://github.com/living-atlases/la-toolkit) (see [Usage](#usage)).
+
+Versions that actually matter:
+
+| | |
+|---|---|
+| Docker Compose | **≥ 2.20** — the generated `docker-compose.yml` uses the top-level `include:` key, added in 2.20. Older versions fail to parse it. |
+| Node | **22** — what CI pins for the Yeoman generator and the Cypress suites. |
+| Docker Engine / Ansible | No hard floor established. CI runs Docker 29.x with the containerd snapshotter and ansible-core 2.19. |
 
 Clone the repository **with submodules** so that `ala-install/` is populated:
 
