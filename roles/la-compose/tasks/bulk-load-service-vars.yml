@@ -1,0 +1,68 @@
+---
+# Load one service's inventory variables into the rendering host's fact scope.
+#
+# WHY THIS EXISTS
+#
+# Ansible resolves group variables PER HOST: a host in N groups gets all N
+# `[group:vars]` blocks merged into one namespace, and repeated names are won by
+# whichever group is applied last, silently. ALA inventories reuse variable names
+# across service groups, so putting every service group on one host loses data
+# (living-atlas/generator-living-atlas#10). The generated inventories therefore
+# give each service its own host ALIAS (`<host>.collectory`, `<host>.cas`, …),
+# all pointing at the same `ansible_host`, so each service keeps an isolated
+# hostvars namespace.
+#
+# Generating a compose stack needs the opposite: ONE host must see the variables
+# of every service at once, because the artefacts are aggregates — a single
+# docker-compose.yml, one .env, one nginx.conf holding every vhost, the gatus
+# checks, the depends_on graph, the co-location logic. That host (`docker_compose`)
+# is not a member of the service groups, so it copies each service's variables in
+# from the alias hostvars right before rendering that service. Loads are ordered
+# and overwrite each other on purpose: each one is immediately followed by the
+# role that consumes it.
+#
+# `delegate_to` cannot replace this — Ansible templates a task's variables before
+# it applies delegation, so the role's variables are still undefined at that point.
+# Rendering per service (a play per group plus an aggregation play) was evaluated
+# and rejected in docs/plans/2026-06-24-strategic-evaluation.md: the cross-service
+# aggregation just moves into the merge step.
+#
+# PARAMETERS (pass through `vars:` on the include)
+#   bulk_service_key    key in `service_aliases` (built in setup-facts.yml),
+#                       e.g. 'collectory', 'cas-servers', 'data_quality_filter_service'
+#   bulk_run_normalize  re-run normalize-hostnames.yml afterwards (default true).
+#                       Set false for services that hold no datastore endpoints;
+#                       it keeps the render identical to the hand-written blocks
+#                       this file replaced.
+#
+# The caller carries the per-service tags; a dynamic include passes its own tags
+# down to the tasks it includes.
+
+- name: "Bulk load {{ bulk_service_key }} variables from service alias context"
+  ansible.builtin.set_fact:
+    "{{ item.key }}": "{{ item.value }}"
+  loop: >-
+    {{ hostvars[service_aliases.get(bulk_service_key, '')] | default({})
+       | dict2items
+       | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
+       | rejectattr('key', 'match', '^ansible_.*')
+       | rejectattr('key', 'in', system_vars_blacklist)
+       | list }}
+  loop_control:
+    label: "{{ item.key }}"
+  when: service_aliases.get(bulk_service_key) is defined
+  tags:
+    - config
+    - bulk-load
+
+# The load re-imports the raw inventory values, so any hostname already rewritten
+# to a container-reachable name (mysql, postgres, la_mongodb, zookeeper…) comes
+# back as localhost and has to be rewritten again.
+- name: "Re-normalize database hostnames after {{ bulk_service_key }} bulk load"
+  ansible.builtin.include_tasks: normalize-hostnames.yml
+  when:
+    - service_aliases.get(bulk_service_key) is defined
+    - bulk_run_normalize | default(true) | bool
+  tags:
+    - config
+    - normalize
