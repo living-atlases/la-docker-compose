@@ -110,8 +110,33 @@
   ansible.builtin.set_fact:
     datastore_endpoints: >-
       {%- set result = {} -%}
+      {%- set docker_ansible_hosts = groups['docker_compose'] | default([])
+            | map('extract', hostvars, 'ansible_host') | select('defined') | list -%}
       {%- for ds, spec in datastore_cluster_spec.items() -%}
         {%- set owner = namespace(host=none) -%}
+        {#- A datastore group list mixes the datastore's own group with its CONSUMERS -#}
+        {#- ('collectory', 'species-list', ... for mysql), and on a mixed VM+Docker -#}
+        {#- inventory a consumer group may list a production VM first. Taking -#}
+        {#- `groups[g] | first` blindly then points the compose alias at that VM: on -#}
+        {#- gbif-es, `mysql` resolved to the production CAS VM (172.16.16.61) on every -#}
+        {#- non-co-located docker host, while la_mysql actually runs on docker host 1. -#}
+        {#- So when the datastore IS deployed inside this stack, the owner must be a -#}
+        {#- docker host. Matching is on ansible_host, not on the inventory name: the -#}
+        {#- same physical host appears under a different alias in each service group. -#}
+        {%- if (datastore_docker_local | default({})).get(ds, false) -%}
+          {%- for g in spec.groups -%}
+            {%- if g in groups -%}
+              {%- for h in groups[g] -%}
+                {%- if owner.host is none
+                       and (hostvars[h].ansible_host | default(h)) in docker_ansible_hosts -%}
+                  {%- set owner.host = h -%}
+                {%- endif -%}
+              {%- endfor -%}
+            {%- endif -%}
+          {%- endfor -%}
+        {%- endif -%}
+        {#- Externally-hosted datastore (solr/cassandra/zookeeper on VMs), or no docker -#}
+        {#- candidate found: original behaviour, unchanged. -#}
         {%- for g in spec.groups -%}
           {%- if owner.host is none and g in groups and (groups[g] | length > 0) -%}
             {%- set owner.host = groups[g] | first -%}
@@ -131,10 +156,64 @@
           {#- the IP here; we look it up by the owner's underlying hostname. -#}
           {%- set owner_name = hostvars[owner.host].ansible_host | default(owner.host) -%}
           {%- set ip = docker_extra_hosts_dict.get(owner_name, docker_extra_hosts_dict.get(owner.host, '')) -%}
-          {%- set _ = result.update({ds: {'owner': owner.host, 'colocated': colocated, 'ip': ip, 'port': spec.port, 'aliases': spec.aliases}}) -%}
+          {#- owner_in_stack is recorded here, where ansible_host is already resolved: the -#}
+          {#- owner is a service alias ('h1.collectory') while groups['docker_compose'] -#}
+          {#- holds a different alias for the same box ('h1.docker_compose'), so comparing -#}
+          {#- inventory names downstream would silently never match. -#}
+          {%- set _ = result.update({ds: {
+                'owner': owner.host, 'colocated': colocated, 'ip': ip,
+                'port': spec.port, 'aliases': spec.aliases,
+                'owner_in_stack': (owner_name in docker_ansible_hosts)}}) -%}
         {%- endif -%}
       {%- endfor -%}
       {{ result }}
+  tags:
+    - always
+    - docker-compose
+
+# Safety net for the computation above. A datastore this stack deploys itself must never be
+# addressed at a host outside the stack: on a mixed VM+Docker inventory such a host is a
+# production VM, and the containers would read and write the production database in silence.
+# This is an invariant assertion, not a heuristic — if it fires, the owner selection
+# regressed.
+- name: "Validate: a stack-local datastore is never owned by a host outside the stack"
+  ansible.builtin.assert:
+    that:
+      - >-
+        (datastore_endpoints | default({}) | dict2items
+         | selectattr('key', 'in', ((datastore_docker_local | default({})) | dict2items
+                                    | selectattr('value') | map(attribute='key') | list))
+         | rejectattr('value.owner_in_stack')
+         | map(attribute='key') | list | length) == 0
+    fail_msg: >-
+      A datastore deployed inside this docker stack resolved to a host outside
+      groups['docker_compose']. On a mixed VM+Docker inventory that host is a production VM,
+      and these containers would talk to the production database.
+      datastore_docker_local={{ datastore_docker_local | default({}) }}
+    success_msg: "All stack-local datastores are owned by hosts in groups['docker_compose']."
+  tags:
+    - always
+    - docker-compose
+
+# Not an error — a mixed deployment consumes the production Solr/Cassandra on purpose — but
+# it must be visible. `mongodb` reaches gbif-es this way: no group in its spec names an
+# actual mongo, so the owner falls through to `cas-servers`, a production VM, even though
+# the stack ships mongodb.yml.j2 and could run its own. That silence is how a future
+# mongo-backed service would end up writing to the production CAS database.
+- name: "Report datastores addressed outside this docker stack"
+  ansible.builtin.debug:
+    msg: >-
+      Datastore '{{ item.key }}' is addressed at {{ item.value.ip | default('?') }}
+      (owner {{ item.value.owner }}), outside this docker stack. Expected when the
+      inventory genuinely places it on a VM; if this stack was meant to run its own,
+      declare it in the inventory instead of letting the endpoint fall through to a
+      consumer group.
+  loop: "{{ datastore_endpoints | default({}) | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when:
+    - not (datastore_docker_local | default({})).get(item.key, false)
+    - not item.value.owner_in_stack
   tags:
     - always
     - docker-compose
