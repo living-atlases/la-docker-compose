@@ -48,23 +48,31 @@ Cypress.Commands.add(
     cy.session(
       username,
       () => {
-        // Start on a hub and trigger the login → redirects to CAS on the auth subdomain.
+        // Start on a hub, assert it offers a login link, then FOLLOW that link by URL.
+        //
+        // It used to reveal the collapsed Bootstrap dropdown with jQuery .show() and click
+        // the anchor, relying on the click producing a NATIVE cross-origin navigation. That
+        // chain has now broken twice the same way — #268, and again from #341 — always with
+        // "expected to run against origin auth.l-a.site but the application is at origin
+        // records.l-a.site", i.e. the click landed but the browser never left the hub. The
+        // server side was fine both times: following the anchor's href by hand ends on
+        // https://auth.l-a.site/cas/login?service=... after 2 redirects, HTTP 200.
+        //
+        // Reading the href and visiting it exercises the identical server-side flow
+        // (hub /login?path=… -> CAS oidcAuthorize -> CAS login form) and keeps the real
+        // coverage — that the signed-out navbar renders a login link pointing at /login —
+        // as an explicit assertion, without depending on dropdown visibility or on the
+        // browser's default click action.
         cy.visit(serviceUrl("records"));
-        // The login link sits in a collapsed Bootstrap auth dropdown (ul#dropdown-auth-menu.signedOut,
-        // display:none). Reveal it with jQuery .show() so the anchor is genuinely visible and a plain
-        // click performs a NATIVE navigation to CAS. A forced click on a display:none anchor dispatches
-        // the click event but does not reliably trigger the browser's default navigation — that was the
-        // #268 failure, where cy.origin(auth) ran while the app was still on records.l-a.site.
-        // cy.get retries until the auth menu renders, so this survives a late-loading navbar.
-        cy.get("#dropdown-auth-menu", { timeout: 20000 }).invoke("show");
-        // Scope to the real login anchor (href points at /login), not the dropdown toggle that a
-        // broad [class*="login"] match could grab first.
-        cy.get(
-          'a.loginBtn[href*="/login"], a[href*="/cas/login"], a[href*="/login"]',
-        )
-          .filter(":visible")
-          .first()
-          .click();
+        cy.get('#dropdown-auth-menu a.loginBtn[href*="/login"]', {
+          timeout: 20000,
+        })
+          .should("have.attr", "href")
+          .then((href) => {
+            // Relative in the rendered markup (href="/login?path=…"), so resolve it
+            // against the hub before visiting.
+            cy.visit(new URL(String(href), serviceUrl("records")).toString());
+          });
 
         // On the CAS origin: fill the CAS 6.x login form and submit.
         cy.origin(
