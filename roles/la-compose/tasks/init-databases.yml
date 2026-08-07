@@ -305,6 +305,7 @@
   retries: 10
   delay: 6
   when:
+    - "'mysql' in db_compose_services.stdout_lines"
     - "'cas-servers' in physical_server_groups"
     - needs_db_init | default(false) | bool
   tags:
@@ -322,6 +323,7 @@
     FLUSH PRIVILEGES;"
   become: true
   when:
+    - "'mysql' in db_compose_services.stdout_lines"
     - "'cas-servers' in physical_server_groups"
     - needs_db_init | default(false) | bool
   tags:
@@ -341,6 +343,7 @@
     FLUSH PRIVILEGES;"
   become: true
   when:
+    - "'mysql' in db_compose_services.stdout_lines"
     - "'cas-servers' in physical_server_groups"
   changed_when: false
   tags:
@@ -368,6 +371,7 @@
   until: cas_flyway_probe.rc == 0
   become: true
   when:
+    - "'mysql' in db_compose_services.stdout_lines"
     - "'cas-servers' in physical_server_groups"
   changed_when: false
   no_log: true
@@ -391,7 +395,9 @@
     GRANT ALL PRIVILEGES ON {{ collectory_db_name | default('collectory') }}.* TO '{{ collectory_db_user | default('collectory') }}'@'%';
     FLUSH PRIVILEGES;"
   become: true
-  when: "'collectory' in physical_server_groups"
+  when:
+    - "'mysql' in db_compose_services.stdout_lines"
+    - "'collectory' in physical_server_groups"
   changed_when: false
   tags:
     - db-init
@@ -408,7 +414,9 @@
   delay: 2
   until: collectory_db_probe.rc == 0
   become: true
-  when: "'collectory' in physical_server_groups"
+  when:
+    - "'mysql' in db_compose_services.stdout_lines"
+    - "'collectory' in physical_server_groups"
   changed_when: false
   no_log: true
   tags:
@@ -428,7 +436,9 @@
     GRANT ALL PRIVILEGES ON {{ specieslist_db_name | default('specieslists') }}.* TO '{{ specieslist_db_username | default('specieslists') }}'@'%';
     FLUSH PRIVILEGES;"
   become: true
-  when: "'species-list' in physical_server_groups"
+  when:
+    - "'mysql' in db_compose_services.stdout_lines"
+    - "'species-list' in physical_server_groups"
   changed_when: false
   tags:
     - db-init
@@ -445,7 +455,9 @@
   delay: 2
   until: specieslists_db_probe.rc == 0
   become: true
-  when: "'species-list' in physical_server_groups"
+  when:
+    - "'mysql' in db_compose_services.stdout_lines"
+    - "'species-list' in physical_server_groups"
   changed_when: false
   no_log: true
   tags:
@@ -465,7 +477,9 @@
     GRANT ALL PRIVILEGES ON {{ logger_db_name | default('logger') }}.* TO '{{ logger_db_username | default('logger_user') }}'@'%';
     FLUSH PRIVILEGES;"
   become: true
-  when: "'logger-service' in physical_server_groups"
+  when:
+    - "'mysql' in db_compose_services.stdout_lines"
+    - "'logger-service' in physical_server_groups"
   changed_when: false
   tags:
     - db-init
@@ -482,7 +496,9 @@
   delay: 2
   until: logger_db_probe.rc == 0
   become: true
-  when: "'logger-service' in physical_server_groups"
+  when:
+    - "'mysql' in db_compose_services.stdout_lines"
+    - "'logger-service' in physical_server_groups"
   changed_when: false
   no_log: true
   tags:
@@ -503,7 +519,9 @@
     GRANT ALL PRIVILEGES ON {{ alerts_db_name | default('alerts') }}.* TO '{{ alerts_db_username | default('alerts') }}'@'%';
     FLUSH PRIVILEGES;"
   become: true
-  when: "'alerts-service' in physical_server_groups"
+  when:
+    - "'mysql' in db_compose_services.stdout_lines"
+    - "'alerts-service' in physical_server_groups"
   changed_when: false
   tags:
     - db-init
@@ -520,12 +538,42 @@
   delay: 2
   until: alerts_db_probe.rc == 0
   become: true
-  when: "'alerts-service' in physical_server_groups"
+  when:
+    - "'mysql' in db_compose_services.stdout_lines"
+    - "'alerts-service' in physical_server_groups"
   changed_when: false
   no_log: true
   tags:
     - db-init
     - db-password-sync
+
+# Each user above is provisioned with `docker exec la_mysql`, so the task can only run on
+# the host holding the container, yet it is gated on the CONSUMING service being co-located
+# on that same host. Both conditions can only hold together when consumer and datastore
+# share a host. On gbif-es they do (collectory, species-list and logger-service all sit with
+# la_mysql on docker host 1), which is why the fixed outer gate is enough there — but the
+# contradiction is real, and a service moved to another docker host would silently never get
+# its MySQL user, crash-looping on "Access denied" exactly as logger-service did.
+# Provisioning across hosts needs the consumer's password on the datastore host; until that
+# is wired, say so out loud rather than leaving it to be rediscovered from a crash loop.
+- name: "DB Init: Warn about MySQL consumers on other docker hosts (users not provisioned here)"
+  ansible.builtin.debug:
+    msg: >-
+      Service group '{{ item }}' runs on a docker host that is not this one, and its MySQL
+      user is provisioned only where la_mysql runs. It will not be created by this run, and
+      the service will crash-loop on "Access denied". Co-locate it with la_mysql, or create
+      its user manually until cross-host provisioning exists.
+  loop: "{{ ['cas-servers', 'collectory', 'species-list', 'logger-service', 'alerts-service'] }}"
+  when:
+    - "'mysql' in db_compose_services.stdout_lines"
+    - item not in physical_server_groups
+    - item in groups
+    - (groups[item] | map('extract', hostvars, 'ansible_host') | select('defined') | list
+       | intersect(groups['docker_compose'] | default([])
+                   | map('extract', hostvars, 'ansible_host') | select('defined') | list)
+       | length) > 0
+  tags:
+    - db-init
 
 # The logger app's Liquibase changeset 1 only does CREATE INDEX on log_event;
 # it assumes the base schema already exists (the VM role imports schema.sql).
@@ -539,7 +587,9 @@
      WHERE table_schema='{{ logger_db_name | default('logger') }}' AND table_name='log_event';"
   register: logger_schema_check
   become: true
-  when: "'logger-service' in physical_server_groups"
+  when:
+    - "'mysql' in db_compose_services.stdout_lines"
+    - "'logger-service' in physical_server_groups"
   changed_when: false
   no_log: true
   tags:
@@ -570,6 +620,7 @@
   loop: "{{ logger_db_sql_files }}"
   become: true
   when:
+    - "'mysql' in db_compose_services.stdout_lines"
     - "'logger-service' in physical_server_groups"
     - (logger_schema_check.stdout | default('1') | trim) == '0'
   changed_when: true

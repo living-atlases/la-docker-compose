@@ -397,11 +397,28 @@
         - docker-compose
         - deploy
 
-    - name: Initialize databases (if CAS server or image-service on this host)
+    # Gated on "does this host run a datastore container", not on "is CAS here". The old
+    # `cas-servers or image-service` condition was a proxy that holds only when CAS is
+    # deployed inside the stack. gbif-es runs an external CAS (auth-2025, a VM), so the
+    # condition was false on all three docker hosts and init-databases NEVER ran: verified
+    # 2026-08-06, la_mysql held only the `collectory` database (left over from an older
+    # deploy — the volume is external) and la_postgres held none of layersdb, geonetwork,
+    # images or doi. species-list and logger-service crash-looped on "Access denied" /
+    # "Public Key Retrieval is not allowed" for users that were never created, and the
+    # health gate burned its full 73-minute budget waiting for them.
+    #
+    # enable_mysql / enable_postgres / enable_mongo are the same facts that decide whether
+    # this host renders the datastore container at all (setup-facts.yml), so provisioning
+    # now runs exactly where there is something to provision. Every task inside is already
+    # gated per datastore and per service, and the mysql/mongodb ones additionally on the
+    # service existing in this host's compose, so a host with only postgres skips the rest.
+    - name: Initialize databases (where this host runs a datastore container)
       ansible.builtin.include_tasks: init-databases.yml
       when:
         - auto_deploy | default(true) | bool
-        - "'cas-servers' in physical_server_groups or 'image-service' in physical_server_groups"
+        - (enable_mysql | default(false) | bool)
+          or (enable_postgres | default(false) | bool)
+          or (enable_mongo | default(false) | bool)
       tags:
         - docker-compose
         - deploy
