@@ -89,6 +89,10 @@ include:
   - ./services/biocache-hub.yml
 {% endif %}
 {% if 'biocache_service' in services_enabled %}
+  # Order-independent gate: biocache-service caches the index field list at boot and keeps
+  # an empty one forever if the Solr collection is not there yet. Only on the host that
+  # runs biocache-service, so nobody else pays the poll.
+  - ./infrastructure/wait-for-solr-collection.yml
   - ./services/biocache-service.yml
 {% endif %}
 {% if 'pipelines' in services_enabled %}

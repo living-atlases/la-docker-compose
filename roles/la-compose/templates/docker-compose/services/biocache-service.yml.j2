@@ -11,8 +11,14 @@ services:
 {% set _i18n_dep = (i18n.enabled and i18n.strategy == 'volume' and i18n.volume.source == 'init-container') %}
 {% set _cassandra_local = datastore_endpoints.get('cassandra', {}).get('colocated', false) %}
 {% set _solr_local = datastore_endpoints.get('solr', {}).get('colocated', false) %}
-{% if _i18n_dep or _cassandra_local or _solr_local %}
     depends_on:
+      # The index field list is read once, on `main`, at boot, and cached for the life of
+      # the process. Boot before the Solr collection exists and /index/fields answers `[]`
+      # until someone restarts the container — with HTTP 200, so nothing notices. Solr is
+      # usually on another host, so this gate is an HTTP poll rather than a depends_on;
+      # see infrastructure/wait-for-solr-collection.yml.
+      wait-for-solr-collection:
+        condition: service_completed_successfully
 {% if _i18n_dep %}
       i18n-init:
         condition: service_completed_successfully
@@ -26,7 +32,6 @@ services:
 {% if _solr_local %}
       solr:
         condition: service_healthy
-{% endif %}
 {% endif %}
     volumes:
       # Host /data/biocache is mounted at TWO container paths because the
@@ -61,8 +66,13 @@ services:
       default: {}
       {{ docker_network | default('internal') }}:
     healthcheck:
-      # /actuator/health da 503 (DOWN, diagnóstico aparte). /index/fields es ligero
-      # y prueba liveness + conectividad con Solr (200 cuando la colección biocache existe).
+      # /actuator/health da 503 (DOWN, diagnóstico aparte). /index/fields es ligero y prueba
+      # liveness, pero OJO: NO prueba que el índice se haya leído. Devuelve 200 con `[]`
+      # cuando la colección no existía al arrancar (verificado el 2026-08-07 sobre el #345),
+      # así que este check estaba verde sobre un endpoint vacío. Quien garantiza el
+      # contenido es la puerta wait-for-solr-collection, no este healthcheck; endurecerlo a
+      # "array no vacío" acoplaría la salud del servicio a que haya índice, y con el
+      # presupuesto de converge tan justo eso se paga en reinicios.
       test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:8080/index/fields || exit 1"]
       interval: 30s
       timeout: 10s
