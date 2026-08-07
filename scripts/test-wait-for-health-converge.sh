@@ -133,9 +133,43 @@ else
     failures=$((failures + 1))
 fi
 
+# --- Case 4: crash loop -------------------------------------------------------------
+# gbif-es, 2026-08-06: species-list could not reach its MySQL user, died on boot, and
+# `restart: unless-stopped` brought it back every few seconds. Each restart resets the
+# health status to "starting", so the gate — classifying on health status alone — waited
+# on it for 73 minutes and converge never touched it (it only restarts *unhealthy*).
+# The gate must recognise the climbing .RestartCount and stop straight away instead.
+info "Case 4: crash-looping service -> expect the gate to abort quickly, not burn the budget"
+cleanup
+WORK_DIR="$(mktemp -d)"
+cp "$SCRIPT_DIR/fixtures/wait-for-health-crashloop/docker-compose.yml" "$WORK_DIR/"
+docker compose -f "$WORK_DIR/docker-compose.yml" up -d >/dev/null 2>&1
+
+# Budget deliberately generous: the point is that the gate returns long before it.
+start=$(date +%s)
+rc=0
+CRASHLOOP_RESTARTS=2 CONVERGE_ROUNDS=2 CONVERGE_TIMEOUT=30 \
+    bash "$GATE" --compose-dir "$WORK_DIR" \
+    --timeout 60 --check-interval 2 >"$WORK_DIR/out.log" 2>&1 || rc=$?
+elapsed=$(( $(date +%s) - start ))
+
+if [[ $rc -eq 0 ]]; then
+    fail "gate returned 0 for a container that never becomes healthy"
+    failures=$((failures + 1))
+elif ! grep -qi 'crash-looping' "$WORK_DIR/out.log"; then
+    fail "gate failed (rc=$rc) but never identified the crash loop; it cannot tell it from a slow boot"
+    sed -n '1,25p' "$WORK_DIR/out.log"
+    failures=$((failures + 1))
+elif [[ $elapsed -ge 60 ]]; then
+    fail "gate detected the crash loop but only after ${elapsed}s — it waited out the full timeout anyway"
+    failures=$((failures + 1))
+else
+    pass "crash loop detected in ${elapsed}s (rc=$rc) instead of burning the timeout and every converge round"
+fi
+
 echo
 if [[ $failures -eq 0 ]]; then
-    pass "health gate converge-by-retry: 4/4 cases OK"
+    pass "health gate converge-by-retry: 5/5 cases OK"
     exit 0
 fi
 fail "health gate converge-by-retry: $failures case(s) failed"

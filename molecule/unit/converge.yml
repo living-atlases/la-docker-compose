@@ -277,7 +277,8 @@
         that:
           - health_gate_budget | int
             == (health_check_timeout | int)
-               + (health_converge_rounds | int) * (health_converge_timeout | int) + 60
+               + (health_converge_rounds | int) * (health_converge_timeout | int)
+               + (health_converge_rounds | int) * 30 + 120
           - health_gate_budget | int
             > (health_check_timeout | int)
               + (health_converge_rounds | int) * (health_converge_timeout | int)
@@ -287,13 +288,33 @@
           {{ health_converge_rounds }} x {{ health_converge_timeout }}.
           timeout(1) would kill the gate mid-converge with rc=124.
 
+    # Each phase overshoots its nominal timeout by one check interval (the loop re-evaluates
+    # its deadline only between iterations), and `docker compose restart` runs between rounds.
+    # A flat 60s did not cover it: the gbif-es run of 2026-08-06 measured 4330s of waiting
+    # against a 4380s wrapper and finished the diagnostics dump with about a second to spare.
+    - name: "[TC5c] Assert the slack scales with the number of converge rounds"
+      ansible.builtin.assert:
+        that:
+          - (health_gate_budget | int)
+            - ((health_check_timeout | int)
+               + (health_converge_rounds | int) * (health_converge_timeout | int))
+            >= (health_converge_rounds | int) * 30
+        msg: >
+          FAIL TC5c: the slack above the script's worst case is
+          {{ (health_gate_budget | int) - ((health_check_timeout | int)
+             + (health_converge_rounds | int) * (health_converge_timeout | int)) }}s for
+          {{ health_converge_rounds }} rounds. Each round overshoots its timeout and then
+          restarts containers; a flat allowance runs out as rounds are added, and the
+          diagnostics dump — the only thing that makes a gate failure diagnosable — is what
+          gets truncated.
+
     - name: "[TC5b] Assert the budget is derived, not a transcribed literal"
       ansible.builtin.assert:
         that:
-          - health_gate_budget | int == 900 + 3 * 300 + 60
+          - health_gate_budget | int == 900 + 3 * 300 + 3 * 30 + 120
         msg: >
           FAIL TC5b: with health_check_timeout=900, rounds=3, converge_timeout=300 the
-          budget should be 1860 but is {{ health_gate_budget }} — it is hardcoded
+          budget should be 2010 but is {{ health_gate_budget }} — it is hardcoded
           somewhere instead of derived from the three variables.
       vars:
         health_check_timeout: 900

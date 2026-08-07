@@ -183,17 +183,62 @@ get_services() {
     echo "$services"
 }
 
+# Crash-loop detection.
+#
+# A container with `restart: unless-stopped` that dies on boot is restarted by Docker, and
+# every restart resets .State.Health.Status to "starting". Classifying on health status
+# alone therefore cannot tell "slow first boot" from "crashing every 15 seconds": both read
+# STARTING forever. converge_unhealthy only restarts services reporting *unhealthy*, so a
+# crash-looping service is never even touched.
+#
+# That is not hypothetical. On gbif-es (2026-08-06) species-list could not reach its MySQL
+# user, crash-looped for 73 minutes, showed "Up 18 seconds (health: starting)" in the final
+# dump, and the gate spent its entire budget waiting for something that could never come up.
+#
+# .RestartCount is what distinguishes them: it counts restart-policy restarts and is NOT
+# incremented by an explicit `docker restart`, so the converge rounds do not trip it. The
+# baseline is per wait phase and is reset between converge rounds anyway.
+declare -A RESTART_BASELINE=()
+CRASHLOOP_RESTARTS="${CRASHLOOP_RESTARTS:-3}"
+CRASHLOOP_SERVICE=""
+
+reset_restart_baseline() {
+    RESTART_BASELINE=()
+    CRASHLOOP_SERVICE=""
+}
+
+# Returns 0 when the service has restarted CRASHLOOP_RESTARTS times since we started waiting.
+is_crash_looping() {
+    local service="$1" container="$2" now growth
+    now=$(docker inspect --format='{{.RestartCount}}' "$container" 2>/dev/null || echo 0)
+    [[ "$now" =~ ^[0-9]+$ ]] || return 1
+    if [[ -z "${RESTART_BASELINE[$service]:-}" ]]; then
+        RESTART_BASELINE[$service]="$now"
+        return 1
+    fi
+    growth=$(( now - ${RESTART_BASELINE[$service]} ))
+    (( growth >= CRASHLOOP_RESTARTS ))
+}
+
 # Check health status of a single service
 check_service_health() {
     local service="$1"
     local container_name
-    
+
     # Get container ID/name for the service
     container_name=$(docker compose -f "$COMPOSE_DIR/docker-compose.yml" ps -q "$service" 2>/dev/null || echo "")
-    
+
     if [[ -z "$container_name" ]]; then
         log_verbose "Service '$service' container not found or not running"
         return 2  # Not yet running
+    fi
+
+    # Checked before the health status: a crash-looping container reads "starting" and would
+    # otherwise be indistinguishable from a slow boot. Return 3 (fatal) — waiting longer or
+    # restarting cannot fix a container that dies on boot; only a human reading its logs can.
+    if is_crash_looping "$service" "$container_name"; then
+        CRASHLOOP_SERVICE="$service"
+        return 3
     fi
 
     # Get health status. Guard the nil .State.Health explicitly: on newer Docker
@@ -314,11 +359,19 @@ wait_for_all_healthy() {
         all_healthy=true
         while read -r service; do
             if [[ -z "$service" ]]; then continue; fi
-            
-            if ! check_service_health "$service" >/dev/null 2>&1; then
-                all_healthy=false
-                break
+
+            check_service_health "$service" >/dev/null 2>&1 && continue
+            # 3 = crash-looping. Stop the whole gate rather than burning the remaining
+            # budget: no amount of waiting or restarting brings back a container that
+            # dies on boot, and the sooner we stop the sooner its logs get read.
+            if [[ $? -eq 3 ]]; then
+                log_error "Service '${CRASHLOOP_SERVICE}' is crash-looping (restarted ${CRASHLOOP_RESTARTS}+ times while waiting)."
+                log_error "It resets to 'starting' on every restart, so it will never report healthy and converge cannot help."
+                display_status "$services"
+                return 3
             fi
+            all_healthy=false
+            break
         done <<< "$services"
 
         if [[ "$all_healthy" == true ]]; then
@@ -460,10 +513,11 @@ converge_unhealthy() {
         docker compose -f "$COMPOSE_DIR/docker-compose.yml" restart $to_restart 2>&1 | sed 's/^/    /' || true
         START_TIME=$(date +%s)
         TIMEOUT=$CONVERGE_TIMEOUT
-        if wait_for_all_healthy; then
-            log_success "Converged after restart round ${round}"
-            return 0
-        fi
+        # Fresh baseline per round: the restart above is deliberate, and only restarts
+        # Docker performs on its own after it should count towards a crash loop.
+        reset_restart_baseline
+        wait_for_all_healthy && { log_success "Converged after restart round ${round}"; return 0; }
+        [[ $? -eq 3 ]] && return 3   # crash-loop: further rounds cannot help
     done
     return 1
 }
@@ -476,14 +530,21 @@ main() {
         exit 3
     fi
 
-    if wait_for_all_healthy; then
+    local rc=0
+    wait_for_all_healthy || rc=$?
+    if [[ $rc -eq 0 ]]; then
         exit 0
     fi
 
     # Initial wait failed: try converge-by-retry (restart cross-host apps whose
-    # datastores are healthy now) before declaring failure.
-    if converge_unhealthy "$(get_services)"; then
-        exit 0
+    # datastores are healthy now) before declaring failure. Skipped on a crash loop —
+    # restarting a container that dies on boot just spends the budget more slowly.
+    if [[ $rc -ne 3 ]]; then
+        rc=0
+        converge_unhealthy "$(get_services)" || rc=$?
+        if [[ $rc -eq 0 ]]; then
+            exit 0
+        fi
     fi
 
     collect_diagnostics "$COMPOSE_DIR"

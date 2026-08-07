@@ -343,15 +343,26 @@ health_converge_rounds: 4
 health_converge_timeout: 900
 
 # Wall-clock budget for the timeout(1) wrapper around the gate, in seconds: the script's
-# worst case plus 60s of slack for its own startup and the final diagnostics dump.
+# worst case plus slack for its own startup, the restarts between converge rounds and the
+# final diagnostics dump.
 # Defined here rather than inlined in the task so it is derived, not transcribed — Jinja in
 # defaults resolves lazily, so an inventory that raises health_check_timeout (or either
 # converge knob) still gets a wrapper that outlives the script instead of decapitating it.
-# 720 + 4*900 + 60 = 4380s.
+#
+# The slack is per-round, not a flat 60s. Each phase overshoots its nominal timeout by one
+# check interval: the loop only re-evaluates its deadline between iterations, so it exits on
+# the first check *after* the deadline. The gbif-es run of 2026-08-06 measured 720 + 903 +
+# 902 + 901 + 904 = 4330s of waiting against a 4380s wrapper, and `docker compose restart`
+# between rounds plus the diagnostics dump ate almost all of the remaining 50s. The dump is
+# the only reason that failure was diagnosable at all, and it finished with about a second
+# to spare. 30s per round covers the overshoot and the restart; 120s covers startup and the
+# dump, which greps logs for every unhealthy container.
+# 720 + 4*900 + 4*30 + 120 = 4560s.
 health_gate_budget: >-
   {{ (health_check_timeout | default(300) | int)
      + (health_converge_rounds | default(2) | int) * (health_converge_timeout | default(600) | int)
-     + 60 }}
+     + (health_converge_rounds | default(2) | int) * 30
+     + 120 }}
 
 # ============================================
 # SSL / Certificates

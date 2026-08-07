@@ -1,0 +1,38 @@
+# Fixture for the crash-loop case of scripts/test-wait-for-health-converge.sh —
+# NOT a deployable stack.
+#
+# Models what species-list did on gbif-es (2026-08-06): the container dies seconds after
+# boot because a dependency it needs at startup is missing (its MySQL user was never
+# created), and `restart: unless-stopped` brings it straight back. Every restart resets
+# .State.Health.Status to "starting", so a gate that classifies on health status alone sees
+# STARTING forever — never "unhealthy" — and converge_unhealthy, which only restarts
+# services reporting unhealthy, never touches it. The real deploy spent its entire
+# 73-minute budget on exactly this and then failed anyway.
+#
+# The healthcheck can never pass; what makes this a crash loop rather than a slow boot is
+# .RestartCount climbing, which is what the gate must key on.
+#
+# `$$` is a literal `$` after compose interpolation.
+---
+services:
+  crash-looper:
+    image: alpine:3.20
+    container_name: la_test_crash_looper
+    # Long enough that the container is genuinely "up" for a moment (so it reports
+    # starting, not just absent), short enough that restarts accumulate quickly.
+    command:
+      - sh
+      - -c
+      - |
+        sleep 2
+        exit 1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "exit 1"]
+      interval: 2s
+      timeout: 2s
+      retries: 1
+      # Keeps the status at "starting" rather than flipping to "unhealthy": the point of
+      # the fixture is a container that never looks unhealthy to the gate.
+      start_period: 600s
+    stop_grace_period: 2s
