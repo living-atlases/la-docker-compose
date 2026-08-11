@@ -342,6 +342,15 @@ health_check_timeout: 720
 health_converge_rounds: 4
 health_converge_timeout: 900
 
+# Rounds the gate may spend WAITING instead of restarting, when nothing reports 'unhealthy'
+# but something is still 'starting'. A restarted Grails hub needs ~5-8 min to boot, so a
+# converge round can end with it still 'starting': the next round then finds nothing
+# unhealthy to restart and, before this knob existed, gave up on a service that was about to
+# come up (build #295, and the converge self-test on a slow agent in #347). These waits are
+# bounded separately from the restart rounds so a permanently-'starting' service still fails
+# the gate rather than parking the deploy.
+health_converge_settle_waits: 2
+
 # Wall-clock budget for the timeout(1) wrapper around the gate, in seconds: the script's
 # worst case plus slack for its own startup, the restarts between converge rounds and the
 # final diagnostics dump.
@@ -357,11 +366,18 @@ health_converge_timeout: 900
 # the only reason that failure was diagnosable at all, and it finished with about a second
 # to spare. 30s per round covers the overshoot and the restart; 120s covers startup and the
 # dump, which greps logs for every unhealthy container.
-# 720 + 4*900 + 4*30 + 120 = 4560s.
+#
+# The settle waits count as rounds here: each one is another wait_for_all_healthy phase of up
+# to health_converge_timeout. Leaving them out would reintroduce exactly the wrapper-vs-script
+# drift this variable exists to prevent.
+# 720 + (4+2)*900 + (4+2)*30 + 120 = 6420s.
 health_gate_budget: >-
   {{ (health_check_timeout | default(300) | int)
-     + (health_converge_rounds | default(2) | int) * (health_converge_timeout | default(600) | int)
-     + (health_converge_rounds | default(2) | int) * 30
+     + ((health_converge_rounds | default(2) | int)
+        + (health_converge_settle_waits | default(2) | int))
+       * (health_converge_timeout | default(600) | int)
+     + ((health_converge_rounds | default(2) | int)
+        + (health_converge_settle_waits | default(2) | int)) * 30
      + 120 }}
 
 # ============================================

@@ -493,31 +493,57 @@ CONVERGE_ROUNDS="${CONVERGE_ROUNDS:-4}"
 # that can exceed 600s; build #295 timed out a converge round with one service still
 # 'starting' (Unhealthy: 0) so the next round found nothing to restart and bailed.
 CONVERGE_TIMEOUT="${CONVERGE_TIMEOUT:-900}"
+# Rounds spent waiting rather than restarting, when nothing reports 'unhealthy' but
+# something is still 'starting' (see converge_unhealthy). Bounded so a service that is
+# permanently 'starting' — a crash loop too slow to trip CRASHLOOP_RESTARTS, say — still
+# terminates the gate instead of parking the deploy indefinitely.
+CONVERGE_SETTLE_WAITS="${CONVERGE_SETTLE_WAITS:-2}"
 
 converge_unhealthy() {
     local services="$1"
-    local round=0 to_restart svc
+    local round=0 settle=0 to_restart starting_left svc rc
+    # A round is a *restart*, not a wall-clock slice. A round that ends with the service
+    # still 'starting' means the restart has not finished booting yet, so the next pass
+    # finds nothing 'unhealthy' to restart — and bailing there declares a failure on a
+    # service that is seconds away from healthy. That is what killed build #295 (and, on
+    # a slow agent where a `compose restart` alone took 67s, Case 1 of the converge
+    # self-test in #347). So: wait it out instead, without spending a restart. Bounded by
+    # CONVERGE_SETTLE_WAITS so a permanently-'starting' service still terminates.
     while [[ $round -lt $CONVERGE_ROUNDS ]]; do
-        round=$((round + 1))
         to_restart=""
+        starting_left=0
         while read -r svc; do
             [[ -z "$svc" ]] && continue
-            check_service_health "$svc" >/dev/null 2>&1
-            [[ $? -eq 1 ]] && to_restart="$to_restart $svc"
+            rc=0
+            check_service_health "$svc" >/dev/null 2>&1 || rc=$?
+            case $rc in
+                1) to_restart="$to_restart $svc" ;;
+                2) starting_left=$((starting_left + 1)) ;;
+                3) return 3 ;;   # crash-loop: restarting a container that dies on boot cannot help
+            esac
         done <<< "$services"
-        if [[ -z "$to_restart" ]]; then
-            return 1   # nothing 'unhealthy' to restart (remaining are 'starting'/absent)
+
+        if [[ -n "$to_restart" ]]; then
+            round=$((round + 1))
+            log_warn "Converge round ${round}/${CONVERGE_ROUNDS}: restarting unhealthy ->${to_restart}"
+            # shellcheck disable=SC2086
+            docker compose -f "$COMPOSE_DIR/docker-compose.yml" restart $to_restart 2>&1 | sed 's/^/    /' || true
+        elif [[ $starting_left -gt 0 && $settle -lt $CONVERGE_SETTLE_WAITS ]]; then
+            settle=$((settle + 1))
+            log_warn "Converge: nothing unhealthy, ${starting_left} still starting — waiting (settle ${settle}/${CONVERGE_SETTLE_WAITS})"
+        else
+            return 1   # nothing 'unhealthy' to restart and nothing left worth waiting for
         fi
-        log_warn "Converge round ${round}/${CONVERGE_ROUNDS}: restarting unhealthy ->${to_restart}"
-        # shellcheck disable=SC2086
-        docker compose -f "$COMPOSE_DIR/docker-compose.yml" restart $to_restart 2>&1 | sed 's/^/    /' || true
+
         START_TIME=$(date +%s)
         TIMEOUT=$CONVERGE_TIMEOUT
         # Fresh baseline per round: the restart above is deliberate, and only restarts
         # Docker performs on its own after it should count towards a crash loop.
         reset_restart_baseline
-        wait_for_all_healthy && { log_success "Converged after restart round ${round}"; return 0; }
-        [[ $? -eq 3 ]] && return 3   # crash-loop: further rounds cannot help
+        rc=0
+        wait_for_all_healthy || rc=$?
+        [[ $rc -eq 0 ]] && { log_success "Converged after restart round ${round}"; return 0; }
+        [[ $rc -eq 3 ]] && return 3   # crash-loop: further rounds cannot help
     done
     return 1
 }

@@ -100,6 +100,7 @@
           environment:
             CONVERGE_ROUNDS: "{{ health_converge_rounds | default(2) }}"
             CONVERGE_TIMEOUT: "{{ health_converge_timeout | default(600) }}"
+            CONVERGE_SETTLE_WAITS: "{{ health_converge_settle_waits | default(2) }}"
           async: "{{ health_gate_budget | int + 120 }}"
           poll: 10
 

@@ -272,20 +272,26 @@
 
   tasks:
 
+    # The script's worst case counts restart rounds AND settle waits: a settle wait is another
+    # full wait_for_all_healthy phase of up to health_converge_timeout, so a budget that only
+    # covers health_converge_rounds decapitates the gate again, just later.
     - name: "[TC5a] Assert the shipped budget outlives the script's worst case"
       ansible.builtin.assert:
         that:
           - health_gate_budget | int
             == (health_check_timeout | int)
-               + (health_converge_rounds | int) * (health_converge_timeout | int)
-               + (health_converge_rounds | int) * 30 + 120
+               + (health_converge_rounds | int + health_converge_settle_waits | int)
+                 * (health_converge_timeout | int)
+               + (health_converge_rounds | int + health_converge_settle_waits | int) * 30 + 120
           - health_gate_budget | int
             > (health_check_timeout | int)
-              + (health_converge_rounds | int) * (health_converge_timeout | int)
+              + (health_converge_rounds | int + health_converge_settle_waits | int)
+                * (health_converge_timeout | int)
         msg: >
           FAIL TC5a: health_gate_budget={{ health_gate_budget }} does not cover
           health_check_timeout={{ health_check_timeout }} +
-          {{ health_converge_rounds }} x {{ health_converge_timeout }}.
+          ({{ health_converge_rounds }} + {{ health_converge_settle_waits }})
+          x {{ health_converge_timeout }}.
           timeout(1) would kill the gate mid-converge with rc=124.
 
     # Each phase overshoots its nominal timeout by one check interval (the loop re-evaluates
@@ -297,12 +303,14 @@
         that:
           - (health_gate_budget | int)
             - ((health_check_timeout | int)
-               + (health_converge_rounds | int) * (health_converge_timeout | int))
-            >= (health_converge_rounds | int) * 30
+               + (health_converge_rounds | int + health_converge_settle_waits | int)
+                 * (health_converge_timeout | int))
+            >= (health_converge_rounds | int + health_converge_settle_waits | int) * 30
         msg: >
           FAIL TC5c: the slack above the script's worst case is
           {{ (health_gate_budget | int) - ((health_check_timeout | int)
-             + (health_converge_rounds | int) * (health_converge_timeout | int)) }}s for
+             + (health_converge_rounds | int + health_converge_settle_waits | int)
+               * (health_converge_timeout | int)) }}s for
           {{ health_converge_rounds }} rounds. Each round overshoots its timeout and then
           restarts containers; a flat allowance runs out as rounds are added, and the
           diagnostics dump — the only thing that makes a gate failure diagnosable — is what
@@ -311,15 +319,16 @@
     - name: "[TC5b] Assert the budget is derived, not a transcribed literal"
       ansible.builtin.assert:
         that:
-          - health_gate_budget | int == 900 + 3 * 300 + 3 * 30 + 120
+          - health_gate_budget | int == 900 + (3 + 1) * 300 + (3 + 1) * 30 + 120
         msg: >
-          FAIL TC5b: with health_check_timeout=900, rounds=3, converge_timeout=300 the
-          budget should be 2010 but is {{ health_gate_budget }} — it is hardcoded
-          somewhere instead of derived from the three variables.
+          FAIL TC5b: with health_check_timeout=900, rounds=3, settle_waits=1,
+          converge_timeout=300 the budget should be 2340 but is {{ health_gate_budget }} —
+          it is hardcoded somewhere instead of derived from the four variables.
       vars:
         health_check_timeout: 900
         health_converge_rounds: 3
         health_converge_timeout: 300
+        health_converge_settle_waits: 1
 
 # ── Test case 8: container log rotation is actually enforced ─────────────────
 #

@@ -72,7 +72,11 @@ failures=0
 info "Case 1: service heals in converge round 2, CONVERGE_ROUNDS=2 -> expect rc=0"
 reset_fixture
 rc=0
-CONVERGE_ROUNDS=2 CONVERGE_TIMEOUT=12 \
+# CONVERGE_SETTLE_WAITS is what makes this deterministic on a loaded agent. Build #347 ran
+# on one where `docker compose restart` alone took 67s and a single check iteration 43s: the
+# round-1 restart was still booting when the round ended, so the service read 'starting',
+# round 2 found nothing 'unhealthy' to restart and the gate gave up one restart short.
+CONVERGE_ROUNDS=2 CONVERGE_TIMEOUT=12 CONVERGE_SETTLE_WAITS=2 \
     bash "$GATE" --compose-dir "$WORK_DIR" --timeout 6 --check-interval 2 $VERBOSE || rc=$?
 if [[ $rc -eq 0 ]]; then
     pass "gate converged and returned 0"
@@ -87,7 +91,9 @@ fi
 info "Case 2: same service, CONVERGE_ROUNDS=1 -> expect non-zero (env is honoured)"
 reset_fixture
 rc=0
-CONVERGE_ROUNDS=1 CONVERGE_TIMEOUT=12 \
+# Settle waits off: they only ever wait, never restart, so they cannot turn a one-round run
+# green — but they would spend two more CONVERGE_TIMEOUTs proving it.
+CONVERGE_ROUNDS=1 CONVERGE_TIMEOUT=12 CONVERGE_SETTLE_WAITS=0 \
     bash "$GATE" --compose-dir "$WORK_DIR" --timeout 6 --check-interval 2 >/dev/null 2>&1 || rc=$?
 if [[ $rc -ne 0 ]]; then
     pass "gate failed with rc=$rc, as expected with a single round"
@@ -101,16 +107,16 @@ fi
 # actual production failure was the timeout(1) wrapper around it, so reproduce both
 # budgets here with the same shape validate-post-deploy.yml uses.
 #   old: health_check_timeout + 60             -- blind to the converge rounds
-#   new: + health_converge_rounds x health_converge_timeout
+#   new: + (health_converge_rounds + health_converge_settle_waits) x health_converge_timeout
 # A slack of 5 stands in for the role's 60s; the ratio is what matters.
-T=6; R=2; C=12
+T=6; R=2; C=12; S=1
 old_budget=$((T + 5))
-new_budget=$((T + R * C + 10))
+new_budget=$((T + (R + S) * C + 10))
 
 info "Case 3a: old-style wrapper (timeout ${old_budget}s, blind to converge) -> expect rc=124"
 reset_fixture
 rc=0
-CONVERGE_ROUNDS=$R CONVERGE_TIMEOUT=$C \
+CONVERGE_ROUNDS=$R CONVERGE_TIMEOUT=$C CONVERGE_SETTLE_WAITS=$S \
     timeout -k 5 "$old_budget" bash "$GATE" --compose-dir "$WORK_DIR" \
     --timeout $T --check-interval 2 >/dev/null 2>&1 || rc=$?
 if [[ $rc -eq 124 ]]; then
@@ -123,7 +129,7 @@ fi
 info "Case 3b: derived wrapper (timeout ${new_budget}s) -> expect rc=0"
 reset_fixture
 rc=0
-CONVERGE_ROUNDS=$R CONVERGE_TIMEOUT=$C \
+CONVERGE_ROUNDS=$R CONVERGE_TIMEOUT=$C CONVERGE_SETTLE_WAITS=$S \
     timeout -k 5 "$new_budget" bash "$GATE" --compose-dir "$WORK_DIR" \
     --timeout $T --check-interval 2 >/dev/null 2>&1 || rc=$?
 if [[ $rc -eq 0 ]]; then
