@@ -1,0 +1,17 @@
+{{ ansible_managed | comment }}
+[Unit]
+Description=Hourly rotation of Docker container json logs
+
+[Timer]
+# The distro's logrotate runs once a day. `size 100M` is only evaluated when
+# logrotate actually runs, so between two daily passes a single container can grow
+# without any bound at all: on 2026-08-07 la_logger-service reached 615 MB and
+# la_spatial-service 476 MB in one day, and the two prod hosts went from 78% to 91%
+# full overnight. A crash-looping service writes the same stack trace ~50 MB/h, so
+# the ceiling has to be checked hourly to mean anything.
+OnCalendar={{ docker_housekeeping_logrotate_oncalendar }}
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

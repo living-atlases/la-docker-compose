@@ -14,6 +14,21 @@ docker_housekeeping_logrotate_enabled: true
 docker_housekeeping_logrotate_size: 100M
 docker_housekeeping_logrotate_rotate: 3
 
+# ...and a timer to actually enforce that size. `size 100M` only means anything when
+# logrotate runs, and the distro runs it once a day, so between two passes a single
+# container grows unbounded: on 2026-08-07 la_logger-service reached 615 MB and
+# la_spatial-service 476 MB in a day, taking both prod hosts from 78% to 91% full.
+# A crash-looping service writes the same stack trace at ~50 MB/h — the daily pass is
+# two orders of magnitude too slow for that. Hourly caps a container at roughly
+# size + rotate compressed copies.
+#
+# Its own state file: sharing /var/lib/logrotate/status with the distro's daily run
+# would make each pass see the other's rotation as "already done today" and skip the
+# file entirely, which is worse than not having the timer.
+docker_housekeeping_logrotate_timer_enabled: true
+docker_housekeeping_logrotate_oncalendar: hourly
+docker_housekeeping_logrotate_state: /var/lib/logrotate/docker-containers.status
+
 # Image-layer GC. With the containerd snapshotter, layers live in
 # /var/lib/containerd (12-15 GB on the prod hosts), not /var/lib/docker/overlay2.
 # Runs as a systemd timer rather than a deploy step: in production

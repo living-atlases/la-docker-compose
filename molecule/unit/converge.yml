@@ -320,3 +320,46 @@
         health_check_timeout: 900
         health_converge_rounds: 3
         health_converge_timeout: 300
+
+# ── Test case 8: container log rotation is actually enforced ─────────────────
+#
+# `size 100M` in a logrotate rule is only evaluated when logrotate runs, and the distro
+# runs it once a day. Between two passes a container grows unbounded: on 2026-08-07
+# la_logger-service reached 615 MB and la_spatial-service 476 MB in a single day, taking
+# both gbif-es prod hosts from 78% to 91% full and making the next deploy die on ENOSPC
+# during `docker compose pull`. A crash-looping service writes ~50 MB/h, so a daily check
+# is two orders of magnitude too slow. TC8a pins that a timer exists to enforce the size.
+#
+# TC8b pins the non-obvious half: the timer must keep its OWN logrotate state file.
+# Sharing /var/lib/logrotate/status with the distro's daily run makes each pass consider
+# the other's rotation as already done for the period and skip the file — which would
+# leave the host worse off than with no timer at all.
+- name: Unit test container log rotation enforcement
+  hosts: all
+  gather_facts: false
+  vars_files:
+    - ../../roles/docker-housekeeping/defaults/main.yml
+
+  tasks:
+
+    - name: "[TC8a] Assert rotation is enforced more often than daily"
+      ansible.builtin.assert:
+        that:
+          - docker_housekeeping_logrotate_timer_enabled | bool
+          - docker_housekeeping_logrotate_oncalendar | lower not in ['daily', 'weekly', 'monthly']
+        msg: >
+          FAIL TC8a: container log rotation runs
+          '{{ docker_housekeeping_logrotate_oncalendar | default("(no timer)") }}'.
+          The size cap is only checked when logrotate runs, so anything daily or slower
+          lets a crash-looping container fill the disk between passes.
+
+    - name: "[TC8b] Assert the timer does not share the distro's logrotate state file"
+      ansible.builtin.assert:
+        that:
+          - docker_housekeeping_logrotate_state | basename != 'status'
+          - docker_housekeeping_logrotate_state != '/var/lib/logrotate/status'
+        msg: >
+          FAIL TC8b: docker_housekeeping_logrotate_state is
+          {{ docker_housekeeping_logrotate_state }}, which the distro's daily logrotate
+          also writes. Sharing it makes each run treat the other's rotation as already
+          done and skip the file entirely.

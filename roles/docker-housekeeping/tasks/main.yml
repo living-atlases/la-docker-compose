@@ -26,6 +26,80 @@
     - docker-housekeeping
     - logrotate
 
+- name: housekeeping | state directory for the logrotate timer exists
+  ansible.builtin.file:
+    path: "{{ docker_housekeeping_logrotate_state | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when:
+    - docker_housekeeping_logrotate_enabled | bool
+    - docker_housekeeping_logrotate_timer_enabled | bool
+  tags:
+    - docker-housekeeping
+    - logrotate
+
+- name: housekeeping | install the hourly logrotate systemd units
+  ansible.builtin.template:
+    src: "docker-logrotate.{{ item }}.j2"
+    dest: "/etc/systemd/system/docker-logrotate.{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - service
+    - timer
+  register: logrotate_units
+  when:
+    - docker_housekeeping_logrotate_enabled | bool
+    - docker_housekeeping_logrotate_timer_enabled | bool
+  tags:
+    - docker-housekeeping
+    - logrotate
+
+- name: housekeeping | reload systemd for the logrotate units
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when:
+    - docker_housekeeping_logrotate_enabled | bool
+    - docker_housekeeping_logrotate_timer_enabled | bool
+    - logrotate_units is changed
+  tags:
+    - docker-housekeeping
+    - logrotate
+
+# Skipped under --check for the same reason as the GC timer: the unit only exists
+# for real in a live run, so systemd cannot resolve it during a dry run.
+- name: housekeeping | enable the hourly logrotate timer
+  ansible.builtin.systemd:
+    name: docker-logrotate.timer
+    enabled: true
+    state: started
+  when:
+    - docker_housekeeping_logrotate_enabled | bool
+    - docker_housekeeping_logrotate_timer_enabled | bool
+    - not ansible_check_mode
+  tags:
+    - docker-housekeeping
+    - logrotate
+
+# Rotate once now instead of leaving the host up to an hour away from its first
+# enforcement — the disk pressure that motivates this is usually already there.
+- name: housekeeping | rotate container logs immediately
+  ansible.builtin.command: >-
+    /usr/sbin/logrotate --state {{ docker_housekeeping_logrotate_state }}
+    /etc/logrotate.d/docker-containers
+  changed_when: false
+  failed_when: false
+  when:
+    - docker_housekeeping_logrotate_enabled | bool
+    - docker_housekeeping_logrotate_timer_enabled | bool
+    - not ansible_check_mode
+  tags:
+    - docker-housekeeping
+    - logrotate
+
 - name: housekeeping | journald drop-in directory exists
   ansible.builtin.file:
     path: /etc/systemd/journald.conf.d

@@ -1,0 +1,14 @@
+{{ ansible_managed | comment }}
+[Unit]
+Description=Rotate Docker container json logs (hourly, out-of-band from the daily run)
+Documentation=https://github.com/AtlasOfLivingAustralia/la-docker-compose
+
+[Service]
+Type=oneshot
+# Only our own rule, with its own state file. Sharing /var/lib/logrotate/status with
+# the distro's daily run would make each one see the other's rotations as already
+# done for the day, and the file would go unrotated until the next midnight anyway.
+ExecStart=/usr/sbin/logrotate --state {{ docker_housekeeping_logrotate_state }} /etc/logrotate.d/docker-containers
+# Housekeeping must never compete with the stack for IO.
+Nice=10
+IOSchedulingClass=idle
