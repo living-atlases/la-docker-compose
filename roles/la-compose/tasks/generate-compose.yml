@@ -2034,6 +2034,25 @@
     - branding
     - docker-compose
 
+# Order-independent Solr collection gate. Same shape and same reasoning as
+# wait-for-branding above: base.yml.j2 includes it only on the host running
+# biocache-service, and generating it everywhere costs nothing.
+# 72bc200 added the template and the include but not this task, so the include
+# pointed at a file that was never written — `docker compose pull` died with
+# "open .../infrastructure/wait-for-solr-collection.yml: no such file or directory",
+# took the whole host out of the play, and the hubs on the other two hosts spent
+# the converge budget waiting on services that host was never going to start (#348).
+- name: Generate wait-for-solr-collection.yml (Solr collection readiness gate for biocache-service)
+  ansible.builtin.template:
+    src: docker-compose/infrastructure/wait-for-solr-collection.yml.j2
+    dest: "{{ docker_compose_data_dir }}/infrastructure/wait-for-solr-collection.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  tags:
+    - solr
+    - docker-compose
+
 # nginx.yml is generated later (search "Generate nginx.yml (after collecting aliases)")
 # so that nginx_docker_internal_aliases includes hostnames from all nginx_vhost
 # include_role calls — including branding, mailhog, and gatus — letting the

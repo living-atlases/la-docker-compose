@@ -304,6 +304,12 @@ EOF
                     # scenario only asserts the budget arithmetic): one throwaway alpine
                     # container, ~90s, no inventory and no deployed stack.
                     bash scripts/test-wait-for-health-converge.sh
+
+                    # A compose include with no task generating it breaks every compose
+                    # command on that host at parse time, which surfaces ~40min into the
+                    # deploy as a failed `pull` and takes the host out of the play (#348).
+                    # Pure text, runs in ~1s.
+                    bash scripts/test-compose-includes.sh
                 '''
                 // NOTE: the per-host-artifact guard (Lucene nameindex must not be run_once)
                 // runs in 'Prepare environment', AFTER the ala-install submodule is synced —
