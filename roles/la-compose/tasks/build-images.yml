@@ -42,12 +42,30 @@
   when:
     - "'branding' in services_enabled"
 
-- name: Build site-specific branding using docker buildx bake
-  ansible.builtin.command: docker buildx bake -f docker-bake.hcl branding
-  args:
-    chdir: "{{ docker_compose_data_dir }}"
-  register: build_branding
-  changed_when: true
+# BuildKit's cache DB lives in docker's data-root (/var/lib/docker/buildkit), but with the
+# containerd snapshotter the layers it points at live in /var/lib/containerd. Anything that empties
+# the image store without clearing that DB — moving /var/lib/containerd to its own volume, as the
+# gbif-es prod-2026 hosts did on 2026-08-13 — leaves records referencing snapshots that are gone,
+# and every build then dies on "parent snapshot <sha> does not exist: not found". The cache is
+# disposable, so drop it and build again rather than failing the host out of the play.
+- block:
+    - name: Build site-specific branding using docker buildx bake
+      ansible.builtin.command: docker buildx bake -f docker-bake.hcl branding
+      args:
+        chdir: "{{ docker_compose_data_dir }}"
+      register: build_branding
+      changed_when: true
+  rescue:
+    - name: Discard the build cache after a failed branding build
+      ansible.builtin.command: docker buildx prune -af
+      changed_when: true
+
+    - name: Rebuild site-specific branding with an empty build cache
+      ansible.builtin.command: docker buildx bake -f docker-bake.hcl branding
+      args:
+        chdir: "{{ docker_compose_data_dir }}"
+      register: build_branding
+      changed_when: true
   when:
     - "'branding' in services_enabled"
 
