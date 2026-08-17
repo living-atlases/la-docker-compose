@@ -124,6 +124,11 @@ docker_network: internal
 docker_network_mtu: 1500
 docker_extra_hosts: []
 nginx_docker_internal_aliases: []
+# The subset of the above this host's nginx genuinely serves. Snapshotted in
+# generate-compose.yml before the gatus monitoring FQDNs (cluster-wide) are merged in,
+# and it is this list — never the merged one — that decides which extra_hosts entries a
+# local vhost may shadow.
+nginx_local_server_names: []
 docker_socket: unix:///var/run/docker.sock
 
 # Cross-host datastore reachability (VM model, NO swarm).

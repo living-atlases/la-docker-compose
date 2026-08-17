@@ -372,3 +372,82 @@
           {{ docker_housekeeping_logrotate_state }}, which the distro's daily logrotate
           also writes. Sharing it makes each run treat the other's rotation as already
           done and skip the file entirely.
+
+# ── Test case 9: "local wins" must not disown the rest of the cluster ────────
+#
+# extra_hosts is filtered so a name the local stack serves cannot be pinned to another
+# machine via /etc/hosts. The list it filters against has to be the names this nginx
+# really answers for. On the gatus host nginx_docker_internal_aliases is ALSO merged with
+# every FQDN gatus monitors — the whole cluster — and filtering against that merged list
+# stripped host3 of auth.l-a.site, records.l-a.site, collections.l-a.site and the rest.
+# They then resolved to the local nginx, which has no such server_name and answers from
+# the default vhost: bie-index asked pac4j for /cas/oidc/.well-known, got 404, failed to
+# build its Spring context and crash-looped until the health gate gave up (build #352).
+#
+# TC9a pins the behaviour, TC9b pins that generate-compose.yml still filters against the
+# local-only list — a replica of the expression cannot notice the source drifting back.
+- name: Unit test extra_hosts "local wins" filter
+  hosts: all
+  gather_facts: false
+
+  vars:
+    tc9_generate_compose: "{{ lookup('file', playbook_dir + '/../../roles/la-compose/tasks/generate-compose.yml') }}"
+    # A gatus host: it serves species.l-a.site, it monitors auth.l-a.site (owned by
+    # another host, hence the extra_hosts entry pointing there).
+    tc9_local_server_names:
+      - species.l-a.site
+    tc9_monitored_aliases:
+      - species.l-a.site
+      - auth.l-a.site
+      - records.l-a.site
+    tc9_extra_hosts:
+      auth.l-a.site: 172.16.16.114
+      records.l-a.site: 172.16.16.114
+      species.l-a.site: 172.16.16.8
+
+  tasks:
+
+    - name: "[TC9a] Filter extra_hosts against the locally served names"
+      ansible.builtin.set_fact:
+        tc9_filtered: >-
+          {{ tc9_extra_hosts | dict2items
+             | rejectattr('key', 'in', tc9_local_server_names)
+             | items2dict }}
+
+    - name: "[TC9a] Assert only the local name is dropped"
+      ansible.builtin.assert:
+        that:
+          - "'species.l-a.site' not in tc9_filtered"
+          - tc9_filtered['auth.l-a.site'] == '172.16.16.114'
+          - tc9_filtered['records.l-a.site'] == '172.16.16.114'
+        msg: >
+          FAIL TC9a: filtering left {{ tc9_filtered | list | sort }}. A name another host
+          owns must keep its extra_hosts entry — without it the container resolves it to
+          the local nginx, which answers 404 from the default vhost.
+
+    - name: "[TC9b] Assert generate-compose.yml filters against the local-only list"
+      ansible.builtin.assert:
+        that:
+          - tc9_filter_local in tc9_generate_compose
+          - tc9_filter_merged not in tc9_generate_compose
+        msg: >
+          FAIL TC9b: the extra_hosts filter in generate-compose.yml rejects against
+          nginx_docker_internal_aliases, which on the gatus host also contains every FQDN
+          gatus monitors. That is the build #352 regression: the gatus host loses every
+          remote name and its containers 404 against their own nginx.
+      vars:
+        tc9_filter_local: "rejectattr('key', 'in', nginx_local_server_names"
+        tc9_filter_merged: "rejectattr('key', 'in', nginx_docker_internal_aliases"
+
+    - name: "[TC9c] Assert the local-name snapshot is taken before the gatus merge"
+      ansible.builtin.assert:
+        that:
+          - tc9_generate_compose.find(tc9_snapshot_task) > 0
+          - tc9_generate_compose.find(tc9_snapshot_task) < tc9_generate_compose.find(tc9_merge_task)
+        msg: >
+          FAIL TC9c: the nginx_local_server_names snapshot does not precede the merge of
+          the gatus monitoring FQDNs. Taken after the merge it carries the whole cluster,
+          and the filter is back to disowning names other hosts own.
+      vars:
+        tc9_snapshot_task: "Snapshot the server names this host's nginx actually serves"
+        tc9_merge_task: "Extract monitored hostnames into nginx_docker_internal_aliases"
