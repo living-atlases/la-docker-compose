@@ -2,11 +2,18 @@
 # Task to determine Java version for each service based on dependencies.yaml
 # This keeps the Docker builds in sync with ALA requirements
 
+# run_once + no retries made this the single request that can end a whole deploy: every
+# Java version below comes from it. raw.githubusercontent 429s the CI host for minutes at
+# a time under CLEAN_MACHINE (builds #354/#355), so ride the window out rather than take
+# the cluster down with it.
 - name: Download ALA dependencies from LA Toolkit dependencies.yaml
   ansible.builtin.uri:
     url: https://raw.githubusercontent.com/living-atlases/la-toolkit-backend/master/assets/dependencies.yaml
     return_content: yes
   register: la_dependencies_yaml
+  retries: 5
+  delay: 30
+  until: la_dependencies_yaml is succeeded
   delegate_to: localhost
   run_once: true
 
