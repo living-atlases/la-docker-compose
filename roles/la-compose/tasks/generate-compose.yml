@@ -2836,14 +2836,33 @@
         group: "{{ docker_compose_usergid }}"
         timeout: 20
   rescue:
-    - name: "Offline fallback — copy committed pinned cache (sha256 == pin)"
+    # copy's `checksum` parameter is sha1-only; handing it the sha256 pin made this
+    # fallback fail unconditionally — first exercised (and exposed) by build #354, when
+    # GitHub 429'd the fetch above. Copy plainly, then verify the sha256 ourselves.
+    - name: "Offline fallback — copy committed pinned cache"
       ansible.builtin.copy:
         src: "solr/biocache/conf/schema.xml"
         dest: "{{ docker_compose_data_dir }}/solr/init/biocache/conf/schema.xml"
-        checksum: "{{ biocache_solr_schema_sha256 }}"
         mode: '0644'
         owner: "{{ docker_compose_userid }}"
         group: "{{ docker_compose_usergid }}"
+
+    - name: "Offline fallback — read the installed schema's sha256"
+      ansible.builtin.stat:
+        path: "{{ docker_compose_data_dir }}/solr/init/biocache/conf/schema.xml"
+        checksum_algorithm: sha256
+      register: biocache_schema_cache_stat
+
+    - name: "Offline fallback — fail if the cache drifted from the pin"
+      ansible.builtin.assert:
+        that:
+          - biocache_schema_cache_stat.stat.checksum == biocache_solr_schema_sha256
+        fail_msg: >-
+          The committed schema.xml cache (sha256
+          {{ biocache_schema_cache_stat.stat.checksum }}) no longer matches
+          biocache_solr_schema_sha256 ({{ biocache_solr_schema_sha256 }}).
+          Re-vendor files/solr/biocache/conf/schema.xml from the pinned pipelines
+          commit or update the pin in roles/la-compose/vars/main.yml.
   tags:
     - solr
     - docker-compose-docker
