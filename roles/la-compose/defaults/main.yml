@@ -293,6 +293,15 @@ gatus_interval: "1m"
 # here with '[CONNECTED] == true'; set gatus_up_conditions instead to replace the pair.
 gatus_up_condition: "[STATUS] < 500"
 
+# The root path of a vhost is the one place where '< 500' is too generous. A 404 on
+# `/` does not mean "this API wants parameters", it means no server_name matched and
+# the request reached the wrong machine. On gbif.es that hid a real fault for months:
+# extra_hosts pointed registros-ws.gbif.es at a decommissioned 2021 VM, every path
+# returned 404, and ~25 checks reported green because 404 < 500. Applies only to the
+# vhost root; every other nginx_paths entry keeps gatus_up_condition. Paired with
+# '[CONNECTED] == true' the same way — set gatus_root_up_conditions to replace the pair.
+gatus_root_up_condition: "[STATUS] < 400"
+
 # Curated extra checks (roles/la-compose/vars/gatus-extra-endpoints.yml, rendered by
 # templates/docker-compose/gatus/extra-checks.yaml.j2). Kept in defaults/ — NOT in the
 # vars/ file — because vars/ is loaded with include_vars, whose precedence an inventory

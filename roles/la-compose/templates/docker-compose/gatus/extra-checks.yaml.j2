@@ -101,11 +101,24 @@ endpoints:
    docker_metrics_port, bound to that host's private address.
    Iterating the whole group matters: gatus runs on ONE machine of the cluster, and on
    2026-08-04 the hosts that reached 100% included one with no gatus on it. Checking
-   only "the local disk" would have missed exactly the failure this exists for. #}
+   only "the local disk" would have missed exactly the failure this exists for.
+
+   The host running gatus is the exception: reaching its own private address from inside
+   the container is a NAT hairpin (container -> host IP -> the port docker published back
+   into a container), and the packets are dropped, not refused, so the check sat red at
+   the full 10s timeout forever while every remote host answered in 1ms. Go through the
+   nginx container's network alias for that one host — same nginx, same disk.json, no
+   trip through the host's IP stack. Keyed on groups['gatus'], not inventory_hostname:
+   this file is written to every docker_compose host but only read by the one running
+   gatus, so the URL has to be right for the reader, not for the writer. #}
 {% for h in disk_hosts %}
   - name: "Disk - {{ h }}"
     group: "Hosts"
+{% if h in (groups['gatus'] | default([])) %}
+    url: "http://nginx:{{ hostvars[h].docker_metrics_port | default(8081) }}/disk.json"
+{% else %}
     url: "http://{{ hostvars[h].docker_metrics_bind | default(hostvars[h].ansible_host) }}:{{ hostvars[h].docker_metrics_port | default(8081) }}/disk.json"
+{% endif %}
     interval: {{ gatus_disk_interval | default('5m') }}
     conditions:
       - "[STATUS] == 200"
