@@ -7,6 +7,13 @@
 # so this works against any inventory. Complements the Ansible container-health gate
 # (wait-for-health.sh) and the Cypress smoke suite (Layer 2).
 #
+# DATA-DEPENDENT CHECKS ARE DELIBERATELY OUT OF SCOPE. Gatus also carries a "Data checks"
+# group (records-ws index fields, records search page) which is red on any portal that has
+# no records yet. That is a legitimate install — a docker-compose portal has no
+# dataResources, runs no e2e suite, and may not deploy Airflow at all — so an empty index
+# must never be reported here as a failed deployment. What asserts those, and only after
+# an ingest has actually run, is scripts/refresh-biocache-fields.sh.
+#
 # Endpoints and their URLs are NOT hardcoded here: they come from Gatus (which is itself
 # generated from the inventory). The --direct fallback reads the inventory-generated
 # e2e-targets.json manifest instead.

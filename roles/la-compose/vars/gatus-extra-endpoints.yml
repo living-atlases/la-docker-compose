@@ -155,24 +155,39 @@ gatus_extra_endpoints:
     path: "/occurrences/search?q=*:*&pageSize=0"
     conditions: ["[STATUS] < 400"]
 
-  # len() guards the hollow-green case: with an unreadable schema biocache answers 200
+  # --- Data checks ---------------------------------------------------------------
+  # SEPARATE GROUP ON PURPOSE. These two go red on a portal that simply has no records
+  # yet, and that is a legitimate install: a docker-compose portal has no dataResources,
+  # runs no e2e suite, and may not even deploy Airflow. verify-deployment.sh gates the
+  # build on "Deep checks" only, so nothing here can report a data-less deployment as a
+  # failed one. They stay visible on the dashboard because they do describe something an
+  # end user would notice — just not something a deploy can fix.
+  #
+  # What closes them is data plus a restart, which is what scripts/refresh-biocache-fields.sh
+  # does after an ingest. See wait-for-solr-collection.yml.j2 for why the restart is
+  # unavoidable: biocache-service caches its field list at boot from /admin/luke, which
+  # reports nothing for an index with no documents.
+
+  # len() guards the hollow-green case: with an empty field list biocache answers 200
   # with `[]` (two bytes), which a status-only condition happily accepts.
-  # CONFIRM ON FIRST DEPLOY whether gatus evaluates `len([BODY])` on a top-level JSON
-  # array as the element count (0 -> red, what we want) or as the raw string length
-  # (2 -> green). If it is the string length this check is merely as weak as it was
-  # before, never spuriously red, so it is safe to ship unconfirmed — but then switch it
-  # to an indexed shape condition such as `has([BODY][0].name) == true`.
+  # CONFIRMED on build #356: gatus evaluates len() on a top-level JSON array as the
+  # ELEMENT count, so `[]` scores 0 and the check goes red as intended.
   - name: "records-ws index fields"
-    group: "Deep checks"
+    group: "Data checks"
     service: "records-ws"
     path: "/index/fields"
     conditions: ["[STATUS] < 400", "len([BODY]) > 0"]
 
-  # The hub HTML page, the one thing the cypress suite covered and gatus did not — and
-  # the one that 500s right after a deploy. Data-agnostic: an empty index renders a
-  # perfectly good "No records found" page.
+  # The hub HTML page, the one thing the cypress suite covered and gatus did not.
+  # It was filed here as "data-agnostic: an empty index renders a perfectly good
+  # 'No records found' page". #356 showed that is not something to rely on: the page
+  # 500s on an <alatag:message> NPE inside the hub's message source, and stays that way
+  # until the hub is restarted. Whether that is triggered by an empty index or is
+  # independent of the data is NOT established (see biocache-hub.yml.j2 for what has
+  # been ruled out), so it sits here rather than in "Deep checks": until we know, it
+  # must not be able to fail a deploy that simply has no records.
   - name: "records search page"
-    group: "Deep checks"
+    group: "Data checks"
     service: "records"
     path: "/occurrences/search?q=*:*"
     html: true
