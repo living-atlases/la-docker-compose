@@ -34,6 +34,17 @@
 #
 # SCOPE, so nobody asks it for more than it gives:
 #
+#   - The http.agent assertion proves the template emits `<key>/<version>`, NOT that
+#     the version resolves on a real inventory. The template looks up
+#     `<key>_version`, and CASES supplies exactly that, so it cannot fail here.
+#     Live deployments disagree: docker_services_desc keys and inventory version
+#     variables are named independently, so `ala_hub` looks up `ala_hub_version`
+#     while the inventory declares `biocache_hub_version`, and the rendered .env
+#     carries `-Dhttp.agent=ala_hub/develop`. Same for userdetails, species_lists,
+#     spatial, images, doi, namematchingService and sensitiveDataService; regions,
+#     logger, ecodata, sds and spatial_service do resolve. It only reaches an
+#     outgoing User-Agent, which is why nobody noticed -- but do not read a green
+#     run here as "the versions are right".
 #   - Five services, not 23. They are picked to cover the shapes this breaks in (see
 #     the CASES table below), not for coverage. A regression in a service shaped
 #     unlike any of them would slip through; adding one is a row.
