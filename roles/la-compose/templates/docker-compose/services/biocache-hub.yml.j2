@@ -15,18 +15,36 @@ services:
       wait-for-branding:
         condition: service_completed_successfully
 {% if _i18n_dep %}
-      # /occurrences/search 500s right after a clean deploy and heals itself hours later
-      # with no restart:
+      # /occurrences/search 500s right after a clean deploy:
       #   GrailsTagException: [views/occurrence/list.gsp:22] <alatag:message>
       #   Cannot invoke "java.util.Map.size()" because "<parameter1>" is null
       # alatag:message -> MessageSourceCacheService.getMessagesMap() ->
       # listMessageCodes() -> getMergedProperties(locale), which putAll()s a null
-      # Properties when a message bundle dir is empty. The hub mounts the i18n volume
-      # (below) but, unlike collectory/cas/species-list, never waited for i18n-init, so it
-      # could boot while /opt/atlas/i18n was still empty. It heals without a restart once
-      # the messageSource cacheMillis expires and re-reads the now-populated dir - which is
-      # why the converge never caught it. Same NPE already diagnosed for
-      # data-quality-filter-service.
+      # Properties. Waiting for i18n-init is right for the LOCAL half of that merge (the
+      # hub mounts the volume below and, unlike collectory/cas/species-list, used to boot
+      # without waiting for it), so the gate stays.
+      #
+      # It is NOT sufficient, and the earlier note here - "it heals itself hours later once
+      # cacheMillis expires" - is wrong; build #356 disproved it. There /opt/atlas/i18n was
+      # populated at 21:12:25, the hub booted at 21:13:29 with the gate satisfied, and the
+      # NPE still fired on every request from 21:40 onwards, never healing in the 2.5 h
+      # until the hub was restarted by hand.
+      #
+      # What clears it is restarting THE HUB; that much is established. The mechanism is
+      # not. Two things were ruled out on #356, so do not spend time on them again:
+      #   - the i18n volume (populated before the hub booted, gate satisfied);
+      #   - biocache-service's empty field list. It looks compelling, because
+      #     ExtendedPluginAwareResourceBundleMessageSource and
+      #     MessageSourceCacheService.clearMessageCache both talk about fetching base
+      #     properties over HTTP from biocache-service - but that bean is commented out in
+      #     the plugin's resources.groovy, ala-hub defines none, and nginx logged 0 requests
+      #     to /facets/i18n against 30 to /index/fields in the same window. The hub does not
+      #     make that call.
+      # Upstream is unchanged since 2021, so ala-hub 8.3.0 carries the same code as 8.1.0:
+      # an upgrade is not the fix either. Tracked separately from the biocache-service bug.
+      #
+      # scripts/refresh-biocache-fields.sh restarts the hub after an ingest, which is where
+      # this has been observed; it is a known-good remedy, not a mechanism.
       i18n-init:
         condition: service_completed_successfully
 {% endif %}

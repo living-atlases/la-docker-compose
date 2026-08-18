@@ -1063,6 +1063,44 @@ EOF
             }
         }
 
+        stage('Refresh biocache field list') {
+            // MUST run after the ingest and before the smoke tests. biocache-service caches
+            // its index field list at boot from /admin/luke, which reports nothing for an
+            // index with no documents — so every deploy that ingests AFTER the stack is up
+            // leaves /index/fields answering `[]` with HTTP 200. biocache-hub then 500s on
+            // /occurrences/search, because its base i18n properties are fetched over HTTP
+            // from biocache-service, not read from the i18n volume. Both containers stay
+            // healthy throughout, which is how #356 shipped green with the portal unable to
+            // search. The script is a no-op when the fields are already served.
+            when { expression { params.RUN_AIRFLOW_INGEST && params.AUTO_DEPLOY && !params.ONLY_CLEAN } }
+            steps {
+                script {
+                    def hosts = env.TARGET_HOSTS.trim().split(/\s+/)
+                    // Same policy as the ingest stage: honest exit code, and E2E_BLOCKING
+                    // decides whether that fails the build or just marks the stage UNSTABLE.
+                    def run = {
+                        for (h in hosts) {
+                            def targetHost = h
+                            // Safe on every host: the script only touches the containers that
+                            // live there, and the hub half waits on the public records-ws URL,
+                            // so it converges even when hub and service are on different hosts.
+                            sh """
+                                set -eu
+                                scp -o BatchMode=yes -o StrictHostKeyChecking=no "${WORKSPACE}/scripts/refresh-biocache-fields.sh" ${targetHost}:/tmp/
+                                ssh -o BatchMode=yes -o StrictHostKeyChecking=no ${targetHost} \
+                                  "bash /tmp/refresh-biocache-fields.sh"
+                            """
+                        }
+                    }
+                    if (params.E2E_BLOCKING) {
+                        run()
+                    } else {
+                        catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') { run() }
+                    }
+                }
+            }
+        }
+
         stage('E2E Smoke Tests') {
             // Run after a redeploy OR after an Airflow ingest against the already-running stack:
             // the ingest (stage above) seeds the biocache/species suites, so the smoke should

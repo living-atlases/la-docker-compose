@@ -1,18 +1,37 @@
 services:
-  # Order-independent Solr collection readiness gate.
+  # Order-independent Solr index readiness gate.
   #
   # biocache-service reads the index field list ONCE, on the `main` thread at boot, via
-  # /admin/luke, and caches it for the life of the process. If the `biocache` collection
-  # does not exist yet at that moment, the luke query fails and the cache is left EMPTY
-  # for good:
+  # /admin/luke, and caches it for the life of the process. If that read comes back empty
+  # the cache stays EMPTY for good, and /index/fields answers `[]` — with HTTP 200, which
+  # is why the healthcheck and the old gatus check both stayed green over a broken
+  # endpoint for months. Verified twice: build #345 (2026-08-07) and build #356
+  # (2026-08-17), `[]` before, 83 fields after nothing but a restart.
   #
-  #   ERROR au.org.ala.biocache.dao.SolrIndexDAOImpl (SolrIndexDAOImpl.java:386)
-  #   query failed-1 - SOLRQuery: qt=/admin/luke&tr=luke.xsl&fl=&numTerms=1
-  #                             : Collection not found: biocache
+  # There are TWO ways to get that empty read, and waiting for the collection to exist
+  # only covers the first:
   #
-  # From then on /index/fields answers `[]` — with HTTP 200, which is why the healthcheck
-  # and the old gatus check both stayed green over a broken endpoint for months. Verified
-  # on 2026-08-07 against build #345: `[]` before, 83 fields after nothing but a restart.
+  #   1. The collection does not exist. The luke query fails outright:
+  #        ERROR au.org.ala.biocache.dao.SolrIndexDAOImpl (SolrIndexDAOImpl.java:386)
+  #        query failed-1 - SOLRQuery: qt=/admin/luke&tr=luke.xsl&fl=&numTerms=1
+  #                                  : Collection not found: biocache
+  #
+  #   2. The collection exists and is EMPTY. luke succeeds and reports nothing, because
+  #      it only lists fields actually present in the index segments — the schema alone
+  #      buys you no fields. This one logs NO error at all.
+  #
+  # Build #356 hit case 2 and is why this gate counts documents instead of collections:
+  # the gate gave up at 21:18, the collection was created at 21:25, the converge restarted
+  # biocache-service at 21:38 against a collection that existed but was still empty (clean
+  # boot, no error in the log), and the 8 documents only landed at 22:01. Nothing restarted
+  # it after that, so /index/fields served `[]` for hours while every container was healthy
+  # and the build was green. Gating on "the collection is listed" would have passed at
+  # 21:38 and changed nothing.
+  #
+  # The corollary is that this gate CANNOT fix a first install on its own: documents come
+  # from the first ingest, which happens long after the deploy. That case is closed after
+  # the ingest instead — see scripts/refresh-biocache-fields.sh, run by the Jenkinsfile
+  # stage right after 'Airflow Ingest E2E'.
   #
   # Same shape as wait-for-branding, and cross-host safe for the same reason: it polls the
   # collections API over HTTP through the `solr` alias (datastore_cluster_spec aliases +
@@ -34,21 +53,56 @@ services:
     entrypoint: ["sh", "-c"]
     command:
       - |
-        url="$${SOLR_BASE}/solr/admin/collections?action=LIST&wt=json"
-        echo "wait-for-solr-collection: polling $$url for '$${SOLR_COLLECTION}'"
+        # rows=0 keeps this a count, not a fetch. A collection that does not exist yet
+        # answers 404/500 here, which simply fails to match — same wait, one request.
+        sel="$${SOLR_BASE}/solr/$${SOLR_COLLECTION}/select?q=*:*&rows=0&wt=json"
+        echo "wait-for-solr-collection: polling $$sel until '$${SOLR_COLLECTION}' has documents"
+        # A deploy NEVER puts documents in the index, so waiting long for them is only
+        # worth it while the collection itself might still be appearing (init-solr, or a
+        # Solr that is still starting). Once the collection answers and reports zero
+        # documents, that state is stable for the rest of the deploy: bail after
+        # EMPTY_LIMIT instead of burning the full budget. A portal with no data - no
+        # dataResources, no ingest, no Airflow - is a legitimate install, not a failure,
+        # and it must not pay six minutes on every deploy to be told so.
+        LIMIT=120        # collection not answering yet (~6 min)
+        EMPTY_LIMIT=10   # collection answers and is empty (~30 s)
+        giveup() {
+          echo "wait-for-solr-collection: '$${SOLR_COLLECTION}' has no documents ($$1)."
+          echo "wait-for-solr-collection: an empty collection is no better here than one that does not exist:"
+          echo "wait-for-solr-collection: biocache-service builds its field list from /admin/luke, which only"
+          echo "wait-for-solr-collection: reports fields present in the index segments, so both cases cache an"
+          echo "wait-for-solr-collection: empty list for the life of the process."
+          echo "wait-for-solr-collection: documents come from the first ingest (la-pipelines 'solr' step),"
+          echo "wait-for-solr-collection: never from a deploy on its own. This is EXPECTED on an install with"
+          echo "wait-for-solr-collection: no data and is not a deployment failure. Starting biocache-service"
+          echo "wait-for-solr-collection: anyway: /index/fields will answer [] with HTTP 200 until the index"
+          echo "wait-for-solr-collection: has documents AND biocache-service is restarted. Whenever data does"
+          echo "wait-for-solr-collection: land, close it with scripts/refresh-biocache-fields.sh."
+          exit 0
+        }
         n=0
+        empty=0
         while true; do
-          # Match the quoted name so `biocache` cannot be satisfied by `biocache-something`.
-          if curl -sk --max-time 5 "$$url" 2>/dev/null | grep -q "\"$${SOLR_COLLECTION}\""; then
-            echo "wait-for-solr-collection: '$${SOLR_COLLECTION}' exists after $$n tries"
+          body=$$(curl -sk --max-time 5 "$$sel" 2>/dev/null || true)
+          # "numFound":8 -> 8. Absent (collection missing, error response) -> empty string.
+          docs=$$(printf '%s' "$$body" | sed -n 's/.*"numFound":[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -1)
+          if [ -n "$$docs" ] && [ "$$docs" -gt 0 ] 2>/dev/null; then
+            echo "wait-for-solr-collection: '$${SOLR_COLLECTION}' has $$docs document(s) after $$n tries"
             exit 0
           fi
           n=$$((n + 1))
-          if [ "$$n" -ge 120 ]; then
-            echo "wait-for-solr-collection: giving up after $$n tries; starting biocache-service anyway"
-            exit 0
+          if [ -n "$$docs" ]; then
+            empty=$$((empty + 1))
+            if [ "$$empty" -ge "$$EMPTY_LIMIT" ]; then
+              giveup "collection exists and is empty, $$empty checks"
+            fi
+            echo "wait-for-solr-collection: '$${SOLR_COLLECTION}' exists but is empty, retry $$n in 3s"
+          else
+            if [ "$$n" -ge "$$LIMIT" ]; then
+              giveup "not queryable after $$n tries"
+            fi
+            echo "wait-for-solr-collection: '$${SOLR_COLLECTION}' not queryable yet, retry $$n in 3s"
           fi
-          echo "wait-for-solr-collection: '$${SOLR_COLLECTION}' not listed yet, retry $$n in 3s"
           sleep 3
         done
     restart: "no"
