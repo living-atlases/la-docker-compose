@@ -21,6 +21,26 @@ clone it directly — the [Prerequisites](#prerequisites) and
 [Testing & local development](#testing--local-development) sections below are
 aimed at contributors working on this repo itself.
 
+### A configuration to start from
+
+Configuring a first portal in la-toolkit from an empty form means guessing which
+services this stack actually implements, and one of those guesses is a dead end:
+the legacy standalone **solr** and **biocache-store** path is not deployed here.
+Indexing is pipelines + solrcloud + zookeeper. Leaving the legacy services enabled
+strands them — they have no docker support, so a Docker Compose cluster will not
+take them.
+
+`inventories/testing/topologies/1host/.yo-rc.json` is a working single-host
+configuration you can import with the **(+)** button in la-toolkit and edit from
+there. It is the fixture the CI topology matrix runs against, sanitized: hosts
+renamed to `la-mh-*`, IPs to `10.77.0.*`, secrets replaced. It carries
+`LA_use_solr: false` and no biocache-store, with `solrcloud`, `zookeeper` and
+`pipelines` all on the one host.
+
+After importing, replace the hostnames, IPs, domain and project name with your own,
+then configure your SSH keys. [`topologies/README.md`](topologies/README.md)
+describes the 2- and 3-host variants and how the placement overlays are generated.
+
 ## Project status
 
 What works, and what you should not rely on yet. Read this before planning a
@@ -273,6 +293,19 @@ Per-service options are emitted to `.env` as `<SERVICE>_JAVA_OPTS`. Tune via
 inventory / `*-local-extras.ini`: `<service>_max_memory` (default `2g` → `-Xmx`),
 `<service>_min_memory` (default `1g` → `-Xms`), `java_security_opts`.
 
+> **Images built before 2026-08-17 ignore this.** The Java image templates
+> expanded `JAVA_OPTS` when the Dockerfile was generated, so the defaults
+> (`-Xmx2g -Xms2g -Xss512k`) were baked into the image `CMD` and the runtime
+> variable was never read. This side is correct: the value does reach the
+> container environment, and `docker exec <c> env | grep JAVA_OPTS` shows it.
+> To confirm whether an image is affected, check whether its own command still
+> carries the flags:
+> ```bash
+> docker inspect <container> --format '{{.Config.Cmd}}'
+> ```
+> Fixed in la-docker-images (see its issue #3); services need rebuilt images
+> for `*_max_memory` / `*_min_memory` to take effect.
+
 ### Persistent overrides (survive `ansiblew`)
 
 - **Environment / `.env` → `.env-custom`.** `.env` is regenerated each run. For
@@ -360,6 +393,128 @@ re-runs the playbooks without cleaning, and fails the build on any data loss,
 nginx downtime, or spurious container recreation. The CI-only destructive
 stages (`CLEAN_MACHINE`, nuclear Docker cleanup) additionally refuse hosts not
 matching `CLEAN_HOSTS_ALLOW_REGEX`.
+
+---
+
+## Migrating an existing portal (VMs → Docker)
+
+Moving a Living Atlas that runs on VMs into this deployment means carrying over
+the data that cannot be regenerated: the CAS user accounts, the collectory
+registry, species lists, logger history, alerts, image metadata, DOIs, data
+quality profiles and the spatial/geonetwork databases. Two playbooks do it, both
+run by hand — nothing in a normal `ansiblew` can trigger or repeat a restore.
+
+Occurrence data is deliberately **not** migrated. Cassandra, SOLR and
+Elasticsearch content is regenerable by re-ingesting the source DwCAs with
+pipelines, and is orders of magnitude too large to move as a dump.
+
+### One database at a time, never the whole cluster
+
+This is the rule the whole design rests on. `mysqldump --all-databases` carries
+`mysql.user`, `pg_dumpall` carries roles-with-passwords, and a
+mongodump/mongorestore of `admin` carries the Mongo accounts. Restoring any of
+them would replace the credentials Ansible generated from the inventory, and
+every service would instantly lose its own database auth. So each application
+database is dumped and restored on its own, into the databases and roles
+`init-databases.yml` already created. A useful side effect: the source VM's root
+password is never needed on the restore side.
+
+`apikey` is excluded for the same class of reason — the Docker services use keys
+from the inventory, seeded by `seed-apikeys.yml`, so a restored `apikey` table
+would hold keys nothing reads.
+
+### 1. Deploy the Docker stack first
+
+Migrate into a stack that is already deployed and green. The restore loads data
+into databases that must already exist with the right owners.
+
+### 2. Fetch a dump set from the source portal
+
+Configure the source in `playbooks/vars/portal-migration.yml` (hosts,
+credentials, which databases to move), then:
+
+```bash
+ansible-playbook -i <inventory> playbooks/portal-migrate-fetch.yml -e migration_portal=<portal>
+```
+
+This is **read-only on the source portal**: it runs dumps and exact `COUNT(*)`
+queries, writes only under `/tmp` on the source hosts, and cleans that up on the
+way out. It refuses to run against a `docker_compose` host, and source hosts must
+be named explicitly — in a mixed inventory the service groups contain both the
+production VMs and the Docker hosts, so deriving them with `groups[x] | first`
+can silently pick the wrong machine.
+
+The result lands on the controller as
+`/data/migration/<portal>/<timestamp>/` containing `dumps/`, `counts/` and
+`manifest.json`.
+
+### 3. Restore into the Docker stack
+
+```bash
+ansible-playbook -i <inventory> playbooks/db-restore.yml -e db_restore=true -e db_restore_confirm=<portal> -e migration_src_dir=/data/migration/<portal>/<timestamp>
+```
+
+Four things stand between this command and an accident:
+
+| Guard | Behaviour |
+|---|---|
+| `db_restore=true` plus the portal name typed back | The confirmation is checked against `manifest.json`, so it forces a look at *which* dump set is about to load — the mistake that actually happens is right command, wrong directory |
+| Mandatory pre-restore backup | `pre-deploy-backup.yml` runs unconditionally first; if the dump fails, nothing is mutated |
+| Per-dump-set marker | Re-running is a no-op, and a **second** portal cannot be stacked on top of the first without `-e db_restore_force=true` |
+| Per-database restores | The generated datastore credentials are never in scope |
+
+There is no `la_env=production` gate. Migrating into a stack that is already
+production is the whole point; forcing the operator to downgrade `la_env` would
+disable the safety rails at the exact moment they matter.
+
+### 4. What the restore reconciles afterwards
+
+A dump carries the source portal's world with it. `restore-reconcile.yml` fixes
+four things, in order:
+
+1. **PostgreSQL ownership.** `pg_restore` runs with `--no-owner` (that is what
+   keeps the source roles out of this cluster), so every restored object belongs
+   to the superuser and the service gets `permission denied for table ...`. Each
+   object is handed to the role that owns the *database*, which
+   `init-databases.yml` set at `CREATE DATABASE` time.
+2. **Schema migrations.** Portals on VMs predate the `utf8mb4_unicode_ci` switch,
+   so a restored `emmet` usually arrives with the old collation. Left alone, CAS's
+   `sp_get_user_attributes` dies with MySQL error 1267 and hands out a principal
+   with no attributes — every login succeeds and every authorisation fails.
+3. **Application restart**, so services re-read the databases underneath them and
+   Flyway/GORM migrate a restored schema forward to what the images expect.
+4. **CAS re-registration.** The restored `cas-service-registry` holds the *source*
+   portal's OIDC clients and redirect URIs, so every login would bounce.
+   `init-cas-admin.yml` deletes and re-inserts one document per service, replacing
+   them with the URIs generated for this deployment. Then `seed-apikeys.yml` adds
+   this deployment's keys alongside any restored ones.
+
+### 5. Verify before trusting it
+
+```bash
+scripts/verify-migration.sh /data/migration/<portal>/<timestamp>
+```
+
+Run on each Docker host that carries a datastore (engines not present on a host
+are skipped). It compares the exact per-table and per-collection counts recorded
+at the source against the restored stack and fails if anything that had rows lost
+them. Extra rows are expected and reported as such — a deployed stack seeds its
+own. It also checks that the generated MySQL and MongoDB accounts survived, which
+is the regression check against a cluster-wide restore sneaking back in.
+
+Then check by hand: log into CAS with a migrated account, confirm collectory
+lists its resources, and confirm an image renders.
+
+### What is not covered
+
+- **Binary file trees** — the image-service store, collectory uploads and
+  biocache downloads are bind mounts, not database rows, and are not yet moved by
+  these playbooks. Copy them with `rsync` into `{{ data_dir }}/<service>/...` on
+  the target host and `chown` them to the container UID/GID.
+- **Occurrence data** — re-ingest the source DwCAs with pipelines.
+- **Hostnames stored inside the data.** Service configuration is regenerated by
+  Ansible, but if a restored table holds URLs pointing at the old portal, no
+  restore will rewrite them.
 
 ---
 
