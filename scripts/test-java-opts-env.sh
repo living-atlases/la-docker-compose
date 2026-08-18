@@ -19,7 +19,22 @@
 # The spring.config settings survived whatever this file emitted -- and so did the
 # memory, which is why `<service>_max_memory` did nothing. With the fixed images the
 # CMD is `java ${JAVA_OPTS} -jar ...`: the memory settings finally work, and anything
-# missing here disappears. Dropping spring.config would start a service without its
+# missing here disappears.
+#
+# SCOPE. This renders the template and nothing else, so it covers what the template
+# adds (spring.config, logging.config, http.agent, extra params) and that it passes
+# through what it is given. It does NOT cover `<service>_max_memory` -> `-Xmx`: that
+# string is built in Ansible, in generate-compose.yml ("Build JAVA_OPTS strings for
+# each service"), and arrives here already assembled. The -Xmx assertions below prove
+# propagation, not computation.
+#
+# Nor can it see the sharpest failure of all, because membership of
+# service_java_opts_dict is decided by that same Ansible loop, which selects on
+# `log_config_filename` being defined. A Java service that declares none never enters
+# the dict, so no <PREFIX>_JAVA_OPTS line is emitted, `JAVA_OPTS: ${<PREFIX>_JAVA_OPTS}`
+# in its compose file expands to EMPTY, and after la-docker-images#3 that is a JVM with
+# no memory settings and no spring.config at all. Feeding the dict by hand here bypasses
+# that gate by construction. Guard it where it lives, not from this file. Dropping spring.config would start a service without its
 # /data/<artifact>/config overrides, which fails late and looks like a config bug
 # rather than a packaging one. Verified against a rebuilt userdetails image before
 # this test was written.
@@ -83,21 +98,59 @@ env = Environment(loader=FileSystemLoader(str(templates)), undefined=ChainableUn
 # airflow block. Nothing else in this file needs Ansible's filter set.
 env.filters["bool"] = lambda value: str(value).strip().lower() in ("true", "yes", "on", "1")
 
-# Two services worth distinguishing: userdetails has a logging config and its env
-# prefix is just the upper-cased name, while ala_hub has neither -- its artifact is
-# `ala-hub` (so the data dir is /data/ala-hub, not /data/ala_hub) and its env prefix
-# is remapped to BIOCACHE_HUB.
+# One row per SHAPE the template has to get right, so covering a new one is a line
+# here rather than a new block below. Two hardcoded services used to leave the
+# hyphenated-key and extra_params paths unexercised.
+#
+#   userdetails  the plain case: prefix is the upper-cased key, artifact == key,
+#                and it declares a logging config
+#   ala_hub      prefix remapped (BIOCACHE_HUB) AND artifact differs from the key
+#                (ala-hub), so /data/ala_hub/ would be wrong. It does declare a
+#                logging config -- the real inventory gives it logback.xml
+#   ala_bie      the other remap (BIE_HUB), guarding the map rather than one entry
+#   data-quality hyphenated key: the prefix must become DATA_QUALITY, and the
+#                <key>_version lookup must survive the same substitution
+#   alerts       declares NO logging config, so -Dlogging.config must not appear,
+#                and carries extra_params, which must be emitted as -Dkey=value
+CASES = {
+    "userdetails": {
+        "desc": {"artifacts": "userdetails", "log_config_filename": "logback.xml"},
+        "prefix": "USERDETAILS", "artifact": "userdetails",
+        "java_opts": "-Djava.awt.headless=true -Xmx512m -Xms256m -Dlog4j2.formatMsgNoLookups=true",
+        "memory": "-Xmx512m", "log_config": "logback.xml", "version": "3.2.1",
+    },
+    "ala_hub": {
+        "desc": {"artifacts": "ala-hub", "log_config_filename": "logback.xml"},
+        "prefix": "BIOCACHE_HUB", "artifact": "ala-hub",
+        "java_opts": "-Djava.awt.headless=true -Xmx4g -Xms2g -Dlog4j2.formatMsgNoLookups=true",
+        "memory": "-Xmx4g", "log_config": "logback.xml", "version": "8.3.0",
+    },
+    "ala_bie": {
+        "desc": {"artifacts": "ala-bie", "log_config_filename": "logback.xml"},
+        "prefix": "BIE_HUB", "artifact": "ala-bie",
+        "java_opts": "-Djava.awt.headless=true -Xmx2g -Xms1g",
+        "memory": "-Xmx2g", "log_config": "logback.xml", "version": "3.0.1",
+    },
+    "data-quality": {
+        "desc": {"artifacts": "data-quality", "log_config_filename": "logback.xml"},
+        "prefix": "DATA_QUALITY", "artifact": "data-quality",
+        "java_opts": "-Djava.awt.headless=true -Xmx1g -Xms512m",
+        "memory": "-Xmx1g", "log_config": "logback.xml", "version": "1.2.3",
+    },
+    "alerts": {
+        "desc": {"artifacts": "alerts"},
+        "prefix": "ALERTS", "artifact": "alerts",
+        "java_opts": "-Djava.awt.headless=true -Xmx1g -Xms512m",
+        "memory": "-Xmx1g", "log_config": None, "version": "5.2.0",
+        "extra_params": [{"key": "spring.profiles.active", "value": "prod"}],
+    },
+}
+
 rendered = env.get_template("docker-compose.env.j2").render(
-    service_java_opts_dict={
-        "userdetails": "-Djava.awt.headless=true -Xmx512m -Xms256m -Dlog4j2.formatMsgNoLookups=true",
-        "ala_hub": "-Djava.awt.headless=true -Xmx4g -Xms2g -Dlog4j2.formatMsgNoLookups=true",
-    },
-    docker_services_desc={
-        "userdetails": {"artifacts": "userdetails", "log_config_filename": "logback.xml"},
-        "ala_hub": {"artifacts": "ala-hub"},
-    },
-    service_extra_params={},
-    vars={"userdetails_version": "3.2.1", "ala_hub_version": "8.3.0"},
+    service_java_opts_dict={k: c["java_opts"] for k, c in CASES.items()},
+    docker_services_desc={k: c["desc"] for k, c in CASES.items()},
+    service_extra_params={k: c.get("extra_params", []) for k, c in CASES.items()},
+    vars={f"{k.replace('-', '_')}_version": c["version"] for k, c in CASES.items()},
 )
 
 lines = {
@@ -117,7 +170,21 @@ def require(prefix, fragment, why):
         failures.append(f"{prefix} is missing {fragment} ({why})\n      got: {value}")
 
 
-for prefix, artifact in (("USERDETAILS_JAVA_OPTS", "userdetails"), ("BIOCACHE_HUB_JAVA_OPTS", "ala-hub")):
+def reject(prefix, fragment, why):
+    value = lines.get(prefix, "")
+    if fragment in value:
+        failures.append(f"{prefix} carries {fragment} but {why}\n      got: {value}")
+
+
+for key, case in CASES.items():
+    prefix, artifact = case["prefix"] + "_JAVA_OPTS", case["artifact"]
+
+    # Every service in the dict must produce a line. The template dropping one silently
+    # is the same outcome as Ansible never adding it: JAVA_OPTS expands to empty.
+    if prefix not in lines:
+        failures.append(f"{prefix} was not emitted at all (service {key})")
+        continue
+
     # Without these a service starts with none of its /data/<artifact>/config
     # overrides. The image puts them in ENV JAVA_OPTS, which the service replaces.
     require(prefix, f"-Dspring.config.additional-location=/data/{artifact}/config/",
@@ -125,21 +192,28 @@ for prefix, artifact in (("USERDETAILS_JAVA_OPTS", "userdetails"), ("BIOCACHE_HU
     require(prefix, "-Dspring.config.name=application,application-local-config",
             "application-local-config would not be read")
 
-# Memory has to survive the trip through the template: with the fixed images this is
-# the only route to the JVM. Whether the value itself is right is java-opts-builder's
-# job -- these two are handed in above, so this only proves nothing drops them.
-require("USERDETAILS_JAVA_OPTS", "-Xmx512m", "<service>_max_memory would not reach the JVM")
-require("BIOCACHE_HUB_JAVA_OPTS", "-Xmx4g", "<service>_max_memory would not reach the JVM")
+    # Propagated from Ansible, not computed here -- see SCOPE in the header.
+    require(prefix, case["memory"], "the assembled JAVA_OPTS was not passed through")
 
-# Only when the service declares one, matching what build.py does.
-require("USERDETAILS_JAVA_OPTS", "-Dlogging.config=/data/userdetails/config/logback.xml",
-        "logging config path")
-if "-Dlogging.config" in lines.get("BIOCACHE_HUB_JAVA_OPTS", ""):
-    failures.append("BIOCACHE_HUB_JAVA_OPTS has -Dlogging.config but declares no log_config_filename")
+    # The data dir is the artifact, not the docker_services_desc key: ala_hub -> ala-hub.
+    if artifact != key:
+        reject(prefix, f"/data/{key}/", f"the artifact is {artifact}, not the key {key}")
 
-# The data dir is the artifact, not the docker_services_desc key: ala_hub -> ala-hub.
-if "/data/ala_hub/" in lines.get("BIOCACHE_HUB_JAVA_OPTS", ""):
-    failures.append("BIOCACHE_HUB_JAVA_OPTS points at /data/ala_hub, but the artifact is ala-hub")
+    require(prefix, f"-Dhttp.agent={key}/{case['version']}", "user agent identifies the service")
+
+    # Only when the service declares one, matching what build.py does.
+    if case["log_config"]:
+        require(prefix, f"-Dlogging.config=/data/{artifact}/config/{case['log_config']}",
+                "logging config path")
+    else:
+        reject(prefix, "-Dlogging.config", "it declares no log_config_filename")
+
+    for param in case.get("extra_params", []):
+        require(prefix, f"-D{param['key']}={param['value']}", "extra_params must reach the JVM")
+
+# A prefix collision would silently overwrite one service's options with another's.
+if len(lines) != len(CASES):
+    failures.append(f"expected {len(CASES)} *_JAVA_OPTS lines, got {len(lines)}: {sorted(lines)}")
 
 if failures:
     print("❌ JAVA_OPTS env generation is incomplete:\n")
