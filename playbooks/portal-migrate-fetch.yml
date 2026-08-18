@@ -1,0 +1,317 @@
+---
+# Fetch a dump set from an existing Living Atlas portal running on VMs, so it
+# can be loaded into a Docker Compose deployment with playbooks/db-restore.yml.
+#
+# THIS PLAYBOOK IS READ-ONLY ON THE SOURCE PORTAL. It runs dumps and counts,
+# writes only under /tmp on the source hosts, and removes that on the way out.
+# It is the only code in this repo that opens SSH to the production VMs, so it
+# is deliberately narrow: hosts come from explicit variables (never from
+# `groups[<service>] | first`, which in a mixed inventory can resolve to the
+# wrong machine), and it refuses to run against a docker_compose host.
+#
+# One dump PER APPLICATION DATABASE, never a cluster-wide dump — see the
+# rationale in roles/la-compose/defaults/main.yml ("Portal migration").
+#
+#   ansible-playbook -i <inventory> playbooks/portal-migrate-fetch.yml \
+#     -e migration_portal=gbif-es \
+#     -e migration_src_mysql_host=gbif-es-auth-2025 \
+#     -e migration_src_mongo_host=gbif-es-auth-2025 \
+#     -e migration_src_postgres_host=gbif-es-images-2021
+#
+# Result on the controller: {{ migration_dir }}/<portal>/<ts>/ containing the
+# dumps, counts/ and manifest.json. Feed that directory to db-restore.yml.
+
+- name: "Migration fetch: prepare the staging area on the controller"
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  become: false
+  vars_files:
+    - vars/portal-migration.yml
+  tasks:
+    - name: "Migration fetch: require a portal name"
+      ansible.builtin.assert:
+        that:
+          - migration_portal | default('') | trim | length > 0
+        fail_msg: >-
+          Set -e migration_portal=<name>. It names the dump set directory and is
+          what db-restore.yml asks the operator to type back as confirmation.
+
+    - name: "Migration fetch: require at least one source host"
+      ansible.builtin.assert:
+        that:
+          - (migration_src_mysql_host | default('') | trim | length > 0)
+            or (migration_src_mongo_host | default('') | trim | length > 0)
+            or (migration_src_postgres_host | default('') | trim | length > 0)
+        fail_msg: >-
+          Set at least one of migration_src_mysql_host / migration_src_mongo_host /
+          migration_src_postgres_host. Name the hosts explicitly — do not rely on
+          service groups, which in a mixed VM+Docker inventory contain both.
+
+    - name: "Migration fetch: timestamp this dump set"
+      ansible.builtin.set_fact:
+        migration_ts: "{{ lookup('pipe', 'date -u +%Y%m%dT%H%M%SZ') }}"
+
+    - name: "Migration fetch: record the staging directory"
+      ansible.builtin.set_fact:
+        migration_set_dir: "{{ migration_dir }}/{{ migration_portal }}/{{ migration_ts }}"
+
+    - name: "Migration fetch: create the staging directories"
+      ansible.builtin.file:
+        path: "{{ migration_set_dir }}/{{ item }}"
+        state: directory
+        mode: "0700"
+      loop:
+        - dumps
+        - counts
+
+    - name: "Migration fetch: report where the dump set is going"
+      ansible.builtin.debug:
+        msg: "Dump set: {{ migration_set_dir }}"
+
+# The pattern joins the three source hosts and de-duplicates, so a portal where
+# one VM carries several engines is visited once. 'none' keeps the play valid
+# (matching nothing) rather than erroring when a pattern would be empty.
+- name: "Migration fetch: dump the source portal databases"
+  hosts: >-
+    {{ [migration_src_mysql_host | default(''),
+        migration_src_mongo_host | default(''),
+        migration_src_postgres_host | default('')]
+       | select | unique | join(':') | default('none', true) }}
+  gather_facts: false
+  become: false
+  vars_files:
+    - vars/portal-migration.yml
+  vars:
+    migration_ts: "{{ hostvars['localhost']['migration_ts'] }}"
+    migration_set_dir: "{{ hostvars['localhost']['migration_set_dir'] }}"
+    migration_tmp: "/tmp/la-migration-{{ hostvars['localhost']['migration_ts'] }}"
+  tasks:
+    # The whole point of naming source hosts explicitly is to never touch the
+    # Docker stack. Check it anyway: a typo here dumps the target over itself.
+    - name: "Migration fetch: refuse to dump a docker_compose host"
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname not in (groups['docker_compose'] | default([]))
+        fail_msg: >-
+          {{ inventory_hostname }} is a docker_compose host. This playbook dumps the
+          SOURCE portal (the VMs you are migrating away from), not the target stack.
+
+    - name: "Migration fetch: create the temporary dump directory"
+      ansible.builtin.file:
+        path: "{{ migration_tmp }}"
+        state: directory
+        mode: "0700"
+
+    # ------------------------------------------------------------------
+    # MySQL
+    # ------------------------------------------------------------------
+    - name: "Migration fetch: MySQL"
+      when: inventory_hostname == (migration_src_mysql_host | default(''))
+      # MYSQL_PWD instead of -p<password>: the command line of every process is
+      # world-readable via /proc, and this runs on a live production VM.
+      environment:
+        MYSQL_PWD: "{{ migration_src_mysql_password }}"
+      block:
+        - name: "Migration fetch: dump each MySQL database"
+          ansible.builtin.shell: >
+            set -o pipefail;
+            mysqldump --single-transaction --routines --triggers --events
+            --no-tablespaces --skip-lock-tables
+            -u {{ migration_src_mysql_user }} {{ item }}
+            | gzip > {{ migration_tmp }}/mysql-{{ item }}.sql.gz
+          args:
+            executable: /bin/bash
+          loop: "{{ migration_mysql_databases }}"
+          changed_when: false
+
+        # Exact COUNT(*) per table. information_schema.table_rows is an InnoDB
+        # estimate and can be off by tens of percent, which is useless as the
+        # evidence that a migration lost nothing.
+        - name: "Migration fetch: count MySQL rows per table"
+          ansible.builtin.shell: |
+            set -euo pipefail
+            db={{ item | quote }}
+            mysql -N -B -u {{ migration_src_mysql_user }} -e \
+              "SELECT table_name FROM information_schema.tables
+               WHERE table_schema='$db' AND table_type='BASE TABLE'" \
+            | while read -r t; do
+                n=$(mysql -N -B -u {{ migration_src_mysql_user }} -e \
+                      "SELECT COUNT(*) FROM \`$db\`.\`$t\`")
+                printf '%s\t%s\n' "$t" "$n"
+              done
+          args:
+            executable: /bin/bash
+          loop: "{{ migration_mysql_databases }}"
+          register: migration_mysql_counts
+          changed_when: false
+
+        - name: "Migration fetch: stage the MySQL counts"
+          ansible.builtin.copy:
+            content: "{{ item.stdout }}\n"
+            dest: "{{ migration_tmp }}/counts-mysql-{{ item.item }}.tsv"
+            mode: "0600"
+          loop: "{{ migration_mysql_counts.results }}"
+          loop_control:
+            label: "{{ item.item }}"
+
+    # ------------------------------------------------------------------
+    # PostgreSQL
+    # ------------------------------------------------------------------
+    # -Fc (custom format) is already compressed — do NOT pipe it through gzip.
+    # ala-install's db-backup role does exactly that and gains nothing but CPU.
+    - name: "Migration fetch: PostgreSQL"
+      when: inventory_hostname == (migration_src_postgres_host | default(''))
+      become: true
+      become_user: "{{ migration_src_postgres_os_user }}"
+      block:
+        - name: "Migration fetch: dump each PostgreSQL database"
+          ansible.builtin.command: >
+            pg_dump -Fc -d {{ item }} -f {{ migration_tmp }}/postgres-{{ item }}.dump
+          loop: "{{ migration_postgres_databases }}"
+          changed_when: false
+
+        - name: "Migration fetch: count PostgreSQL rows per table"
+          ansible.builtin.shell: |
+            set -euo pipefail
+            db={{ item | quote }}
+            psql -tAX -d "$db" -c \
+              "SELECT tablename FROM pg_tables WHERE schemaname='public'" \
+            | while read -r t; do
+                [ -n "$t" ] || continue
+                n=$(psql -tAX -d "$db" -c "SELECT COUNT(*) FROM public.\"$t\"")
+                printf '%s\t%s\n' "$t" "$n"
+              done
+          args:
+            executable: /bin/bash
+          loop: "{{ migration_postgres_databases }}"
+          register: migration_postgres_counts
+          changed_when: false
+
+        - name: "Migration fetch: stage the PostgreSQL counts"
+          ansible.builtin.copy:
+            content: "{{ item.stdout }}\n"
+            dest: "{{ migration_tmp }}/counts-postgres-{{ item.item }}.tsv"
+            mode: "0600"
+          loop: "{{ migration_postgres_counts.results }}"
+          loop_control:
+            label: "{{ item.item }}"
+
+    # ------------------------------------------------------------------
+    # MongoDB
+    # ------------------------------------------------------------------
+    - name: "Migration fetch: MongoDB"
+      when: inventory_hostname == (migration_src_mongo_host | default(''))
+      block:
+        # mongodump has no password env var, and --password would sit in the
+        # process list. Database Tools >= 100.0 read it from a 0600 YAML file.
+        - name: "Migration fetch: write the mongodump credentials file"
+          ansible.builtin.copy:
+            content: "password: {{ migration_src_mongo_password }}\n"
+            dest: "{{ migration_tmp }}/mongo.conf"
+            mode: "0600"
+          no_log: true
+
+        - name: "Migration fetch: dump each MongoDB database"
+          ansible.builtin.command: >
+            mongodump --quiet --db {{ item }}
+            --username {{ migration_src_mongo_user }}
+            --authenticationDatabase admin
+            --config {{ migration_tmp }}/mongo.conf
+            --archive={{ migration_tmp }}/mongo-{{ item }}.archive.gz --gzip
+          loop: "{{ migration_mongo_databases }}"
+          changed_when: false
+
+        # --nodb + Mongo(process.env.MONGO_URI) keeps the credentials out of the
+        # process list; passing the URI as an argv would not.
+        - name: "Migration fetch: count MongoDB documents per collection"
+          ansible.builtin.command: >
+            mongosh --quiet --nodb --eval
+            'const c = Mongo(process.env.MONGO_URI);
+             const d = c.getDB(process.env.MONGO_DB);
+             d.getCollectionNames().forEach(n => print(n + "\t" + d.getCollection(n).countDocuments({})));'
+          environment:
+            MONGO_URI: >-
+              mongodb://{{ migration_src_mongo_user }}:{{ migration_src_mongo_password
+              | urlencode }}@localhost:27017/?authSource=admin
+            MONGO_DB: "{{ item }}"
+          loop: "{{ migration_mongo_databases }}"
+          register: migration_mongo_counts
+          changed_when: false
+          no_log: true
+
+        - name: "Migration fetch: stage the MongoDB counts"
+          ansible.builtin.copy:
+            content: "{{ item.stdout }}\n"
+            dest: "{{ migration_tmp }}/counts-mongo-{{ item.item }}.tsv"
+            mode: "0600"
+          loop: "{{ migration_mongo_counts.results }}"
+          loop_control:
+            label: "{{ item.item }}"
+
+    # ------------------------------------------------------------------
+    # Bring it home, then leave nothing behind on the source VM
+    # ------------------------------------------------------------------
+    - name: "Migration fetch: list what was produced"
+      ansible.builtin.find:
+        paths: "{{ migration_tmp }}"
+        patterns:
+          - "mysql-*.sql.gz"
+          - "postgres-*.dump"
+          - "mongo-*.archive.gz"
+          - "counts-*.tsv"
+      register: migration_produced
+
+    - name: "Migration fetch: pull the dumps and counts to the controller"
+      ansible.builtin.fetch:
+        src: "{{ item.path }}"
+        dest: >-
+          {{ migration_set_dir }}/{{ 'counts' if (item.path | basename).startswith('counts-')
+             else 'dumps' }}/{{ item.path | basename }}
+        flat: true
+      loop: "{{ migration_produced.files }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+
+    - name: "Migration fetch: remove the temporary dump directory from the source host"
+      ansible.builtin.file:
+        path: "{{ migration_tmp }}"
+        state: absent
+
+- name: "Migration fetch: write the manifest"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  vars_files:
+    - vars/portal-migration.yml
+  tasks:
+    # manifest.json is what makes the restore auditable: db-restore.yml hashes it
+    # for its idempotence marker, and scripts/verify-migration.sh diffs the
+    # counts recorded here against the restored stack.
+    - name: "Migration fetch: write manifest.json"
+      ansible.builtin.copy:
+        content: "{{ migration_manifest | to_nice_json }}\n"
+        dest: "{{ migration_set_dir }}/manifest.json"
+        mode: "0600"
+      vars:
+        migration_manifest:
+          portal: "{{ migration_portal }}"
+          fetched_at: "{{ migration_ts }}"
+          source_hosts:
+            mysql: "{{ migration_src_mysql_host | default('') }}"
+            mongodb: "{{ migration_src_mongo_host | default('') }}"
+            postgres: "{{ migration_src_postgres_host | default('') }}"
+          databases:
+            mysql: "{{ migration_mysql_databases if (migration_src_mysql_host | default('')) else [] }}"
+            postgres: "{{ migration_postgres_databases if (migration_src_postgres_host | default('')) else [] }}"
+            mongodb: "{{ migration_mongo_databases if (migration_src_mongo_host | default('')) else [] }}"
+
+    - name: "Migration fetch: done"
+      ansible.builtin.debug:
+        msg:
+          - "Dump set ready: {{ migration_set_dir }}"
+          - "Restore it with:"
+          - "  ansible-playbook -i <inventory> playbooks/db-restore.yml"
+          - "    -e db_restore=true -e db_restore_confirm={{ migration_portal }}"
+          - "    -e migration_src_dir={{ migration_set_dir }}"

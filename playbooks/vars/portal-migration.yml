@@ -1,0 +1,66 @@
+---
+# Fetch-side settings for playbooks/portal-migrate-fetch.yml — i.e. the portal
+# you are migrating AWAY from. These live here rather than in the la-compose
+# role defaults because the fetch plays target the source VMs and never apply
+# that role, so role defaults would never reach them.
+#
+# Everything here can be overridden with -e on the command line. Put the
+# passwords in a vault, not in this file.
+
+# --- source hosts ---
+# Name them explicitly, as they appear in the inventory. Never derive them with
+# `groups[<service>] | first`: in a mixed inventory the service groups contain
+# both the production VMs and the Docker hosts, so `| first` can silently
+# resolve to the wrong machine. Leave one empty to skip that engine.
+migration_src_mysql_host: ""
+migration_src_mongo_host: ""
+migration_src_postgres_host: ""
+
+# --- source credentials ---
+migration_src_mysql_user: root
+migration_src_mysql_password: ""
+migration_src_mongo_user: ""
+migration_src_mongo_password: ""
+# pg_dump connects as the local superuser over the unix socket, so it needs no
+# password — only the OS user to sudo to.
+migration_src_postgres_os_user: postgres
+
+# --- which application databases to move ---
+# One dump per database, never a cluster-wide dump: `mysqldump --all-databases`
+# carries mysql.user, `pg_dumpall` carries roles-with-passwords, and a
+# mongodump/mongorestore of `admin` carries the Mongo users. Restoring any of
+# those would replace the credentials init-databases.yml generated from the
+# inventory, and every service would instantly lose its database auth.
+#
+# Defaults mirror what init-databases.yml provisions; trim per portal.
+migration_mysql_databases:
+  - "{{ cas_db_name | default('emmet') }}"
+  - "{{ collectory_db_name | default('collectory') }}"
+  - "{{ specieslist_db_name | default('specieslists') }}"
+  - "{{ logger_db_name | default('logger') }}"
+  - "{{ alerts_db_name | default('alerts') }}"
+
+migration_postgres_databases:
+  - "{{ image_service_db_name | default('images') }}"
+  - "{{ doi_db_name | default('doi') }}"
+  - "{{ dq_db_name | default('data-quality') }}"
+  - "{{ layers_db_name | default('layersdb') }}"
+  - "{{ geonetwork_database | default('geonetwork') }}"
+
+migration_mongo_databases:
+  - "{{ cas_tickets_db | default('cas-ticket-registry') }}"
+  - "{{ cas_services_db | default('cas-service-registry') }}"
+  - "{{ cas_audit_db | default('cas-audit-repository') }}"
+  - "{{ spring_session_db | default('spring-sessions') }}"
+
+# `apikey` is deliberately absent from migration_mysql_databases: the Docker
+# services' keys come from the inventory and are seeded by seed-apikeys.yml, so
+# a restored apikey table would carry keys the generated configs never use. Add
+# it only if you also import those keys into the inventory.
+#
+# Cassandra, SOLR and Elasticsearch are out of scope on purpose — occurrence
+# data is regenerable by re-ingesting the source DwCAs with pipelines, and is
+# orders of magnitude too large to move as a dump.
+
+# Where fetched dump sets land on the controller: <dir>/<portal>/<ts>/.
+migration_dir: /data/migration

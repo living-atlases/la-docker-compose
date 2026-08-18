@@ -1,0 +1,253 @@
+---
+# Load a dump set produced by playbooks/portal-migrate-fetch.yml into this
+# stack's datastores. Driven by playbooks/db-restore.yml, never by a normal
+# deploy: nothing in main.yml includes this file.
+#
+# Which databases get restored is derived from the dump filenames in the set
+# (mysql-<db>.sql.gz, postgres-<db>.dump, mongo-<db>.archive.gz), not from a
+# second list of variables — the fetch side already decided, and a duplicated
+# list is a list that drifts.
+#
+# Restores are PER DATABASE into the databases and roles init-databases.yml
+# already created, so the inventory-generated users, passwords and grants are
+# never touched. See the "Portal migration" block in defaults/main.yml.
+
+- name: "DB Restore: read the dump set manifest"
+  ansible.builtin.slurp:
+    src: "{{ migration_src_dir }}/manifest.json"
+  delegate_to: localhost
+  become: false
+  register: db_restore_manifest_raw
+  tags: [db-restore]
+
+- name: "DB Restore: identify this dump set"
+  ansible.builtin.set_fact:
+    db_restore_manifest: "{{ db_restore_manifest_raw.content | b64decode | from_json }}"
+    # The marker is keyed on the manifest content, so re-running with the same
+    # set is a no-op while a genuinely new set is recognised as new.
+    db_restore_marker_id: "{{ db_restore_manifest_raw.content | b64decode | hash('sha256') }}"
+    db_restore_marker_dir: "{{ docker_compose_data_dir }}/.db-restore"
+  tags: [db-restore]
+
+- name: "DB Restore: report the dump set"
+  ansible.builtin.debug:
+    msg: >-
+      Restoring portal '{{ db_restore_manifest.portal }}' fetched
+      {{ db_restore_manifest.fetched_at }} (marker {{ db_restore_marker_id[:12] }})
+  tags: [db-restore]
+
+- name: "DB Restore: ensure the marker directory exists"
+  ansible.builtin.file:
+    path: "{{ db_restore_marker_dir }}"
+    state: directory
+    mode: "0700"
+    owner: root
+    group: root
+  become: true
+  tags: [db-restore]
+
+- name: "DB Restore: look for previous restores on this host"
+  ansible.builtin.find:
+    paths: "{{ db_restore_marker_dir }}"
+    file_type: file
+  become: true
+  register: db_restore_markers
+  tags: [db-restore]
+
+- name: "DB Restore: classify the previous restores"
+  ansible.builtin.set_fact:
+    db_restore_marker_names: "{{ db_restore_markers.files | map(attribute='path') | map('basename') | list }}"
+  tags: [db-restore]
+
+# Restoring portal A and then portal B over the top of it is the accident worth
+# preventing, and unlike "is the target empty?" it has no false positives: a
+# freshly deployed stack seeds rows into every one of these databases (the CAS
+# admin user, the layersdb reference schema, live sessions), so an emptiness
+# check would fire on every legitimate migration and be reflexively bypassed.
+- name: "DB Restore: refuse to stack a second dump set on top of another"
+  ansible.builtin.fail:
+    msg: |
+      This host has already been restored from a DIFFERENT dump set:
+        already restored: {{ db_restore_marker_names | reject('equalto', db_restore_marker_id) | join(', ') }}
+        requested now:    {{ db_restore_marker_id }}
+      Loading a second portal over the first mixes two portals' data.
+      If that is genuinely what you want, re-run with -e db_restore_force=true.
+  when:
+    - db_restore_marker_names | reject('equalto', db_restore_marker_id) | list | length > 0
+    - not (db_restore_force | default(false) | bool)
+  tags: [db-restore]
+
+- name: "DB Restore: already restored from this dump set — nothing to do"
+  ansible.builtin.debug:
+    msg: >-
+      Marker {{ db_restore_marker_id[:12] }} is present; skipping. Re-run with
+      -e db_restore_force=true to restore this set again.
+  when:
+    - db_restore_marker_id in db_restore_marker_names
+    - not (db_restore_force | default(false) | bool)
+  tags: [db-restore]
+
+- name: "DB Restore: load the dump set"
+  when: >-
+    db_restore_marker_id not in db_restore_marker_names
+    or (db_restore_force | default(false) | bool)
+  become: true
+  tags: [db-restore]
+  block:
+    # Same self-gating probe as pre-deploy-backup.yml: each engine is only
+    # restored on the host that actually runs its container, so a multi-host
+    # deployment converges without any per-host configuration here.
+    - name: "DB Restore: list running database containers on this host"
+      ansible.builtin.shell: >
+        docker ps --filter "status=running" --format '{{ '{{' }}.Names{{ '}}' }}'
+        | grep -E '^la_(mysql|mongodb|postgres)$' || true
+      register: db_restore_containers
+      changed_when: false
+
+    - name: "DB Restore: nothing to restore on this host"
+      ansible.builtin.debug:
+        msg: "No running la_mysql/la_mongodb/la_postgres container here — skipping."
+      when: db_restore_containers.stdout_lines | length == 0
+
+    - name: "DB Restore: enumerate the dumps in the set"
+      ansible.builtin.find:
+        paths: "{{ migration_src_dir }}/dumps"
+        patterns:
+          - "mysql-*.sql.gz"
+          - "postgres-*.dump"
+          - "mongo-*.archive.gz"
+      delegate_to: localhost
+      become: false
+      register: db_restore_dumps
+
+    - name: "DB Restore: no dumps found in the set"
+      ansible.builtin.fail:
+        msg: >-
+          {{ migration_src_dir }}/dumps contains no mysql-*.sql.gz, postgres-*.dump
+          or mongo-*.archive.gz. Was the fetch interrupted?
+      when: db_restore_dumps.files | length == 0
+
+    - name: "DB Restore: create the staging directory on this host"
+      ansible.builtin.file:
+        path: "{{ db_restore_stage_dir }}"
+        state: directory
+        mode: "0700"
+        owner: root
+        group: root
+
+    # The `<` in `docker exec -i ... < file` is interpreted by the shell on the
+    # TARGET host, and controller-side paths do not exist there. Every dump must
+    # be copied over first — the same reason init-databases.yml stages the
+    # logger SQL before importing it.
+    - name: "DB Restore: stage the dumps on this host"
+      ansible.builtin.copy:
+        src: "{{ item.path }}"
+        dest: "{{ db_restore_stage_dir }}/{{ item.path | basename }}"
+        mode: "0600"
+        owner: root
+        group: root
+      loop: "{{ db_restore_dumps.files }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+
+    # ------------------------------------------------------------------
+    # MySQL — one database per dump, loaded into the schema init-databases
+    # already created. FOREIGN_KEY_CHECKS is disabled for the load because
+    # mysqldump emits tables alphabetically, not in dependency order.
+    # ------------------------------------------------------------------
+    - name: "DB Restore: load the MySQL dumps"
+      ansible.builtin.shell: |
+        set -o pipefail
+        db="{{ item | regex_replace('^mysql-(.*)\.sql\.gz$', '\1') }}"
+        { echo 'SET FOREIGN_KEY_CHECKS=0;'
+          echo 'SET UNIQUE_CHECKS=0;'
+          zcat "{{ db_restore_stage_dir }}/{{ item }}"
+          echo 'SET UNIQUE_CHECKS=1;'
+          echo 'SET FOREIGN_KEY_CHECKS=1;'
+        } | docker exec -i -e MYSQL_PWD la_mysql \
+              mysql --default-character-set=utf8mb4 -u root "$db"
+      args:
+        executable: /bin/bash
+      # `docker exec -e MYSQL_PWD` with no value forwards the variable from the
+      # ambient environment, so the password never appears in any argv.
+      environment:
+        MYSQL_PWD: "{{ mysql_root_password }}"
+      loop: >-
+        {{ db_restore_dumps.files | map(attribute='path') | map('basename')
+           | select('match', '^mysql-') | list }}
+      when: "'la_mysql' in db_restore_containers.stdout_lines"
+      no_log: true
+      changed_when: true
+
+    # ------------------------------------------------------------------
+    # PostgreSQL — --no-owner/--no-acl is what keeps the source VM's roles out
+    # of this cluster; ownership is handed to the app role afterwards by
+    # restore-reconcile.yml. --clean --if-exists drops the objects the dump is
+    # about to recreate without touching the database or its role.
+    # ------------------------------------------------------------------
+    - name: "DB Restore: load the PostgreSQL dumps"
+      ansible.builtin.shell: |
+        set -o pipefail
+        db="{{ item | regex_replace('^postgres-(.*)\.dump$', '\1') }}"
+        docker exec -i la_postgres pg_restore -U postgres -d "$db" \
+          --no-owner --no-acl --clean --if-exists --no-privileges \
+          < "{{ db_restore_stage_dir }}/{{ item }}"
+      args:
+        executable: /bin/bash
+      loop: >-
+        {{ db_restore_dumps.files | map(attribute='path') | map('basename')
+           | select('match', '^postgres-') | list }}
+      when: "'la_postgres' in db_restore_containers.stdout_lines"
+      # pg_restore exits non-zero on the DROP statements for objects a freshly
+      # initialised database does not have yet, which is expected on a first
+      # migration. Real failures surface as an empty/short table set in
+      # scripts/verify-migration.sh, which compares against the source counts.
+      register: db_restore_pg
+      failed_when: >-
+        db_restore_pg.rc != 0
+        and ('errors ignored on restore' not in (db_restore_pg.stderr | default('')))
+      changed_when: true
+
+    # ------------------------------------------------------------------
+    # MongoDB — --nsInclude scopes the restore to the one database in the
+    # archive. `admin` is never in a fetched set, so the Mongo users created by
+    # init-databases.yml survive.
+    # ------------------------------------------------------------------
+    - name: "DB Restore: load the MongoDB dumps"
+      ansible.builtin.shell: |
+        set -o pipefail
+        db="{{ item | regex_replace('^mongo-(.*)\.archive\.gz$', '\1') }}"
+        if [ "$db" = "admin" ]; then
+          echo "refusing to restore the admin database" >&2
+          exit 1
+        fi
+        docker exec -i la_mongodb mongorestore --quiet --archive --gzip --drop \
+          --nsInclude "$db.*" \
+          --username "{{ mongodb_root_username }}" \
+          --password "{{ mongodb_root_password }}" \
+          --authenticationDatabase admin \
+          < "{{ db_restore_stage_dir }}/{{ item }}"
+      args:
+        executable: /bin/bash
+      loop: >-
+        {{ db_restore_dumps.files | map(attribute='path') | map('basename')
+           | select('match', '^mongo-') | list }}
+      when: "'la_mongodb' in db_restore_containers.stdout_lines"
+      no_log: true
+      changed_when: true
+
+    - name: "DB Restore: remove the staged dumps"
+      ansible.builtin.file:
+        path: "{{ db_restore_stage_dir }}"
+        state: absent
+
+    - name: "DB Restore: record the marker for this dump set"
+      ansible.builtin.copy:
+        content: |
+          portal: {{ db_restore_manifest.portal }}
+          fetched_at: {{ db_restore_manifest.fetched_at }}
+          restored_from: {{ migration_src_dir }}
+        dest: "{{ db_restore_marker_dir }}/{{ db_restore_marker_id }}"
+        mode: "0600"
+        owner: root
+        group: root

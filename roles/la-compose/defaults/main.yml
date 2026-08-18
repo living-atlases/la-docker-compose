@@ -486,6 +486,57 @@ la_backup_dir: "{{ data_dir }}/backups/pre-deploy"
 # How many timestamped backup sets to keep (older ones are pruned).
 pre_deploy_backup_keep: 7
 
+# ============================================
+# Portal migration (VMs -> Docker)
+# ============================================
+#
+# Two playbooks, run by hand and never part of a normal `ansiblew`:
+#   playbooks/portal-migrate-fetch.yml  — read-only, dumps the source VMs
+#   playbooks/db-restore.yml            — loads those dumps into this stack
+#
+# THE CENTRAL RULE IS PER-DATABASE, NEVER CLUSTER-WIDE. `mysqldump
+# --all-databases` carries mysql.user, `pg_dumpall` carries roles-with-passwords
+# and a `mongorestore` of admin carries the Mongo users — each of which would
+# replace the credentials init-databases.yml generated from the inventory, so
+# every service would instantly lose its own database auth. Dumping and
+# restoring one application database at a time sidesteps all three, and as a
+# bonus means the source VM's root password is never needed here.
+
+# Where fetched dump sets live on the CONTROLLER: <migration_dir>/<portal>/<ts>/.
+migration_dir: "{{ data_dir }}/migration"
+
+# The fetch side (source hosts, source credentials, which databases to move)
+# lives in playbooks/vars/portal-migration.yml, because those plays target the
+# source VMs and never apply this role. The restore side derives the database
+# list from the dump filenames in the set, so the two cannot drift apart.
+#
+# All of the following must be set on the command line; there is no inventory
+# default that can turn a restore on by accident.
+db_restore: false
+db_restore_confirm: ""
+# Where dumps are staged on the target host before `docker exec -i ... < file`.
+# Removed again once loaded.
+db_restore_stage_dir: /tmp/la-db-restore
+# Services restore-reconcile.yml leaves alone when it restarts everything over
+# the restored data: the datastores themselves (restarting them would knock over
+# what the rest is waiting on) and nginx (it is the single front door and only
+# ever wants a graceful reload).
+db_restore_restart_exclude:
+  - mysql
+  - mongodb
+  - postgres
+  - cassandra
+  - solr
+  - zookeeper
+  - elasticsearch
+  - nginx
+# Restore over databases that already hold rows. Off by default: a migration
+# into a freshly deployed stack is safe and needs no flag, while overwriting
+# live data is a separate, deliberate decision.
+db_restore_force: false
+# Directory of a fetched dump set on the controller (must contain manifest.json).
+migration_src_dir: ""
+
 # Free-space thresholds for validate-pre-deploy.yml. The fail threshold only
 # applies when la_env=production.
 #

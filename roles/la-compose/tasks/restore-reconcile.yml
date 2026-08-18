@@ -1,0 +1,139 @@
+---
+# Put a restored stack back into a state the Docker deployment can actually run.
+#
+# A dump carries the source portal's world with it, and four things have to be
+# reconciled before anything works. This runs straight after
+# restore-databases.yml, from playbooks/db-restore.yml.
+
+- name: "DB Reconcile: enumerate the PostgreSQL databases in the dump set"
+  ansible.builtin.find:
+    paths: "{{ migration_src_dir }}/dumps"
+    patterns: "postgres-*.dump"
+  delegate_to: localhost
+  become: false
+  register: db_reconcile_pg_dumps
+  tags: [db-restore, db-reconcile]
+
+# Same self-gating probe restore-databases.yml uses, for the same reason: each
+# step below only makes sense on the host that actually runs that container.
+- name: "DB Reconcile: list running database containers on this host"
+  ansible.builtin.shell: >
+    docker ps --filter "status=running" --format '{{ '{{' }}.Names{{ '}}' }}'
+    | grep -E '^la_(mysql|postgres)$' || true
+  register: db_reconcile_containers
+  become: true
+  changed_when: false
+  tags: [db-restore, db-reconcile]
+
+# pg_restore ran with --no-owner (deliberately: that is what keeps the source
+# VM's roles out of this cluster), so every restored table belongs to the
+# postgres superuser and the service, which connects as its own role, gets
+# "permission denied for table ...". Hand each object to the role that owns the
+# DATABASE — init-databases.yml already set that owner at CREATE DATABASE time,
+# so there is no name map here to drift out of date.
+- name: "DB Reconcile: give restored PostgreSQL objects back to the database owner"
+  ansible.builtin.command: >
+    docker exec -u postgres la_postgres psql -v ON_ERROR_STOP=1
+    -d {{ item | regex_replace('^postgres-(.*)\.dump$', '\1') }} -c
+    "DO $$
+     DECLARE r record; dbowner text;
+     BEGIN
+       SELECT pg_get_userbyid(datdba) INTO dbowner
+         FROM pg_database WHERE datname = current_database();
+       FOR r IN SELECT tablename FROM pg_tables
+                WHERE schemaname='public' AND tablename <> 'spatial_ref_sys'
+                  AND tableowner <> dbowner
+       LOOP EXECUTE format('ALTER TABLE public.%I OWNER TO %I', r.tablename, dbowner); END LOOP;
+       FOR r IN SELECT sequencename FROM pg_sequences WHERE schemaname='public'
+       LOOP EXECUTE format('ALTER SEQUENCE public.%I OWNER TO %I', r.sequencename, dbowner); END LOOP;
+       FOR r IN SELECT viewname FROM pg_views WHERE schemaname='public'
+       LOOP EXECUTE format('ALTER VIEW public.%I OWNER TO %I', r.viewname, dbowner); END LOOP;
+     END $$;"
+  loop: >-
+    {{ db_reconcile_pg_dumps.files | map(attribute='path') | map('basename') | list }}
+  become: true
+  when: "'la_postgres' in db_reconcile_containers.stdout_lines"
+  changed_when: true
+  tags: [db-restore, db-reconcile]
+
+# schema-migrations.yml gates every step on `db_compose_services`, a fact
+# init-databases.yml registers. Nothing includes init-databases here, so register
+# it the same way — otherwise the include below dies on an undefined variable on
+# the first host it touches.
+- name: "DB Reconcile: list the services defined in this host's compose"
+  ansible.builtin.command: docker compose config --services
+  args:
+    chdir: "{{ docker_compose_data_dir }}"
+  register: db_compose_services
+  become: true
+  changed_when: false
+  tags: [db-restore, db-reconcile]
+
+# Portals on VMs predate the utf8mb4_unicode_ci switch, so a restored `emmet`
+# typically arrives with the old collation. Left alone, CAS's
+# sp_get_user_attributes dies with MySQL error 1267 ("illegal mix of
+# collations") and hands out a principal with no attributes — every login
+# succeeds and every authorisation fails. schema-migrations.yml already carries
+# the check-then-ALTER fix; this is exactly the situation it exists for.
+- name: "DB Reconcile: apply the idempotent schema migrations"
+  ansible.builtin.include_tasks: schema-migrations.yml
+  # schema-migrations' own gate is "mysql is DEFINED in the compose", which is
+  # what init-databases.yml needs because it starts the container itself. Here
+  # nothing starts anything, so gate on the container actually running.
+  when: "'la_mysql' in db_reconcile_containers.stdout_lines"
+  tags: [db-restore, db-reconcile]
+
+# Restart before re-seeding CAS: the services have to re-read the databases
+# underneath them, and Flyway/GORM need a boot to migrate a restored schema
+# forward to the version the container images expect. Datastores are excluded —
+# restarting them here would just knock over the thing everything else is
+# waiting on.
+- name: "DB Reconcile: restart the application services over the restored data"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    cd "{{ docker_compose_data_dir }}"
+    running=$(docker compose ps --services --status=running)
+    restart=""
+    for s in $running; do
+      case " {{ db_restore_restart_exclude | join(' ') }} " in
+        *" $s "*) ;;
+        *) restart="$restart $s" ;;
+      esac
+    done
+    if [ -n "$restart" ]; then
+      docker compose restart $restart
+      echo "restarted:$restart"
+    else
+      echo "restarted:none"
+    fi
+  args:
+    executable: /bin/bash
+  become: true
+  register: db_reconcile_restart
+  changed_when: "'restarted:none' not in db_reconcile_restart.stdout"
+  tags: [db-restore, db-reconcile]
+
+- name: "DB Reconcile: report the restarted services"
+  ansible.builtin.debug:
+    msg: "{{ db_reconcile_restart.stdout_lines }}"
+  tags: [db-restore, db-reconcile]
+
+# The restored cas-service-registry holds the SOURCE portal's OIDC client
+# registrations, redirect URIs and all. Every login would bounce. This task
+# deletes and re-inserts one document per service, so it overwrites them with
+# the URIs generated for this deployment. Non-optional after a restore.
+- name: "DB Reconcile: re-register CAS admin and OIDC services for THIS deployment"
+  ansible.builtin.include_tasks: init-cas-admin.yml
+  when: "'cas-servers' in hostvars[inventory_hostname].service_aliases"
+  tags: [db-restore, db-reconcile]
+
+# INSERT ... WHERE NOT EXISTS, so the source portal's keys survive and this
+# deployment's inventory keys are added alongside them. If you would rather the
+# services use the production keys, import those into the inventory — do not
+# rely on whatever happened to be in the restored table.
+- name: "DB Reconcile: seed this deployment's service API keys alongside the restored ones"
+  ansible.builtin.include_tasks: seed-apikeys.yml
+  when:
+    - "'cas-servers' in hostvars[inventory_hostname].service_aliases"
+    - "'apikey' in services_enabled"
+  tags: [db-restore, db-reconcile]

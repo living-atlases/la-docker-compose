@@ -1,0 +1,105 @@
+---
+# Load a dump set fetched by playbooks/portal-migrate-fetch.yml into this Docker
+# Compose deployment — the second half of migrating a portal off VMs.
+#
+# Run by hand, never as part of a deploy: nothing in the la-compose role
+# includes restore-databases.yml, so an `ansiblew` can neither trigger nor
+# repeat a restore.
+#
+#   ansible-playbook -i <inventory> playbooks/db-restore.yml \
+#     -e db_restore=true \
+#     -e db_restore_confirm=<portal name from the manifest> \
+#     -e migration_src_dir=/data/migration/<portal>/<ts>
+#
+# Safety comes from four things, in this order:
+#   1. db_restore=true plus the portal name typed back by hand
+#   2. a mandatory pre-restore backup — if it fails, nothing is mutated
+#   3. a per-dump-set marker, so a re-run is a no-op and a SECOND portal
+#      cannot be stacked on top of the first without -e db_restore_force=true
+#   4. per-database restores, which never touch the generated DB credentials
+#
+# Note there is no la_env=production gate. Migrating into a stack that is
+# already production is the whole point; forcing the operator to downgrade
+# la_env would disable the safety rails at the exact moment they matter.
+
+- name: "Restore a portal dump set into the Docker Compose stack"
+  hosts: docker_compose
+  gather_facts: true
+  become: true
+  # Every `docker compose` call below has to see the generated .env AND the
+  # operator's .env-custom, exactly as main.yml arranges for a normal deploy.
+  environment:
+    COMPOSE_ENV_FILES: >-
+      {{ compose_env_files | default(docker_compose_data_dir ~ '/.env,'
+         ~ docker_compose_data_dir ~ '/.env-custom') }}
+  tasks:
+    - name: "DB Restore: require an explicit opt-in"
+      ansible.builtin.assert:
+        that:
+          - db_restore | default(false) | bool
+        fail_msg: >-
+          Refusing to restore without -e db_restore=true. This playbook overwrites
+          application data.
+      delegate_to: localhost
+      become: false
+
+    - name: "DB Restore: require a dump set directory"
+      ansible.builtin.assert:
+        that:
+          - migration_src_dir | default('') | trim | length > 0
+        fail_msg: "Set -e migration_src_dir=/data/migration/<portal>/<ts>"
+      delegate_to: localhost
+      become: false
+
+    - name: "DB Restore: read the manifest of the requested dump set"
+      ansible.builtin.slurp:
+        src: "{{ migration_src_dir }}/manifest.json"
+      delegate_to: localhost
+      become: false
+      register: db_restore_manifest_check
+
+    # A typed portal name, not a bare boolean: it forces the operator to look at
+    # which dump set they are about to load, which is the mistake that actually
+    # happens (right command, wrong directory).
+    - name: "DB Restore: require the portal name to be typed back"
+      ansible.builtin.assert:
+        that:
+          - db_restore_confirm | default('') ==
+            (db_restore_manifest_check.content | b64decode | from_json).portal
+        fail_msg: >-
+          -e db_restore_confirm must be
+          '{{ (db_restore_manifest_check.content | b64decode | from_json).portal }}',
+          the portal named in {{ migration_src_dir }}/manifest.json.
+      delegate_to: localhost
+      become: false
+
+    - name: "DB Restore: load the deployment facts"
+      ansible.builtin.include_role:
+        name: la-compose
+        tasks_from: setup-facts.yml
+
+    # Unconditional, unlike in a deploy where it is gated on la_env: a restore
+    # is destructive by definition, so there is no case where skipping the
+    # restore point is the right call. A failed dump aborts before any mutation.
+    - name: "DB Restore: back up the current databases first"
+      ansible.builtin.include_role:
+        name: la-compose
+        tasks_from: pre-deploy-backup.yml
+
+    - name: "DB Restore: load the dump set"
+      ansible.builtin.include_role:
+        name: la-compose
+        tasks_from: restore-databases.yml
+
+    - name: "DB Restore: reconcile the restored data with this deployment"
+      ansible.builtin.include_role:
+        name: la-compose
+        tasks_from: restore-reconcile.yml
+
+    - name: "DB Restore: next step"
+      ansible.builtin.debug:
+        msg:
+          - "Restore complete. Verify it before trusting it:"
+          - "  scripts/verify-migration.sh {{ migration_src_dir }}"
+      delegate_to: localhost
+      become: false
