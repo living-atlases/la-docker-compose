@@ -31,6 +31,16 @@
 #
 # Cheap on purpose: renders the template, no Docker, no inventory, no deployed stack.
 #
+# Scope, so nobody asks it for more than it gives:
+#
+#   - Two services, not 23. They are picked to cover the three shapes this breaks in
+#     (see the fixture below), not for coverage. A regression in a service shaped
+#     unlike either would slip through; adding a third is a couple of lines.
+#   - It checks that the template PROPAGATES what it is handed, not that the values
+#     are computed correctly. The -Xmx/-Xms here are fed in through
+#     service_java_opts_dict; <service>_max_memory is resolved elsewhere, by
+#     java-opts-builder.j2 and the role that calls it.
+#
 # Usage: bash scripts/test-java-opts-env.sh
 #
 # Exits 0 if every rendered service line is complete, 1 otherwise.
@@ -115,9 +125,11 @@ for prefix, artifact in (("USERDETAILS_JAVA_OPTS", "userdetails"), ("BIOCACHE_HU
     require(prefix, "-Dspring.config.name=application,application-local-config",
             "application-local-config would not be read")
 
-# The whole point of la-docker-images#3: memory must come from here.
-require("USERDETAILS_JAVA_OPTS", "-Xmx512m", "<service>_max_memory would not apply")
-require("BIOCACHE_HUB_JAVA_OPTS", "-Xmx4g", "<service>_max_memory would not apply")
+# Memory has to survive the trip through the template: with the fixed images this is
+# the only route to the JVM. Whether the value itself is right is java-opts-builder's
+# job -- these two are handed in above, so this only proves nothing drops them.
+require("USERDETAILS_JAVA_OPTS", "-Xmx512m", "<service>_max_memory would not reach the JVM")
+require("BIOCACHE_HUB_JAVA_OPTS", "-Xmx4g", "<service>_max_memory would not reach the JVM")
 
 # Only when the service declares one, matching what build.py does.
 require("USERDETAILS_JAVA_OPTS", "-Dlogging.config=/data/userdetails/config/logback.xml",
