@@ -118,6 +118,11 @@ pipeline {
             defaultValue: true,
             description: 'Run the Airflow ingestion e2e: ingest a tiny fixed DwCA through the real pipeline and assert records in Solr + biocache. Runs against the ALREADY-RUNNING stack (independent of redeploy) — set this true with FORCE_REDEPLOY=false to test ingestion without a full deploy. Report-only unless E2E_BLOCKING. The ingested data also seeds the Cypress biocache/species suites.'
         )
+        booleanParam(
+            name: 'PROBE_HUB_COLD_START',
+            defaultValue: false,
+            description: 'EXPERIMENT (never fails the build): on a data-less stack, settle whether biocache-hub\'s cold-start 500 on /occurrences/search needs DATA or is just an initialisation defect a restart clears. Restarts biocache-hub once and prints a verdict. Only meaningful with RUN_AIRFLOW_INGEST=false on a CLEAN_MACHINE build — it refuses to run against an index that already holds records. See gh-8.'
+        )
     }
 
     stages {
@@ -824,6 +829,31 @@ EOF
                         gate()
                     } else {
                         catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') { gate() }
+                    }
+                }
+            }
+        }
+
+        // ----- biocache-hub cold-start probe (opt-in via PROBE_HUB_COLD_START) -----
+        // Deliberately placed AFTER the health gate and BEFORE any ingest: a data-less
+        // stack is the only state in which the question can be asked, and the ingest
+        // stage below destroys it. Pure experiment - always exits 0, never fails a build,
+        // and refuses to run once the index holds records. See gh-8 and the script header.
+        stage('Probe hub cold start') {
+            when { expression { params.PROBE_HUB_COLD_START && params.AUTO_DEPLOY && !params.ONLY_CLEAN } }
+            steps {
+                script {
+                    if (params.RUN_AIRFLOW_INGEST) {
+                        echo "WARNING: RUN_AIRFLOW_INGEST is true. The probe runs before the ingest so the index should still be empty, but a stack carrying data from an earlier build will make it skip. For a clean answer, run with RUN_AIRFLOW_INGEST=false and CLEAN_MACHINE=true."
+                    }
+                    for (h in env.TARGET_HOSTS.trim().split(/\s+/)) {
+                        def targetHost = h
+                        // Safe on every host: it no-ops where there is no biocache-hub.
+                        sh """
+                            set -eu
+                            scp -o BatchMode=yes -o StrictHostKeyChecking=no "${WORKSPACE}/scripts/probe-hub-cold-start.sh" ${targetHost}:/tmp/
+                            ssh -o BatchMode=yes -o StrictHostKeyChecking=no ${targetHost} "bash /tmp/probe-hub-cold-start.sh"
+                        """
                     }
                 }
             }
