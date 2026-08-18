@@ -21,23 +21,9 @@
 # CMD is `java ${JAVA_OPTS} -jar ...`: the memory settings finally work, and anything
 # missing here disappears.
 #
-# SCOPE. This renders the template and nothing else, so it covers what the template
-# adds (spring.config, logging.config, http.agent, extra params) and that it passes
-# through what it is given. It does NOT cover `<service>_max_memory` -> `-Xmx`: that
-# string is built in Ansible, in generate-compose.yml ("Build JAVA_OPTS strings for
-# each service"), and arrives here already assembled. The -Xmx assertions below prove
-# propagation, not computation.
-#
-# Nor can it see the sharpest failure of all, because membership of
-# service_java_opts_dict is decided by that same Ansible loop, which selects on
-# `log_config_filename` being defined. A Java service that declares none never enters
-# the dict, so no <PREFIX>_JAVA_OPTS line is emitted, `JAVA_OPTS: ${<PREFIX>_JAVA_OPTS}`
-# in its compose file expands to EMPTY, and after la-docker-images#3 that is a JVM with
-# no memory settings and no spring.config at all. Feeding the dict by hand here bypasses
-# that gate by construction. Guard it where it lives, not from this file. Dropping spring.config would start a service without its
-# /data/<artifact>/config overrides, which fails late and looks like a config bug
-# rather than a packaging one. Verified against a rebuilt userdetails image before
-# this test was written.
+# Dropping spring.config would start a service without its /data/<artifact>/config
+# overrides, which fails late and looks like a config bug rather than a packaging one.
+# Verified against a rebuilt userdetails image before this test was written.
 #
 # Several services also re-add these in a `command:` override, written when that was
 # the only way to honour JAVA_OPTS at all. Those are redundant once this is right, but
@@ -46,17 +32,29 @@
 #
 # Cheap on purpose: renders the template, no Docker, no inventory, no deployed stack.
 #
-# Scope, so nobody asks it for more than it gives:
+# SCOPE, so nobody asks it for more than it gives:
 #
-#   - Five services, not 23. They are picked to cover the shapes this breaks in
-#     (see the CASES table below), not for coverage. A regression in a service
-#     shaped unlike any of them would slip through; adding one is a row.
-#   - It checks that the template PROPAGATES what it is handed, not that the values
-#     are computed correctly. The -Xmx/-Xms here are fed in through
-#     service_java_opts_dict; <service>_max_memory is resolved elsewhere, in
-#     generate-compose.yml ("Build JAVA_OPTS strings for each service"). NOT in
-#     java-opts-builder.j2, which despite its name is referenced by nothing and
-#     has been dead since b1a7855.
+#   - Five services, not 23. They are picked to cover the shapes this breaks in (see
+#     the CASES table below), not for coverage. A regression in a service shaped
+#     unlike any of them would slip through; adding one is a row.
+#
+#   - It proves the template PROPAGATES what it is handed, not that the values are
+#     right. The -Xmx/-Xms arrive already assembled through service_java_opts_dict;
+#     `<service>_max_memory` is resolved in Ansible, in generate-compose.yml ("Build
+#     JAVA_OPTS strings for each service"). NOT in java-opts-builder.j2, which despite
+#     its name is referenced by nothing and has been dead since b1a7855.
+#
+#   - It cannot see the sharpest failure of all. Membership of service_java_opts_dict
+#     is decided by that same Ansible loop, which selects on `log_config_filename`
+#     being defined. A Java service that declares none never enters the dict, so no
+#     <PREFIX>_JAVA_OPTS line is emitted, `JAVA_OPTS: ${<PREFIX>_JAVA_OPTS}` in its
+#     compose file expands to EMPTY, and with the fixed images that is a JVM with no
+#     memory settings and no spring.config at all. Feeding the dict by hand here
+#     bypasses that gate by construction, so guard it where it lives, not from here.
+#     Checked at the time of writing: all 18 services that consume a
+#     <PREFIX>_JAVA_OPTS have an emitter, and the ones without log_config_filename
+#     are infrastructure (cassandra, solr, zookeeper, gatus...) that consumes none.
+#     The trap is set for the next Java service added without one.
 #
 # Usage: bash scripts/test-java-opts-env.sh
 #
