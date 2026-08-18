@@ -306,6 +306,20 @@ inventory / `*-local-extras.ini`: `<service>_max_memory` (default `2g` → `-Xmx
 > Fixed in la-docker-images (see its issue #3); services need rebuilt images
 > for `*_max_memory` / `*_min_memory` to take effect.
 
+Because a service sets `JAVA_OPTS: ${<SERVICE>_JAVA_OPTS}`, that variable **replaces**
+the image's own `ENV JAVA_OPTS` instead of adding to it. So `.env` has to carry every
+option the image would otherwise supply, not just the memory ones — including
+`-Dspring.config.additional-location=/data/<artifact>/config/` and
+`-Dspring.config.name=application,application-local-config`, which is how a service
+picks up `application-local-config.yml`.
+
+That did not matter while the flags were frozen into the image `CMD`: they arrived
+regardless of what `.env` said. With rebuilt images they only arrive from here, so
+`.env` now emits them and `scripts/test-java-opts-env.sh` keeps it that way. A handful
+of services (alerts, ecodata, image-service…) also re-add them in a `command:`
+override, written back when that was the only way to honour `JAVA_OPTS` at all; those
+are redundant now but harmless, since a later `-D` on the command line wins.
+
 ### Persistent overrides (survive `ansiblew`)
 
 - **Environment / `.env` → `.env-custom`.** `.env` is regenerated each run. For

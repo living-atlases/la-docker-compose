@@ -315,6 +315,13 @@ EOF
                     # deploy as a failed `pull` and takes the host out of the play (#348).
                     # Pure text, runs in ~1s.
                     bash scripts/test-compose-includes.sh
+
+                    # `JAVA_OPTS: ${<SERVICE>_JAVA_OPTS}` REPLACES the image's own ENV
+                    # rather than adding to it, so a -D missing from .env is simply not
+                    # passed. Since la-docker-images#3 that includes spring.config, and a
+                    # service would start with none of its /data/<artifact>/config
+                    # overrides. Renders the template, ~1s.
+                    bash scripts/test-java-opts-env.sh
                 '''
                 // NOTE: the per-host-artifact guard (Lucene nameindex must not be run_once)
                 // runs in 'Prepare environment', AFTER the ala-install submodule is synced —
