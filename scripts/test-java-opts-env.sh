@@ -48,13 +48,15 @@
 #
 # Scope, so nobody asks it for more than it gives:
 #
-#   - Two services, not 23. They are picked to cover the three shapes this breaks in
-#     (see the fixture below), not for coverage. A regression in a service shaped
-#     unlike either would slip through; adding a third is a couple of lines.
+#   - Five services, not 23. They are picked to cover the shapes this breaks in
+#     (see the CASES table below), not for coverage. A regression in a service
+#     shaped unlike any of them would slip through; adding one is a row.
 #   - It checks that the template PROPAGATES what it is handed, not that the values
 #     are computed correctly. The -Xmx/-Xms here are fed in through
-#     service_java_opts_dict; <service>_max_memory is resolved elsewhere, by
-#     java-opts-builder.j2 and the role that calls it.
+#     service_java_opts_dict; <service>_max_memory is resolved elsewhere, in
+#     generate-compose.yml ("Build JAVA_OPTS strings for each service"). NOT in
+#     java-opts-builder.j2, which despite its name is referenced by nothing and
+#     has been dead since b1a7855.
 #
 # Usage: bash scripts/test-java-opts-env.sh
 #
