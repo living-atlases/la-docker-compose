@@ -1878,6 +1878,26 @@
   tags:
     - docker-compose
 
+# NO -Xss HERE, AND -Xms DEFAULTS TO 1g, BOTH ON PURPOSE. Do not "restore" them.
+#
+# Until la-docker-images#3 the Java images expanded JAVA_OPTS at Dockerfile generation
+# time, so every container's CMD carried `-Xmx2g -Xms2g -Xss512k` frozen in and whatever
+# this task emitted was ignored. With that fixed, the CMD is `java ${JAVA_OPTS} -jar ...`
+# and this is the only route to the JVM -- so comparing an old container with a new one
+# shows -Xss512k disappearing and -Xms dropping 2g -> 1g, which reads like lost tuning.
+# It is not. Traced on 2026-08-19:
+#
+#   build.py:655 says outright it was "Replicating Legacy: tomcat_java_opts", i.e. the
+#   DEFAULT OF THE TOMCAT ROLE (ala-install tomcat/defaults/main.yml,
+#   `-Xmx2g -Xms2g -Xss512k`) -- applied to services that on VMs ran as exec-war, whose
+#   own task (exec-war/tasks/main.yml) emits `-Xmx{{max_memory}} -Xms{{min_memory}}` and
+#   has never set -Xss at all. The one service that did tune it, userdetails, used
+#   -Xss256k, so 512k was nobody's chosen value.
+#
+# The line below is deliberately identical to exec-war's. These containers are not losing
+# tuning, they are converging on the baseline they always had on VMs. If a service needs a
+# different stack size, give it one explicitly via its own extra_params -- not here, which
+# would re-apply one role's default to every service, which is the original mistake.
 - name: Build JAVA_OPTS strings for each service
   ansible.builtin.set_fact:
     temp_java_opts: "{{ temp_java_opts | default({}) | combine({
