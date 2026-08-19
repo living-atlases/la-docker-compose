@@ -139,3 +139,46 @@ distintos y el debugging se vuelve incomprensible.
    ```
    Si "Access denied" pese a credenciales del inventario: re-sincroniza con
    `ansiblew --tags db-password-sync ...`.
+
+### ¿Le llega a la JVM lo que dice el `.env`?
+
+Cuatro comandos, y **los dos más obvios mienten** — los dos hacia el mismo lado:
+"la memoria no se aplica" cuando sí se aplica. Los cuatro dieron un resultado
+falso a alguien durante la migración de `JAVA_OPTS` (la-docker-images gh-3).
+
+```bash
+# 1. ¿la imagen es de las reconstruidas? -> debe salir ${JAVA_OPTS} SIN expandir
+docker inspect <container> --format '{{.Config.Cmd}}'
+
+# 2. ¿qué le pasó el .env?
+docker exec <container> env | grep JAVA_OPTS
+
+# 3. ¿qué usa la JVM QUE CORRE? (ni /proc/1, ni `java` suelto -- ver abajo)
+docker exec <container> sh -c 'tr "\0" " " < /proc/$(pgrep -n java)/cmdline'
+
+# 4. heap efectivo: {command line} = configurado, {ergonomic} = default del host
+docker exec <container> sh -c 'java $JAVA_OPTS -XX:+PrintFlagsFinal -version 2>/dev/null | grep MaxHeapSize'
+```
+
+**`docker exec <c> java -XX:+PrintFlagsFinal -version` (sin `sh -c` ni `$JAVA_OPTS`)
+no sirve.** Arranca una JVM *nueva*: `java` no lee `JAVA_OPTS` por su cuenta, lo
+interpola el CMD del contenedor. Medido en `la_biocache-hub`: 5,5 GB `{ergonomic}`
+cuando el proceso real corría con 2 GB `{command line}`. La anotación entre llaves
+es el delator — `{ergonomic}` significa "me lo he inventado yo".
+
+**`/proc/1/cmdline` tampoco.** PID 1 es `/bin/sh -c <cadena cruda>`; la JVM es su
+hijo. Con las imágenes ANTIGUAS acierta por casualidad, porque los flags estaban
+horneados en esa cadena. Con las reconstruidas muestra `java ${JAVA_OPTS} -jar`
+literal, sin un solo `-Xmx`. Se delata porque `${APP_ARTIFACT}` también sale sin
+expandir.
+
+Dos avisos más:
+
+- **ala-hub**: el inventario fija 8.1.0, no `latest` (que es 8.3.0). Inspecciona el
+  contenedor, no el tag, o mirarás una imagen que no corre.
+- Un deploy verde prueba que el `-Xmx` **ya configurado** llega a la JVM. Que mover
+  `<service>_max_memory` mueva el heap exige cambiar el inventario y re-desplegar;
+  son cosas distintas.
+
+Por qué `-Xss512k` no aparece y `-Xms` es 1g y no 2g: es deliberado, ver el
+comentario sobre `tomcat_java_opts` en `roles/la-compose/tasks/generate-compose.yml`.
