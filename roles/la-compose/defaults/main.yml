@@ -239,7 +239,11 @@ skip_services: []
 # Nginx Configuration
 # ============================================
 
-docker_nginx_version: "1.25"
+# Track what ala-install provisions on VMs: its nginx role adds the official nginx.org repo and
+# pins apt to it, which serves the stable branch. Measured on ALA production 2026-08-21:
+# biocache-ws.ala.org.au = nginx/1.30.4, auth/collections/spatial = 1.31.4 (mainline). We follow
+# stable. Staying on 1.25 cost us build #361: cas5 emits add_header_inherit, which needs >= 1.29.3.
+docker_nginx_version: "1.30"
 
 # Nginx container paths (override host-specific paths from nginx role)
 nginx_user: nginx
@@ -288,20 +292,10 @@ monitoring_enabled: false
 # Gatus health-check interval (default 5m in upstream role; tightened for docker-compose dev)
 gatus_interval: "1m"
 
-# add_header_inherit requires nginx >= 1.29.3 (upstream's own comment in cas5/tasks/main.yml)
-# and we run nginx:{{ docker_nginx_version | default('1.25') }}, so emitting it kills nginx with
-# `unknown directive "add_header_inherit"`. That took down build #361: no nginx -> no
-# auth.<domain> -> every OIDC client failed to fetch its JWKS.
-#
-# It MUST be empty, not 'off'. fragment_73_location.j2 guards on truthiness
-# (`if item.header_inherit is defined and item.header_inherit`), so 'off' still emits the
-# directive and still breaks. Only an empty string skips the line.
-#
-# What we give up: nginx already declines to inherit parent add_header when a location sets
-# its own, which is what 'off' means, so cas5's main location is unaffected. The
-# /cas/oidc/.well-known location asks for 'merge' and will not get the server-level security
-# headers. Bump docker_nginx_version to 1.29+ and drop this to get upstream's behaviour.
-nginx_header_inherit: ""
+# Not set on purpose, so cas5's own 'off' / 'merge' apply and we get the behaviour upstream
+# intends. Only pin this if you drop docker_nginx_version below 1.29.3, where add_header_inherit
+# does not exist and nginx refuses to start: then set it to the EMPTY string, not 'off'.
+# fragment_73_location.j2 guards on truthiness, so 'off' still emits the directive.
 
 # Gatus "Up" condition fed to the upstream gatus role's http.j2 (default there is
 # '[STATUS] == 200'). ALA endpoints behind CAS legitimately return 302/401/403 (and
