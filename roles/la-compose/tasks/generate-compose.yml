@@ -799,6 +799,12 @@
     name: cas5
     apply:
       become: true
+  vars:
+    # Belt and braces: also set in la-compose defaults, but those are the lowest precedence
+    # and cas5 is the only consumer. Empty means fragment_73_location.j2 skips the
+    # add_header_inherit line, which our nginx (< 1.29.3) does not understand. See the
+    # defaults entry for why it cannot be 'off'.
+    nginx_header_inherit: ""
   when:
     - "'cas' in services_enabled"
     - "service_aliases.get('cas-servers') is defined"
