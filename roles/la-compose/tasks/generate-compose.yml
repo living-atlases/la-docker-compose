@@ -1008,6 +1008,14 @@
     index_offline_url: >-
       {{ 'http://la_solr:8983/solr/bie-offline' if (solr_docker_local | default(true)) else bie_index_offline_url_ext }}
     nginx_vhost_fast_mode: false  # bie-index has is_websocket paths; fast_mode skips the map directive
+    # Route prefixes, not endpoints: each needs a taxon guid (/taxon/{guid}). Bare they 404,
+    # and they 404 identically against ALA production (bie-ws.ala.org.au/ws) and gbif.es, so
+    # the check carries no information. Verified 2026-08-19. Liveness stays covered by /search.
+    nginx_paths_gatus_exclude:
+      - "{{ bie_index_context_path }}/taxon"
+      - "{{ bie_index_context_path }}/guid"
+      - "{{ bie_index_context_path }}/classification"
+      - "{{ bie_index_context_path }}/childConcepts"
   when:
     - "'bie_index' in services_enabled"
     - "service_aliases.get('bie-index') is defined"
@@ -1176,11 +1184,24 @@
     # and /occurrences/static NPE (500) on a bare GET — they need a `facets` arg ("Cannot
     # invoke String.contains because facets[0] is null"), so a param-less probe is meaningless.
     # Biocache liveness stays covered by /index/fields, /, /occurrences/search, etc.
+    # The rest are route prefixes, not endpoints: /taxon exists to route /taxon/{guid}.
+    # Probed bare they 404, and they 404 the same way against ALA production
+    # (biocache-ws.ala.org.au/ws) and gbif.es, so the check can never say anything.
+    # Verified 2026-08-19. Liveness stays covered by /index/fields, /, /occurrences/search
+    # and the curated checks in vars/gatus-extra-endpoints.yml.
     nginx_paths_gatus_exclude:
       - "{{ biocache_service_context_path }}/chart"
       - "{{ biocache_service_context_path }}/density/legend"
       - "{{ biocache_service_context_path }}/density/map"
       - "{{ biocache_service_context_path }}/occurrences/static"
+      - "{{ biocache_service_context_path }}/duplicates"
+      - "{{ biocache_service_context_path }}/explore"
+      - "{{ biocache_service_context_path }}/explore/endemic"
+      - "{{ biocache_service_context_path }}/explore/group"
+      - "{{ biocache_service_context_path }}/mapping/qid"
+      - "{{ biocache_service_context_path }}/occurrence/groups"
+      - "{{ biocache_service_context_path }}/occurrence/legend"
+      - "{{ biocache_service_context_path }}/occurrences/offline"
   when:
     - "'biocache_service' in services_enabled"
     - "service_aliases.get('biocache-service-clusterdb') is defined"
@@ -1712,6 +1733,12 @@
     # spatial_service_upstream_host (default 127.0.0.1, so VM/bare-metal is untouched).
     nginx_upstream_host: "spatial-service"
     spatial_service_upstream_host: "spatial-service"
+    # Route prefixes with no bare mapping: 404 here, and 404 against ALA production
+    # (spatial.ala.org.au/ws) too. Verified 2026-08-19. Liveness stays covered by /layers.
+    nginx_paths_gatus_exclude:
+      - "/alaspatial"
+      - "/layers-service"
+      - "/layers/more"
   when:
     - "'spatial_service' in services_enabled"
     - "service_aliases.get('spatial-service') is defined"
