@@ -21,6 +21,9 @@ services:
     volumes:
       # Role writes config to {data_dir}/logger/config; image CMD reads /data/logger-service/config.
       - {{ data_dir }}/logger/config:/data/logger-service/config
+      # jar_log_path points logback here; /data in this image is a root-owned volume,
+      # so the file appender needs a bind mount owned by the container uid.
+      - {{ data_dir }}/logger/logs:/data/logger-service/logs
     networks:
       default: {}
       {{ docker_network | default('internal') }}:

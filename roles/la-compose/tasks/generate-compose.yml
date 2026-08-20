@@ -1232,6 +1232,11 @@
     # docker-local: nginx must proxy to the app container, not 127.0.0.1 (which is
     # nginx itself). Use the compose service-name alias (resolvable via docker DNS).
     logger_service_upstream_host: "logger-service"
+    # logback writes to jar_log_path; without it LOG_DIR falls back to /var/log/tomcat9,
+    # which does not exist in this exec-jar image and /var/log is root-owned, so the file
+    # appender fails and only the console appender survives. Bind-mounted from
+    # {{ data_dir }}/logger/logs, see the log dirs task and logger-service.yml.j2.
+    jar_log_path: "/data/logger-service/logs"
   when:
     - "'logger' in services_enabled"
     - "service_aliases.get('logger-service') is defined"
@@ -1885,6 +1890,10 @@
     - "{{ data_dir }}/regions/logs"
     - "{{ data_dir }}/data-quality-filter-service/logs"
     - "{{ data_dir }}/doi-service/logs"
+    # logger is an exec jar, not tomcat: it writes to jar_log_path, mounted at
+    # /data/logger-service/logs. Same reason though, the JVM runs as uid 1000 and
+    # /data inside that container is a root-owned docker volume.
+    - "{{ data_dir }}/logger/logs"
   tags:
     - docker-compose
 
