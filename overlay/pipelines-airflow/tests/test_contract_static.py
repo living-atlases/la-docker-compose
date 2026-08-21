@@ -64,7 +64,20 @@ helper_step = {"Name": "Download data", "HadoopJarStep":
                {"Jar": "command-runner.jar",
                 "Args": ["bash", "-c", "/tmp/download-datasets.sh dwca-imports pipelines-data dr-test"]}}
 
-check("B. s3-dist-cp -> no-op", translate_step(s3_step)["kind"] == "noop-copy")
+# s3-dist-cp is the bridge between MinIO (where the DAGs discover work) and the shared
+# volume (where la-pipelines reads). No-op'ing it severs the two.
+t_cp = translate_step(s3_step)
+check("B. s3-dist-cp -> real copy", t_cp["kind"] == "copy", t_cp)
+check("B. s3-dist-cp src/dest parsed",
+      (t_cp["src"], t_cp["dest"]) == ("s3://b/x", "hdfs:///x"), t_cp)
+check("B. s3->local is a download to the bare path",
+      t_cp["plan"] == {"op": "download", "bucket": "b", "key": "x", "path": "/x"}, t_cp["plan"])
+os.environ["PIPELINES_LOCAL_NOOP_COPIES"] = "1"
+try:
+    check("B. copies can still be forced back to no-op",
+          translate_step(s3_step)["kind"] == "noop-copy")
+finally:
+    del os.environ["PIPELINES_LOCAL_NOOP_COPIES"]
 t = translate_step(cmd_step)
 check("B. command-runner -> local exec", t["kind"] == "exec")
 # --embedded, not --local: `sample` (and uuid/image-sync/...) reject --local per the CLI.
@@ -161,6 +174,37 @@ try:
 finally:
     del os.environ["PIPELINES_LOCAL_BIN"]
 
+from pa_local_compute import plan_copy, local_path, run_local_step as _rls  # noqa: E402
+
+check("B. hdfs:// authority stripped", local_path("hdfs://nn:8020/pipelines-outlier") == "/pipelines-outlier")
+check("B. hdfs:/// stripped", local_path("hdfs:///pipelines-all-datasets") == "/pipelines-all-datasets")
+check("B. bare local path untouched", local_path("/data/la-pipelines") == "/data/la-pipelines")
+check("B. local->s3 is an upload",
+      plan_copy("hdfs:///pipelines-outlier", "s3://avro/pipelines-outlier")
+      == {"op": "upload", "bucket": "avro", "key": "pipelines-outlier", "path": "/pipelines-outlier"})
+check("B. local->local copy recognised",
+      plan_copy("hdfs:///a", "/b") == {"op": "local", "src": "/a", "dest": "/b"})
+check("B. s3->s3 flagged unsupported", plan_copy("s3://a/x", "s3://b/y")["op"] == "unsupported")
+
+# A real local->local copy, end to end (no boto3, no MinIO needed).
+import shutil as _sh, tempfile as _tf  # noqa: E402
+_tmp = _tf.mkdtemp()
+# The copy hands ownership to the pipelines uid via `docker exec`; irrelevant here and
+# there is no docker in the unit-test environment.
+os.environ["PIPELINES_SKIP_CHOWN"] = "1"
+try:
+    os.makedirs(os.path.join(_tmp, "src", "nested"))
+    open(os.path.join(_tmp, "src", "nested", "a.avro"), "w").write("x")
+    cp_step = {"Name": "copy avro", "HadoopJarStep":
+               {"Jar": "/usr/share/aws/emr/s3-dist-cp/lib/s3-dist-cp.jar",
+                "Args": [f"--src=hdfs://{_tmp}/src", f"--dest={_tmp}/dst"]}}
+    _rls(translate_step(cp_step))
+    check("B. copy actually moves the files",
+          os.path.exists(os.path.join(_tmp, "dst", "nested", "a.avro")))
+finally:
+    _sh.rmtree(_tmp, ignore_errors=True)
+    del os.environ["PIPELINES_SKIP_CHOWN"]
+
 # ---- C. sitecustomize swaps the 4 EMR classes -------------------------------
 def _mod(name):
     m = types.ModuleType(name); sys.modules[name] = m; return m
@@ -192,6 +236,11 @@ check("C. EmrAddStepsOperator swapped", ops.EmrAddStepsOperator.__name__ == "Loc
 check("C. EmrStepSensor swapped", sen.EmrStepSensor.__name__ == "LocalStepSensor")
 check("C. EmrJobFlowSensor swapped", sen.EmrJobFlowSensor.__name__ == "LocalJobFlowSensor")
 
+# These three assert the SHIM wiring (class swap + how `steps` is parsed), not what a
+# step does. Force copies back to no-op so the subject stays the wiring and the check
+# needs neither boto3 nor a MinIO.
+os.environ["PIPELINES_LOCAL_NOOP_COPIES"] = "1"
+
 add = ops.EmrAddStepsOperator(task_id="add_steps", job_flow_id="x",
                               aws_conn_id="aws_default", steps=[s3_step])
 check("C. shim runs a no-op step end to end", add.execute(context={}) == ["noop:copy"])
@@ -207,6 +256,7 @@ check("C. steps-as-JSON-string is parsed (not iterated)", add_str.execute(contex
 add_repr = ops.EmrAddStepsOperator(task_id="add_steps3", job_flow_id="x",
                                    aws_conn_id="aws_default", steps=str([s3_step]))
 check("C. steps-as-python-repr is parsed", add_repr.execute(context={}) == ["noop:copy"])
+del os.environ["PIPELINES_LOCAL_NOOP_COPIES"]
 
 # ---- D. notifications cluster policy (opt-in, no-op by default) -------------
 import airflow_local_settings as _notify  # noqa: E402

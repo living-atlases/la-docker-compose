@@ -8,6 +8,16 @@ with **zero changes to the pipelines-airflow repo** (least impact on ALA).
 
 1. **Storage → MinIO, no code change.** boto3 honours `AWS_ENDPOINT_URL_S3`, so the
    DAGs' `boto3.client/resource("s3")` calls hit MinIO. (Spike E1: PASS.)
+
+   MinIO is not decoration: it is the registry the DAGs *discover work in*
+   (`Ingest_all_datasets` lists datasets from the bucket, `Load_dataset` uploads the
+   archive it fetched from collectory), while every `la-pipelines` stage reads the shared
+   volume. The `s3-dist-cp` steps are what bridge the two, so the overlay **performs them
+   for real** with boto3, in-process — the Airflow image ships boto3 but no `aws` CLI.
+   Ansible mounts the pipelines directories into the Airflow containers at the *same
+   absolute paths* `la_pipelines` sees, so there is no path map to drift, and files
+   written by Airflow (uid 50000) are handed to the pipelines uid afterwards.
+   `PIPELINES_LOCAL_NOOP_COPIES=1` restores the old blanket no-op.
 2. **Compute → local shims, no DAG edits.** [`sitecustomize.py`](sitecustomize.py) runs at
    interpreter startup and swaps the 4 EMR operator/sensor classes
    (`EmrCreateJobFlowOperator`, `EmrAddStepsOperator`, `EmrStepSensor`,
