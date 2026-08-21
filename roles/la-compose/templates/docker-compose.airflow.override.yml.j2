@@ -19,6 +19,12 @@
 # shim only surfaces a CalledProcessError. The gid is read from the target host
 # (docker's gid is not portable across distros); if the stat is unavailable the key is
 # omitted and behaviour is exactly as before.
+#
+# Finally, mounts the pipelines-airflow dags/ tree at the SAME path la_pipelines gets it
+# (/opt/pa-dags) and points PA_DAGS_DIR at it. The DAGs call helper scripts and CLIs by
+# absolute /tmp path, which on EMR the cluster's BootstrapActions stage from S3; our shim
+# has no cluster to bootstrap, so the overlay's translator repoints those references at
+# this mount. One path in both containers keeps a step's command valid wherever it runs.
 {% if airflow_docker_sock is defined and airflow_docker_sock.stat is defined and airflow_docker_sock.stat.exists %}
 {%   set _sock_gid = [airflow_docker_sock.stat.gid | string] %}
 {% else %}
@@ -27,16 +33,28 @@
 services:
   airflow-init:
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    environment:
+      PA_DAGS_DIR: /opt/pa-dags
+    volumes:
+      - {{ docker_compose_data_dir }}/pipelines-airflow/dags:/opt/pa-dags:ro
 {% if _sock_gid %}
     group_add: {{ _sock_gid | to_json }}
 {% endif %}
   airflow-webserver:
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    environment:
+      PA_DAGS_DIR: /opt/pa-dags
+    volumes:
+      - {{ docker_compose_data_dir }}/pipelines-airflow/dags:/opt/pa-dags:ro
 {% if _sock_gid %}
     group_add: {{ _sock_gid | to_json }}
 {% endif %}
   airflow-scheduler:
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    environment:
+      PA_DAGS_DIR: /opt/pa-dags
+    volumes:
+      - {{ docker_compose_data_dir }}/pipelines-airflow/dags:/opt/pa-dags:ro
 {% if _sock_gid %}
     group_add: {{ _sock_gid | to_json }}
 {% endif %}

@@ -18,6 +18,25 @@ with **zero changes to the pipelines-airflow repo** (least impact on ALA).
    by uuid/image-sync/sample/solr/…).
    This covers BOTH the 12 DAGs that call `run_large_emr` and the 5 that inline the EMR
    operators. (Spike E2: PASS — mechanism + translation.)
+
+   The translator also reconciles four more EMR-isms, all of them things the cluster
+   provided that a container does not:
+   - **`sudo -u hadoop` is stripped.** EMR steps run as root and drop to the `hadoop`
+     service user; neither that user nor `sudo` exists here, and the step already runs
+     as the right uid. `ala_helper.emr_python_step` emits this prefix unconditionally.
+   - **`/tmp/<file>` references are repointed at the mounted `dags/` tree.** On EMR those
+     files arrive via the cluster's BootstrapActions (`dags/sh/bootstrap-*.sh` copying
+     from S3); with no cluster to bootstrap, nothing lands in `/tmp`. The files are part
+     of `dags/`, which Ansible mounts at `PA_DAGS_DIR` (`/opt/pa-dags`) in **both**
+     `la_airflow` and `la_pipelines`, so the rewritten command is valid in whichever
+     container the step runs. A `/tmp` path we do not ship is left alone.
+   - **`python3` steps run in `la_airflow`.** `la_pipelines` has no python3 at all; the
+     CLIs those steps invoke (`create_solr_collection_cli.py`,
+     `update_collection_alias_cli.py`) only need Solr, which `la_airflow` reaches on the
+     same network. Everything else stays in `la_pipelines`.
+   - **`ActionOnFailure` is honoured.** The DAGs mark genuinely optional steps `CONTINUE`
+     (copying outliers that may not exist, deleting s3-dist-cp scratch dirs). The shim
+     used to ignore that and turn each of them into a hard stop.
 3. **Config → seeded Variables.** The committed `ala_config.py` is AWS-hardcoded and reads
    ~40 Variables at import. [`variables/airflow-variables.local.json`](variables/airflow-variables.local.json)
    provides real LA service URLs + harmless EMR/EC2/S3 dummies (the shims ignore the dummies).

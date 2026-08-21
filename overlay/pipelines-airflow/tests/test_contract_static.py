@@ -87,6 +87,80 @@ try:
 finally:
     del os.environ["PIPELINES_SKIP_STAGES"]
 
+# EMR steps arrive wrapped in `sudo -u hadoop`, and `emr_python_step` always does.
+# Neither sudo nor the hadoop user exists in our containers, so the prefix has to go
+# or every affected step dies with "command not found".
+from pa_local_compute import build_argv, rewrite_staged_paths  # noqa: E402
+
+sudo_step = {"Name": "commit", "HadoopJarStep":
+             {"Jar": "command-runner.jar",
+              "Args": ["bash", "-c", 'sudo -u hadoop curl -X POST "http://solr:8983/solr/x/update" 1>&2']}}
+t_sudo = translate_step(sudo_step)
+check("B. `sudo -u hadoop` stripped from the command",
+      t_sudo["cmd"].startswith("curl -X POST"), t_sudo)
+
+# la_pipelines has no python3; la_airflow does and reaches Solr on the same network.
+py_step = {"Name": "create collection", "HadoopJarStep":
+           {"Jar": "command-runner.jar",
+            "Args": ["bash", "-c",
+                     " sudo -u hadoop python3 /tmp/create_solr_collection_cli.py -s http://solr:8983/solr"
+                     " -a create_solr_collection biocache-x 1>&2"]}}
+t_py = translate_step(py_step)
+check("B. python3 step routed to the Airflow container",
+      t_py.get("container") == "la_airflow", t_py)
+check("B. python3 step's argv targets that container",
+      build_argv(t_py)[:3] == ["docker", "exec", "la_airflow"], build_argv(t_py))
+# A non-python step must NOT be rerouted - it belongs in la_pipelines.
+check("B. non-python step stays on the pipelines container",
+      "container" not in translate_step(cmd_step)
+      and build_argv(translate_step(cmd_step))[:3] == ["docker", "exec", "la_pipelines"])
+
+# EMR stages these CLIs into /tmp via BootstrapActions, which our local shim has no
+# cluster to run. We mount the dags/ tree instead and repoint the reference.
+os.environ["PA_DAGS_DIR"] = os.path.join(REPO, "dags")
+try:
+    check("B. /tmp CLI reference repointed at the mounted dags tree",
+          rewrite_staged_paths("python3 /tmp/create_solr_collection_cli.py -a create")
+          == f"python3 {os.path.join(REPO, 'dags', 'create_solr_collection_cli.py')} -a create")
+    check("B. /tmp reference to a dags/sh/ helper repointed too",
+          rewrite_staged_paths("bash /tmp/download-datasets-for-indexing.sh")
+          == f"bash {os.path.join(REPO, 'dags', 'sh', 'download-datasets-for-indexing.sh')}")
+    # Anything we do not ship must be left alone rather than silently redirected.
+    check("B. unknown /tmp path left untouched",
+          rewrite_staged_paths("cat /tmp/scratch-file.txt") == "cat /tmp/scratch-file.txt")
+finally:
+    del os.environ["PA_DAGS_DIR"]
+
+# EMR steps declare what a failure means; the DAGs mark optional copies/cleanups
+# CONTINUE. Ignoring that made every optional step a hard stop.
+from pa_local_compute import run_local_step  # noqa: E402
+
+fail_cmd = "exit 3"
+continue_step = {"Name": "optional cleanup", "ActionOnFailure": "CONTINUE",
+                 "HadoopJarStep": {"Jar": "command-runner.jar",
+                                   "Args": ["bash", "-c", fail_cmd]}}
+abort_step = {"Name": "required", "ActionOnFailure": "TERMINATE_CLUSTER",
+              "HadoopJarStep": {"Jar": "command-runner.jar",
+                                "Args": ["bash", "-c", fail_cmd]}}
+check("B. ActionOnFailure carried onto the action",
+      translate_step(continue_step).get("on_failure") == "CONTINUE")
+os.environ["PIPELINES_LOCAL_BIN"] = "1"   # run in-process, no docker needed
+try:
+    try:
+        res = run_local_step(translate_step(continue_step))
+    except Exception as exc:            # regression: CONTINUE ignored -> hard stop
+        res = f"raised {exc!r}"
+    check("B. CONTINUE step does not abort the run",
+          isinstance(res, str) and res.startswith("failed-continue:"), res)
+    raised = False
+    try:
+        run_local_step(translate_step(abort_step))
+    except Exception:
+        raised = True
+    check("B. non-CONTINUE step still raises on failure", raised)
+finally:
+    del os.environ["PIPELINES_LOCAL_BIN"]
+
 # ---- C. sitecustomize swaps the 4 EMR classes -------------------------------
 def _mod(name):
     m = types.ModuleType(name); sys.modules[name] = m; return m

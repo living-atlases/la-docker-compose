@@ -39,6 +39,17 @@ services:
       - ${DATA_DIR:-/data}/la-pipelines/jackknife:/pipelines-jackknife
       - ${DATA_DIR:-/data}/la-pipelines/clustering:/pipelines-clustering
       - ${DATA_DIR:-/data}/la-pipelines/outlier:/pipelines-outlier
+{% if use_airflow | default(false) | bool %}
+      # The pipelines-airflow DAGs invoke helper scripts and CLIs by absolute /tmp path
+      # (/tmp/create_solr_collection_cli.py, /tmp/download-datasets-for-indexing.sh, ...).
+      # On EMR the cluster's BootstrapActions copy them there from S3; our local shim has
+      # no cluster to bootstrap, so nothing ever lands in /tmp and every such step dies
+      # with "No such file". Those files are just part of the dags/ tree, which Ansible
+      # already stages on this host, so mount it and let the overlay's translator repoint
+      # the reference. Same path in la_airflow, so a step's command is valid in whichever
+      # container it is routed to.
+      - {{ docker_compose_data_dir }}/pipelines-airflow/dags:/opt/pa-dags:ro
+{% endif %}
     networks:
       - ${DOCKER_NETWORK:-internal}
     # LA Pipelines is a stateful service, healthcheck verifies data dirs exist
