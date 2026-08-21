@@ -61,6 +61,37 @@ def rewrite_staged_paths(cmd: str) -> str:
     return _TMP_REF_RE.sub(sub, cmd)
 
 
+# --- the dataset download step -------------------------------------------------
+# `/tmp/download-datasets.sh <dwca_bucket> <avro_bucket> <ids...>` is how an ingest DAG
+# gets the archive onto the machine that runs dwca-avro. Upstream it is `aws s3 cp` +
+# unzip as the hadoop user, which nothing in our containers can do: no aws CLI, no sudo,
+# no hadoop. It was therefore no-op'd -- fine for the e2e harness, which seeds the archive
+# into the volume itself, but it means Load_dataset and Ingest_all_datasets upload to
+# MinIO and then ingest nothing.
+#
+# So translate it by INTENT rather than line by line: fetch s3://<dwca_bucket>/dwca-imports/<id>
+# into the directory our dwca-avro actually reads (dwca_import_dir). The upstream unzip is
+# deliberately not reproduced -- our dwca-avro reads the .zip directly, which is exactly
+# what the ingest e2e has been exercising all along.
+_DOWNLOAD_DATASETS_RE = re.compile(r"(?:^|/)download-datasets\.sh\s+(?P<args>.+)$")
+
+
+def plan_dataset_download(cmd: str):
+    """-> {'bucket', 'datasets': [...], 'dest_root'} for a download-datasets.sh call."""
+    m = _DOWNLOAD_DATASETS_RE.search(cmd.strip())
+    if not m:
+        return None
+    parts = m.group("args").split()
+    if len(parts) < 3:
+        return None
+    dwca_bucket, _avro_bucket, datasets = parts[0], parts[1], parts[2:]
+    return {
+        "bucket": dwca_bucket,
+        "datasets": datasets,
+        "dest_root": os.environ.get("DWCA_IMPORT_DIR", "/data/la-pipelines/dwca-import"),
+    }
+
+
 # --- s3-dist-cp: the bridge between MinIO and the shared volume -----------------
 # On EMR these steps shuttle data between S3 and the cluster's HDFS. Locally the
 # DAGs still use S3 (MinIO) as the registry they discover work in -- Ingest_all_datasets
@@ -152,6 +183,10 @@ def translate_step(step: dict) -> dict:
             "PIPELINES_LOCAL_NOOP_SCRIPTS",
             "download-datasets.sh,upload-datasets.sh,upload-export.sh,frictionless.sh",
         ).split(",") if m.strip()]
+        fetch = plan_dataset_download(cmd)
+        if fetch and not os.environ.get("PIPELINES_LOCAL_NOOP_COPIES"):
+            return {"name": name, "kind": "fetch-datasets", "cmd": cmd,
+                    "on_failure": on_failure, "fetch": fetch}
         if any(m in cmd for m in noop_markers):
             return {"name": name, "kind": "noop-script", "cmd": cmd, "on_failure": on_failure}
         # Optionally no-op whole pipeline stages (e.g. `sds` when the
@@ -287,8 +322,34 @@ def run_copy(action: dict):
     return f"copied:{action['name']}"
 
 
+def run_fetch_datasets(action: dict):
+    """Bring each dataset's DwCA from MinIO into the directory dwca-avro reads."""
+    plan = action["fetch"]
+    total = 0
+    for ds in plan["datasets"]:
+        dest = os.path.join(plan["dest_root"], ds)
+        moved = run_copy({
+            "name": f"{action['name']} [{ds}]",
+            "src": f"s3://{plan['bucket']}/dwca-imports/{ds}",
+            "dest": dest,
+            "on_failure": action.get("on_failure"),
+            "plan": plan_copy(f"s3://{plan['bucket']}/dwca-imports/{ds}", dest),
+        })
+        total += 1 if moved else 0
+    print(f"{LOG_PREFIX} fetched {len(plan['datasets'])} dataset(s) into {plan['dest_root']}")
+    return f"fetched:{action['name']}"
+
+
 def run_local_step(action: dict):
     """Execute one translated action against the local la_pipelines stack."""
+    if action["kind"] == "fetch-datasets":
+        try:
+            return run_fetch_datasets(action)
+        except Exception as exc:
+            print(f"{LOG_PREFIX} dataset fetch failed: {action['name']}: {exc!r}")
+            if action.get("on_failure") == "CONTINUE":
+                return f"failed-continue:{action['name']}"
+            raise
     if action["kind"] == "copy":
         try:
             return run_copy(action)

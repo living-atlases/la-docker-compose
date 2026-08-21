@@ -60,9 +60,12 @@ cmd_step = {"Name": "sample", "HadoopJarStep":
             {"Jar": "command-runner.jar",
              "Args": ["bash", "-c", "la-pipelines sample all --cluster 1>&2"]}}
 bad_step = {"Name": "weird", "HadoopJarStep": {"Jar": "mystery.jar", "Args": []}}
-helper_step = {"Name": "Download data", "HadoopJarStep":
+# An EMR-cluster helper that stays a no-op: it packages a frictionless descriptor on the
+# cluster and has no local meaning. (download-datasets.sh is NOT one of these any more --
+# it is the step that brings the archive in, and is translated for real below.)
+helper_step = {"Name": "Add Frictionless", "HadoopJarStep":
                {"Jar": "command-runner.jar",
-                "Args": ["bash", "-c", "/tmp/download-datasets.sh dwca-imports pipelines-data dr-test"]}}
+                "Args": ["bash", "-c", "/tmp/frictionless.sh dr-test"]}}
 
 # s3-dist-cp is the bridge between MinIO (where the DAGs discover work) and the shared
 # volume (where la-pipelines reads). No-op'ing it severs the two.
@@ -204,6 +207,37 @@ try:
 finally:
     _sh.rmtree(_tmp, ignore_errors=True)
     del os.environ["PIPELINES_SKIP_CHOWN"]
+
+# The ingest DAGs get the archive onto the pipelines machine via download-datasets.sh.
+# No-op'ing it is why Load_dataset/Ingest_all_datasets would upload to MinIO and then
+# ingest nothing. It must translate into a real fetch, into the dir dwca-avro reads.
+from pa_local_compute import plan_dataset_download  # noqa: E402
+
+dl_step = {"Name": "a. Download data", "HadoopJarStep":
+           {"Jar": "command-runner.jar",
+            "Args": ["bash", "-c", " /tmp/download-datasets.sh dwca-imports pipelines-data dr0 dr1 1>&2"]}}
+os.environ["DWCA_IMPORT_DIR"] = "/data/la-pipelines/dwca-import"
+try:
+    t_dl = translate_step(dl_step)
+    check("B. download-datasets.sh -> real fetch, not a no-op",
+          t_dl["kind"] == "fetch-datasets", t_dl["kind"])
+    check("B. fetch targets every dataset in the arg list",
+          t_dl["fetch"]["datasets"] == ["dr0", "dr1"], t_dl["fetch"])
+    check("B. fetch reads the dwca bucket, not the avro one",
+          t_dl["fetch"]["bucket"] == "dwca-imports", t_dl["fetch"])
+    check("B. fetch lands where dwca-avro reads",
+          t_dl["fetch"]["dest_root"] == "/data/la-pipelines/dwca-import", t_dl["fetch"])
+    check("B. a non-download helper script is still a no-op",
+          translate_step(helper_step)["kind"] == "noop-script")
+    # The blanket escape hatch must cover this path too.
+    os.environ["PIPELINES_LOCAL_NOOP_COPIES"] = "1"
+    check("B. dataset fetch can be forced back to no-op",
+          translate_step(dl_step)["kind"] == "noop-script")
+    del os.environ["PIPELINES_LOCAL_NOOP_COPIES"]
+    check("B. a bare path with too few args is not mistaken for a fetch",
+          plan_dataset_download("/tmp/download-datasets.sh onlyone") is None)
+finally:
+    del os.environ["DWCA_IMPORT_DIR"]
 
 # ---- C. sitecustomize swaps the 4 EMR classes -------------------------------
 def _mod(name):
