@@ -123,6 +123,12 @@ env.filters["bool"] = lambda value: str(value).strip().lower() in ("true", "yes"
 #                <key>_version lookup must survive the same substitution
 #   alerts       declares NO logging config, so -Dlogging.config must not appear,
 #                and carries extra_params, which must be emitted as -Dkey=value
+#   spatial_service
+#                declares extra_config_name (appended to -Dspring.config.name, which is
+#                what lets a role-generated per-service config be read at all) and
+#                stack_size (-Xss). Both come from the desc, not the inventory
+#   logger       an inventory <key>_stack_size must WIN over the desc's stack_size,
+#                which is the only way an operator can retune it
 CASES = {
     "userdetails": {
         "desc": {"artifacts": "userdetails", "log_config_filename": "logback.xml"},
@@ -155,13 +161,34 @@ CASES = {
         "memory": "-Xmx1g", "log_config": None, "version": "5.2.0",
         "extra_params": [{"key": "spring.profiles.active", "value": "prod"}],
     },
+    "spatial_service": {
+        "desc": {"artifacts": "spatial-service", "log_config_filename": "spatial-logback.xml",
+                 "extra_config_name": "spatial-service-config", "stack_size": "512k"},
+        "prefix": "SPATIAL_SERVICE", "artifact": "spatial-service",
+        "java_opts": "-Djava.awt.headless=true -Xmx2g -Xms1g",
+        "memory": "-Xmx2g", "log_config": "spatial-logback.xml", "version": "3.1.0",
+        "extra_config": "spatial-service-config", "stack": "512k",
+        "extra_params": [{"key": "server.servlet.context-path", "value": "/ws"}],
+    },
+    "logger": {
+        "desc": {"artifacts": "logger-service", "log_config_filename": "logback.xml",
+                 "extra_config_name": "logger-config", "stack_size": "512k"},
+        "prefix": "LOGGER", "artifact": "logger-service",
+        "java_opts": "-Djava.awt.headless=true -Xmx1g -Xms1g",
+        "memory": "-Xmx1g", "log_config": "logback.xml", "version": "4.6.1",
+        "extra_config": "logger-config", "stack": "1m", "stack_size_var": "1m",
+    },
 }
 
 rendered = env.get_template("docker-compose.env.j2").render(
     service_java_opts_dict={k: c["java_opts"] for k, c in CASES.items()},
     docker_services_desc={k: c["desc"] for k, c in CASES.items()},
     service_extra_params={k: c.get("extra_params", []) for k, c in CASES.items()},
-    vars={f"{k.replace('-', '_')}_version": c["version"] for k, c in CASES.items()},
+    vars={
+        **{f"{k.replace('-', '_')}_version": c["version"] for k, c in CASES.items()},
+        **{f"{k.replace('-', '_')}_stack_size": c["stack_size_var"]
+           for k, c in CASES.items() if c.get("stack_size_var")},
+    },
 )
 
 lines = {
@@ -202,6 +229,24 @@ for key, case in CASES.items():
             "config overrides would not be read")
     require(prefix, "-Dspring.config.name=application,application-local-config",
             "application-local-config would not be read")
+
+    # The per-service name the role generates. Without it Spring reads the two stock
+    # names and silently ignores <name>.properties -- the bug the `command:` overrides
+    # existed to work around.
+    if case.get("extra_config"):
+        require(prefix,
+                f"-Dspring.config.name=application,application-local-config,{case['extra_config']}",
+                "the role-generated per-service config would not be read")
+    else:
+        reject(prefix, "-Dspring.config.name=application,application-local-config,",
+               "it declares no extra_config_name")
+
+    # Only where the desc asks for it; everyone else keeps the JVM default. An
+    # inventory <key>_stack_size wins over the desc.
+    if case.get("stack"):
+        require(prefix, f"-Xss{case['stack']}", "stack size must reach the JVM")
+    else:
+        reject(prefix, "-Xss", "it declares no stack_size")
 
     # Propagated from Ansible, not computed here -- see SCOPE in the header.
     require(prefix, case["memory"], "the assembled JAVA_OPTS was not passed through")

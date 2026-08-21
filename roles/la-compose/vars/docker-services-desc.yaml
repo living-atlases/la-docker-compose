@@ -13,6 +13,17 @@
 #     - key: java.io.tmpdir
 #       value: /tmp/custom
 # These parameters are used by the exec-jar and exec-war roles in their templates.
+#
+# EXTRA SPRING CONFIG NAME (extra_config_name):
+# Appended to -Dspring.config.name in the service's <SERVICE>_JAVA_OPTS line, after the
+# `application,application-local-config` the image itself would supply. Set it when the role
+# generates a per-service <name>.properties/.yml under /data/<artifacts>/config that Spring
+# would otherwise never read. It cannot be derived from `artifacts`: logger uses logger-config
+# (not logger-service-config) and sds uses sds-config (not sds-webapp2-config).
+#
+# STACK SIZE (stack_size):
+# Emitted as -Xss<value>. Only for services that need a non-default thread stack; omit it and
+# the JVM default applies. An inventory `<key>_stack_size` overrides this value.
 docker_services_desc:
   collectory:
     name: 'collectory'
@@ -106,7 +117,8 @@ docker_services_desc:
     extension: 'jar'
     version_variable: 'image_service_version'
     log_dir: '/var/log/atlas/image-service'
-    log_config_filename: 'logback.groovy'
+    log_config_filename: 'logback.xml'
+    extra_config_name: 'image-service-config'
   species_lists:
     name: 'species-lists'
     nameInt: 'species_lists'
@@ -134,6 +146,8 @@ docker_services_desc:
     repository: 'https://github.com/AtlasOfLivingAustralia/regions'
     version_variable: 'regions_version'
     log_config_filename: 'logback.xml'
+    extra_config_name: 'regions-config'
+    stack_size: '512k'
   logger:
     name: 'logger'
     nameInt: 'logger'
@@ -149,6 +163,8 @@ docker_services_desc:
     repository: 'https://github.com/AtlasOfLivingAustralia/logger-service'
     version_variable: 'logger_version'
     log_config_filename: 'logback.xml'
+    extra_config_name: 'logger-config'
+    stack_size: '512k'
   solr:
     name: 'solr'
     nameInt: 'solr'
@@ -246,7 +262,9 @@ docker_services_desc:
     buildTool: 'gradle'
     repository: 'https://github.com/AtlasOfLivingAustralia/spatial-hub'
     version_variable: 'spatial_hub_version'
-    log_config_filename: 'log4j.properties'
+    log_config_filename: 'spatial-logback.xml'
+    extra_config_name: 'spatial-hub-config'
+    stack_size: '512k'
   spatial_service:
     name: 'Spatial Webservice'
     nameInt: 'spatial_service'
@@ -260,7 +278,17 @@ docker_services_desc:
     repository: 'https://github.com/AtlasOfLivingAustralia/spatial-service'
     desc: ''
     version_variable: 'spatial_service_version'
-    log_config_filename: 'log4j.properties'
+    log_config_filename: 'spatial-logback.xml'
+    extra_config_name: 'spatial-service-config'
+    stack_size: '512k'
+    extra_params:
+      # The executable war runs an EMBEDDED Tomcat, which ignores the deprecated Grails 2
+      # `grails.app.context` shipped in spatial-service-config.yml; the servlet context is set
+      # only by server.servlet.context-path. Without it the app serves at ROOT while nginx
+      # routes the /ws context (/ws, /alaspatial, /layers-service, /layers) -> 404. On VMs the
+      # WAR goes to an EXTERNAL Tomcat under /ws and this flag is ignored, so VMs are untouched.
+      - key: server.servlet.context-path
+        value: "{{ spatial_service_context_path | default('/ws') }}"
   geoserver:
     name: 'Geoserver'
     nameInt: 'geoserver'
@@ -305,6 +333,8 @@ docker_services_desc:
     repository: 'https://github.com/AtlasOfLivingAustralia/sds'
     version_variable: 'sds_version'
     log_config_filename: 'logback.xml'
+    extra_config_name: 'sds-config'
+    stack_size: '512k'
   alerts:
     name: 'alerts'
     nameInt: 'alerts'
@@ -318,6 +348,8 @@ docker_services_desc:
     repository: 'https://github.com/AtlasOfLivingAustralia/alerts'
     version_variable: 'alerts_version'
     log_config_filename: 'logback.xml'
+    extra_config_name: 'alerts-config'
+    stack_size: '512k'
   doi:
     name: 'doi'
     nameInt: 'doi'
@@ -331,7 +363,9 @@ docker_services_desc:
     repository: 'https://github.com/AtlasOfLivingAustralia/doi-service'
     classifier: 'exec'
     version_variable: 'doi_service_version'
-    log_config_filename: 'logback.groovy'
+    log_config_filename: 'logback.xml'
+    extra_config_name: 'doi-service-config'
+    stack_size: '512k'
   branding:
     name: 'branding'
     nameInt: 'branding'
@@ -391,6 +425,8 @@ docker_services_desc:
     sample: 'https://data-quality-service.ala.org.au'
     version_variable: 'data_quality_filter_service_version'
     log_config_filename: 'logback.xml'
+    extra_config_name: 'data-quality-filter-service-config'
+    stack_size: '512k'
   pipelines:
     name: 'pipelines'
     nameInt: 'pipelines'
@@ -477,6 +513,10 @@ docker_services_desc:
     classifier: 'exec'
     version_variable: 'biocollect_version'
     log_config_filename: 'logback.xml'
+    extra_config_name: 'biocollect-config'
+    extra_params:
+      - key: java.io.tmpdir
+        value: /data/tmp
   pdfgen:
     name: 'pdfgen'
     nameInt: 'pdfgen'
@@ -498,7 +538,8 @@ docker_services_desc:
     buildTool: 'gradle'
     classifier: 'exec'
     version_variable: 'ecodata_version'
-    log_config_filename: 'logback.groovy'
+    log_config_filename: 'logback.xml'
+    extra_config_name: 'ecodata-config'
     extra_params:
       - key: java.io.tmpdir
         value: /data/tmp
