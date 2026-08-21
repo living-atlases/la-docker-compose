@@ -111,10 +111,14 @@ endpoints:
    trip through the host's IP stack. Keyed on groups['gatus'], not inventory_hostname:
    this file is written to every docker_compose host but only read by the one running
    gatus, so the URL has to be right for the reader, not for the writer. #}
+{# groups['gatus'] holds `<host>.gatus` while disk_hosts holds `<host>.docker_compose`: the
+   generator creates one inventory alias per service, so `h in groups['gatus']` was never true
+   and the hairpin branch below was dead code. Compare the actual machine instead. #}
+{% set gatus_machine = hostvars[(groups['gatus'] | default([]) | first)].ansible_host if (groups['gatus'] | default([]) | length) > 0 else none %}
 {% for h in disk_hosts %}
   - name: "Disk - {{ h }}"
     group: "Hosts"
-{% if h in (groups['gatus'] | default([])) %}
+{% if hostvars[h].ansible_host is defined and gatus_machine is defined and hostvars[h].ansible_host == gatus_machine %}
     url: "http://nginx:{{ hostvars[h].docker_metrics_port | default(8081) }}/disk.json"
 {% else %}
     url: "http://{{ hostvars[h].docker_metrics_bind | default(hostvars[h].ansible_host) }}:{{ hostvars[h].docker_metrics_port | default(8081) }}/disk.json"
