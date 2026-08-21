@@ -200,6 +200,14 @@ doi_service_docker_host: la_doi-service
 sensitive_data_service_docker_host: la_sensitive-data-service
 species_list_docker_host: la_species-list
 
+# The real collection the `biocache` alias points at on a fresh deployment. `biocache`
+# itself must be an ALIAS, because that is what the production reindex path swaps:
+# Full_index_to_solr builds a dated collection and Update-Collection-Alias repoints the
+# alias onto it, and SolrCloud refuses an alias named after an existing collection.
+# Fixed (not dated) so re-running init-solr is idempotent; the first real reindex
+# replaces it with a dated one.
+biocache_seed_collection: biocache-seed
+
 # Airflow (NO-AWS pipelines-airflow overlay): OPT-IN. Set use_airflow=true to deploy
 # the overlay (Airflow + MinIO, separate compose project) joined to the `la` network as
 # `la_airflow`. Define airflow_hostname (e.g. airflow.l-a.site) to also expose it via

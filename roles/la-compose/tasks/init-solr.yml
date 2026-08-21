@@ -95,6 +95,28 @@
       become: true
       changed_when: false
 
+    # `biocache` has to be an ALIAS, not a collection, for the production reindex path to
+    # work at all: Full_index_to_solr builds a dated collection and then swaps the alias
+    # onto it, and SolrCloud refuses an alias whose name is already a collection.
+    - name: "Solr Init: List existing aliases"
+      ansible.builtin.command: >
+        docker exec la_solr curl -s
+        "http://localhost:8983/solr/admin/collections?action=LISTALIASES&wt=json"
+      register: solr_aliases
+      become: true
+      changed_when: false
+
+    - name: "Solr Init: Decide how biocache is currently published"
+      ansible.builtin.set_fact:
+        # A pre-existing REAL collection called `biocache` is a deployment made before
+        # this change. Migrating it is not transparent -- Solr cannot rename a collection,
+        # so it would mean reindexing into a new one and dropping the old, i.e. losing the
+        # live index. That is the operator's call, never a side effect of a deploy.
+        _biocache_legacy_collection: >-
+          {{ 'biocache' in (solr_collections.stdout | from_json).get('collections', []) }}
+        _biocache_alias_present: >-
+          {{ 'biocache' in (solr_aliases.stdout | from_json).get('aliases', {}) }}
+
     - name: "Solr Init: Create SolrCloud collections if missing"
       ansible.builtin.command: >
         docker exec la_solr curl -s -X POST
@@ -102,19 +124,51 @@
       register: solr_create
       become: true
       loop:
-        - { name: biocache,    config: biocache }
+        - { name: "{{ biocache_seed_collection }}", config: biocache }
         - { name: bie,         config: bie }
         - { name: bie-offline, config: bie }
-      when: item.name not in (solr_collections.stdout | from_json).get('collections', [])
+      # Skip the biocache seed entirely on a deployment that still publishes biocache as a
+      # real collection: there the old collection stays the live index, untouched.
+      when:
+        - item.name not in (solr_collections.stdout | from_json).get('collections', [])
+        - item.name != biocache_seed_collection or not (_biocache_legacy_collection | bool)
       changed_when: '"success" in solr_create.stdout'
       failed_when:
         - solr_create.rc != 0 or '"failure"' in solr_create.stdout
 
-    - name: "Solr Init: Verify biocache collection now exists"
+    - name: "Solr Init: Point the biocache alias at the seed collection"
+      ansible.builtin.command: >
+        docker exec la_solr curl -s -X POST
+        "http://localhost:8983/solr/admin/collections?action=CREATEALIAS&name=biocache&collections={{ biocache_seed_collection }}&wt=json"
+      register: solr_alias_create
+      become: true
+      when:
+        - not (_biocache_legacy_collection | bool)
+        - not (_biocache_alias_present | bool)
+      changed_when: '"success" in solr_alias_create.stdout or solr_alias_create.rc == 0'
+      failed_when:
+        - solr_alias_create.rc != 0 or '"failure"' in solr_alias_create.stdout
+
+    - name: "Solr Init: biocache is still a collection -- alias migration skipped"
+      ansible.builtin.debug:
+        msg: >-
+          `biocache` exists as a real SolrCloud collection on this deployment, so the
+          alias was NOT created: Solr forbids an alias named after an existing collection,
+          and it cannot rename one. Everything keeps working exactly as before, but the
+          Airflow reindex path (Full_index_to_solr -> Update-Collection-Alias) cannot swap
+          the alias until this is migrated by hand -- reindex into a dated collection,
+          delete `biocache`, then create the alias. See docs/airflow-parity.md.
+      when: _biocache_legacy_collection | bool
+
+    # Prove biocache actually answers, whether it resolves as an alias or as a legacy
+    # collection. LIST alone would not: an alias does not appear in it.
+    - name: "Solr Init: Verify biocache resolves and answers a query"
       ansible.builtin.command: >
         docker exec la_solr curl -s
-        "http://localhost:8983/solr/admin/collections?action=LIST&wt=json"
-      register: solr_collections_post
+        "http://localhost:8983/solr/biocache/select?q=*:*&rows=0&wt=json"
+      register: solr_biocache_probe
       become: true
       changed_when: false
-      failed_when: "'biocache' not in (solr_collections_post.stdout | from_json).get('collections', [])"
+      failed_when: >-
+        solr_biocache_probe.rc != 0
+        or '"numFound"' not in solr_biocache_probe.stdout
