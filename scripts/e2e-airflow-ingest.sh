@@ -25,6 +25,10 @@
 # Usage:
 #   scripts/e2e-airflow-ingest.sh [--blocking] [--report-only] [--seed-minio]
 #                                 [--seed-collectory] [--timeout SEC]
+#
+# To ingest a real medium dataset instead of the 8-record fixture:
+#   DWCA_ZIP=$(scripts/fetch-medium-dwca.sh) EXPECTED_MIN=2000 \
+#     scripts/e2e-airflow-ingest.sh --blocking
 set -euo pipefail
 
 # --- config (env-overridable; defaults match the la-docker-compose stack) --------
@@ -96,8 +100,11 @@ for c in "$AIRFLOW_CONTAINER" "$PIPELINES_CONTAINER"; do
   docker inspect -f '{{.State.Running}}' "$c" 2>/dev/null | grep -q true \
     || { err "container '$c' is not running — is the stack up on this host?"; exit 2; }
 done
-[[ -f "$FIXTURE_DIR/meta.xml" && -f "$FIXTURE_DIR/occurrence.txt" ]] \
-  || { err "fixture not found at $FIXTURE_DIR"; exit 2; }
+# Only the committed fixture needs a FIXTURE_DIR; DWCA_ZIP supplies the archive itself.
+if [[ -z "${DWCA_ZIP:-}" ]]; then
+  [[ -f "$FIXTURE_DIR/meta.xml" && -f "$FIXTURE_DIR/occurrence.txt" ]] \
+    || { err "fixture not found at $FIXTURE_DIR"; exit 2; }
+fi
 
 # The dataset MUST be registered in collectory before the run: interpret asks collectory
 # for the dataResource metadata and, when the lookup fails, logs "Collectory metadata no
@@ -189,10 +196,19 @@ case "$dr_http" in
        exit 2 ;;
 esac
 
-# --- 1. package the fixture DwCA -------------------------------------------------
+# --- 1. get the DwCA (committed fixture, or a prebuilt archive) ------------------
+# DWCA_ZIP lets a caller ingest a real archive instead of the 8-record fixture --
+# scripts/fetch-medium-dwca.sh prints a path suitable for it. The 8 records prove a
+# stage RAN; a few thousand real ones prove it PROCESSED something.
 ZIP="/tmp/${DR_UID}.zip"
-log "packaging fixture -> $ZIP"
-( cd "$FIXTURE_DIR" && rm -f "$ZIP" && zip -q "$ZIP" meta.xml eml.xml occurrence.txt )
+if [[ -n "${DWCA_ZIP:-}" ]]; then
+  [[ -f "$DWCA_ZIP" ]] || { err "DWCA_ZIP=$DWCA_ZIP does not exist"; exit 2; }
+  log "using prebuilt archive $DWCA_ZIP"
+  cp -f "$DWCA_ZIP" "$ZIP"
+else
+  log "packaging fixture -> $ZIP"
+  ( cd "$FIXTURE_DIR" && rm -f "$ZIP" && zip -q "$ZIP" meta.xml eml.xml occurrence.txt )
+fi
 
 # --- 2. seed the archive where dwca-avro reads it (la_pipelines volume) -----------
 DEST_DIR="${DWCA_IMPORT_DIR}/${DR_UID}"
