@@ -20,7 +20,10 @@ LOG_TAIL_LINES = int(os.environ.get("PIPELINES_LOCAL_LOG_TAIL", "120"))
 # ({{ docker_compose_data_dir }}/pipelines-airflow/dags) into BOTH la_airflow and
 # la_pipelines at this path. Read per call, like every other knob here, so a test can
 # point it at a real checkout.
-PA_DAGS_DIR_DEFAULT = "/opt/pa-dags"
+# /opt/pa-dags is what Ansible mounts in both containers. /opt/airflow/dags is where the
+# Airflow image already has the same tree, so a step routed to la_airflow resolves even on
+# an overlay deployed before that mount existed.
+PA_DAGS_DIRS_DEFAULT = ("/opt/pa-dags", "/opt/airflow/dags")
 
 # `sudo -u hadoop` (and bare `sudo`) come from the EMR world: on a real cluster the
 # steps run as root and drop to the `hadoop` service user. Neither the user nor sudo
@@ -37,11 +40,12 @@ _TMP_REF_RE = re.compile(r"/tmp/([A-Za-z0-9._-]+)")
 
 def _staged_path(name: str):
     """Return the mounted path for a bootstrap-staged file, or None if we don't have it."""
-    dags_dir = os.environ.get("PA_DAGS_DIR", PA_DAGS_DIR_DEFAULT)
-    for candidate in (os.path.join(dags_dir, name),
-                      os.path.join(dags_dir, "sh", name)):
-        if os.path.exists(candidate):
-            return candidate
+    configured = os.environ.get("PA_DAGS_DIR")
+    roots = (configured,) if configured else PA_DAGS_DIRS_DEFAULT
+    for root in roots:
+        for candidate in (os.path.join(root, name), os.path.join(root, "sh", name)):
+            if os.path.exists(candidate):
+                return candidate
     return None
 
 
