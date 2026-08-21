@@ -15,7 +15,7 @@ services:
       - {{ sds_port | default('8080') }}
     environment:
       TZ: {{ server_tz | default('UTC') }}
-      JAVA_OPTS: {{ sds_java_opts | default('-Xmx2g -Xms1g') }}
+      JAVA_OPTS: ${SDS_JAVA_OPTS}
     # The baked CMD only loads spring.config.name=application,application-local-config, so it never
     # picks up the role-generated sds-config.properties. Mirror the image CMD but append `sds-config`
     # to the config name and honour JAVA_OPTS (same approach as doi-service / logger-service). The

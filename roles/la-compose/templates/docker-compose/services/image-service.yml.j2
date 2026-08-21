@@ -10,7 +10,7 @@ services:
       - {{ image_service_port | default('8080') }}
     environment:
       TZ: {{ server_tz | default('UTC') }}
-      JAVA_OPTS: {{ image_service_java_opts | default('-Xmx1g -Xms1g') }}
+      JAVA_OPTS: ${IMAGES_JAVA_OPTS}
       # Spring Boot auto-configures an Elasticsearch RestClient used ONLY by
       # ElasticsearchRestClientHealthIndicator. Without spring.elasticsearch.uris it
       # defaults to localhost:9200 -> ConnectException in Docker (ES is a separate

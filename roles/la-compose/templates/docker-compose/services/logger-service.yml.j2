@@ -10,7 +10,7 @@ services:
       - {{ logger_service_port | default('8080') }}
     environment:
       TZ: {{ server_tz | default('UTC') }}
-      JAVA_OPTS: {{ logger_service_java_opts | default('-Xmx1g -Xms1g') }}
+      JAVA_OPTS: ${LOGGER_JAVA_OPTS}
       SERVER_CONTEXT_PATH: {{ logger_context_path | default('/logger-service') }}
     # Image CMD hardcodes -Xmx2g (ignores JAVA_OPTS -> Exit 137 OOM) and
     # -Dspring.config.name=application,application-local-config, which never loads

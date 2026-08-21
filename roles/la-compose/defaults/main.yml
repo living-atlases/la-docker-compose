@@ -588,3 +588,15 @@ docker_metrics_bind: "{{ host_private_ip }}"
 # Gatus alerts above this; the point is to hear about it at 80%, not at ENOSPC.
 gatus_disk_used_pct_threshold: 80
 gatus_disk_interval: 5m
+
+# image-service and logger-service ran -Xmx1g -Xms1g from a hardcoded Jinja default in their
+# compose templates (`image_service_java_opts | default('-Xmx1g -Xms1g')`) -- a variable that was
+# never defined anywhere, so the default was the whole story. Now that both read <SERVICE>_JAVA_OPTS
+# from .env like every other Java service, the docker-services-desc default (2g/1g) would apply and
+# silently double their heap on an already memory-tight 3-host cluster. Pin the sizes they actually
+# ran with; raise them deliberately in the inventory if a portal needs it.
+# The variable stem is the docker_services_desc KEY, not the compose service name: images, logger.
+images_max_memory: "1g"
+images_min_memory: "1g"
+logger_max_memory: "1g"
+logger_min_memory: "1g"
