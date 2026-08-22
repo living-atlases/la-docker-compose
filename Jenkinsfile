@@ -369,6 +369,15 @@ EOF
                     # single-host topology fixtures structurally cannot reach.
                     echo "Checking per-host artifacts (ala-install synced)..."
                     bash scripts/check-per-host-artifacts.sh
+                    # Same reason for being HERE and not in Unit tests: it renders a template
+                    # that lives in the ala-install submodule, so it must run after the sync.
+                    # Renders la-pipelines-local.yaml the way ANSIBLE renders it (trim_blocks
+                    # is on) and asserts valid YAML. A {%- %} whitespace change once looked
+                    # fine under a stock Jinja2 environment and produced glued lines under
+                    # Ansible's -- `sampling:  inputPath: ...` on one line -- which made
+                    # la-pipelines reject its config and every stage fail at startup (#365).
+                    echo "Checking the rendered la-pipelines config (ala-install synced)..."
+                    bash scripts/test-pipelines-config-render.sh
                     # Disable sparse checkout in case it was left active from a prior build
                     git -C ala-install config core.sparseCheckout false 2>/dev/null || true
                     git -C ala-install read-tree -mu HEAD 2>/dev/null || true
