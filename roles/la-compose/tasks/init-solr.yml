@@ -156,8 +156,15 @@
           alias was NOT created: Solr forbids an alias named after an existing collection,
           and it cannot rename one. Everything keeps working exactly as before, but the
           Airflow reindex path (Full_index_to_solr -> Update-Collection-Alias) cannot swap
-          the alias until this is migrated by hand -- reindex into a dated collection,
-          delete `biocache`, then create the alias. See docs/airflow-parity.md.
+          the alias until this is migrated by hand. The migration costs the current index,
+          so it is deliberately left to you:
+            1. reindex into a dated collection, e.g.
+               la-pipelines solr all --extra-args="solrCollection=biocache-$(date +%F)"
+            2. curl "http://<solr>:8983/solr/admin/collections?action=DELETE&name=biocache"
+            3. curl "http://<solr>:8983/solr/admin/collections?action=CREATEALIAS\
+               &name=biocache&collections=biocache-<stamp>"
+          Queries, updates and /admin/luke all resolve through an alias, so biocache-service,
+          gatus and the Cypress suites need no change.
       when: _biocache_legacy_collection | bool
 
     # Prove biocache actually answers, whether it resolves as an alias or as a legacy
