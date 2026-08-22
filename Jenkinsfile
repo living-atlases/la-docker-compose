@@ -119,6 +119,11 @@ pipeline {
             description: 'Run the Airflow ingestion e2e: ingest a tiny fixed DwCA through the real pipeline and assert records in Solr + biocache. Runs against the ALREADY-RUNNING stack (independent of redeploy) — set this true with FORCE_REDEPLOY=false to test ingestion without a full deploy. Report-only unless E2E_BLOCKING. The ingested data also seeds the Cypress biocache/species suites.'
         )
         booleanParam(
+            name: 'INGEST_MEDIUM_DATASET',
+            defaultValue: true,
+            description: 'Ingest a real medium DwCA (~2k occurrences, fetched from the GBIF.es IPT) instead of the 8-record fixture. Eight records only prove a stage RAN; a few thousand real ones prove it PROCESSED something -- partitioning, heap, and the messiness of real field values. Falls back to the committed fixture automatically if the download fails, so a publisher outage never reds the build.'
+        )
+        booleanParam(
             name: 'PROBE_HUB_COLD_START',
             defaultValue: false,
             description: 'EXPERIMENT (never fails the build): on a data-less stack, settle whether biocache-hub\'s cold-start 500 on /occurrences/search needs DATA or is just an initialisation defect a restart clears. Restarts biocache-hub once and prints a verdict. Only meaningful with RUN_AIRFLOW_INGEST=false on a CLEAN_MACHINE build — it refuses to run against an index that already holds records. See gh-8.'
@@ -1080,13 +1085,36 @@ EOF
                             if (!hasAirflow) { echo "No la_airflow on ${targetHost}; skipping."; continue }
                             ran = true
                             echo "Airflow ingest e2e on ${targetHost}..."
+                            // e2e-airflow-lib.sh carries the shared plumbing the harness
+                            // sources; without it the script dies before doing anything.
+                            def medium = params.INGEST_MEDIUM_DATASET
                             sh """
                                 set -eu
                                 ssh -o BatchMode=yes -o StrictHostKeyChecking=no ${targetHost} "mkdir -p /tmp/ingest-e2e"
-                                scp -o BatchMode=yes -o StrictHostKeyChecking=no "${WORKSPACE}/scripts/e2e-airflow-ingest.sh" ${targetHost}:/tmp/ingest-e2e/
+                                scp -o BatchMode=yes -o StrictHostKeyChecking=no \
+                                    "${WORKSPACE}/scripts/e2e-airflow-ingest.sh" \
+                                    "${WORKSPACE}/scripts/e2e-airflow-lib.sh" \
+                                    "${WORKSPACE}/scripts/fetch-medium-dwca.sh" ${targetHost}:/tmp/ingest-e2e/
                                 scp -o BatchMode=yes -o StrictHostKeyChecking=no -r "${WORKSPACE}/e2e/fixtures/dr-test" ${targetHost}:/tmp/ingest-e2e/
-                                ssh -o BatchMode=yes -o StrictHostKeyChecking=no ${targetHost} \
-                                  "FIXTURE_DIR=/tmp/ingest-e2e/dr-test TIMEOUT=1800 bash /tmp/ingest-e2e/e2e-airflow-ingest.sh ${mode}"
+                                ssh -o BatchMode=yes -o StrictHostKeyChecking=no ${targetHost} '
+                                    set -eu
+                                    ZIP=""
+                                    if [ "${medium}" = "true" ]; then
+                                      # Never let a publisher outage red the build: fall back to the
+                                      # committed fixture, loudly, rather than failing the ingest.
+                                      # stdout is the path; stderr stays on the console as diagnostics.
+                                      ZIP=\$(bash /tmp/ingest-e2e/fetch-medium-dwca.sh) || ZIP=""
+                                      case "\$ZIP" in /*) : ;; *) echo "medium dataset unavailable, falling back to the 8-record fixture"; ZIP="" ;; esac
+                                    fi
+                                    if [ -n "\$ZIP" ]; then
+                                      DR_UID=dr-medium DR_NAME="LA E2E Medium Dataset" DWCA_ZIP="\$ZIP" \
+                                        EXPECTED_MIN=500 FIXTURE_DIR=/tmp/ingest-e2e/dr-test TIMEOUT=1800 \
+                                        bash /tmp/ingest-e2e/e2e-airflow-ingest.sh ${mode}
+                                    else
+                                      FIXTURE_DIR=/tmp/ingest-e2e/dr-test TIMEOUT=1800 \
+                                        bash /tmp/ingest-e2e/e2e-airflow-ingest.sh ${mode}
+                                    fi
+                                '
                             """
                         }
                         if (!ran) { echo "la_airflow not found on any target host — nothing ingested." }
