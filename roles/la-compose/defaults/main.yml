@@ -256,7 +256,8 @@ docker_nginx_version: "1.30"
 # Nginx container paths (override host-specific paths from nginx role)
 nginx_user: nginx
 nginx_pidfile: /var/run/nginx.pid
-nginx_conf_path: /etc/nginx/conf.d
+# nginx_conf_path y nginx_include_prefix viven en vars/main.yml, no aqui: las vars del rol
+# nginx de ala-install se filtran al rol siguiente del play y ganan a cualquier default.
 nginx_vhost_path: /etc/nginx/sites-enabled
 nginx_mime_file_path: /etc/nginx/mime.types
 nginx_error_log: "/var/log/nginx/error.log notice"
