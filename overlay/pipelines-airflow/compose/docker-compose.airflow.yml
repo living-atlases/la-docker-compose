@@ -33,6 +33,10 @@ x-airflow-common: &airflow-common
     PYTHONPATH: /opt/overlay
     PIPELINES_COMPUTE_BACKEND: local
     PIPELINES_CONTAINER: la_pipelines
+    # Steps that run python3 go here instead: la_pipelines has no python3 at all, and
+    # the CLIs the DAGs invoke (create_solr_collection_cli.py, update_collection_alias_cli.py)
+    # only need Solr, which this container reaches on the same network.
+    AIRFLOW_CONTAINER: la_airflow
     # --- generic notifications (airflow_local_settings cluster policy) ---
     # Provider auto-detected from creds; drop them in .env-custom (never commit).
     # Unset NOTIFICATIONS_ENABLED + no creds => no-op. Telegram wins over Slack.

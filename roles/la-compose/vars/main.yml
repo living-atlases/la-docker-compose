@@ -15,6 +15,16 @@ gatus_config_dir: "{{ docker_compose_data_dir }}/gatus/config"
 # We need: {{ docker_compose_data_dir }}/nginx
 nginx_conf_dir: "{{ docker_compose_data_dir }}/nginx"
 
+# Lo que nginx resuelve en runtime, que NO es donde escribe Ansible: conf.d se
+# bind-montea en /etc/nginx/conf.d. Van en vars, no en defaults, porque las vars del
+# rol nginx de ala-install se filtran al rol siguiente del play y ganan a cualquier
+# default (comprobado con un playbook minimo).
+nginx_conf_path: /etc/nginx/conf.d
+# El include de CORS de nginx_vhost solo usa este prefijo si esta definido; sin el
+# caeria en la rama de VM y apuntaria a {{ nginx_conf_dir }}/conf.d, que dentro del
+# contenedor no existe.
+nginx_include_prefix: /etc/nginx/conf.d
+
 # ── biocache SOLR configset pin (GH issue #2) ─────────────────────────────────
 # The biocache occurrence-index schema is pinned to an IMMUTABLE upstream commit
 # and sha256-verified at generate time, so it can no longer silently drift from

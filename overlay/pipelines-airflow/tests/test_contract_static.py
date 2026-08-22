@@ -60,11 +60,27 @@ cmd_step = {"Name": "sample", "HadoopJarStep":
             {"Jar": "command-runner.jar",
              "Args": ["bash", "-c", "la-pipelines sample all --cluster 1>&2"]}}
 bad_step = {"Name": "weird", "HadoopJarStep": {"Jar": "mystery.jar", "Args": []}}
-helper_step = {"Name": "Download data", "HadoopJarStep":
+# An EMR-cluster helper that stays a no-op: it packages a frictionless descriptor on the
+# cluster and has no local meaning. (download-datasets.sh is NOT one of these any more --
+# it is the step that brings the archive in, and is translated for real below.)
+helper_step = {"Name": "Add Frictionless", "HadoopJarStep":
                {"Jar": "command-runner.jar",
-                "Args": ["bash", "-c", "/tmp/download-datasets.sh dwca-imports pipelines-data dr-test"]}}
+                "Args": ["bash", "-c", "/tmp/frictionless.sh dr-test"]}}
 
-check("B. s3-dist-cp -> no-op", translate_step(s3_step)["kind"] == "noop-copy")
+# s3-dist-cp is the bridge between MinIO (where the DAGs discover work) and the shared
+# volume (where la-pipelines reads). No-op'ing it severs the two.
+t_cp = translate_step(s3_step)
+check("B. s3-dist-cp -> real copy", t_cp["kind"] == "copy", t_cp)
+check("B. s3-dist-cp src/dest parsed",
+      (t_cp["src"], t_cp["dest"]) == ("s3://b/x", "hdfs:///x"), t_cp)
+check("B. s3->local is a download to the bare path",
+      t_cp["plan"] == {"op": "download", "bucket": "b", "key": "x", "path": "/x"}, t_cp["plan"])
+os.environ["PIPELINES_LOCAL_NOOP_COPIES"] = "1"
+try:
+    check("B. copies can still be forced back to no-op",
+          translate_step(s3_step)["kind"] == "noop-copy")
+finally:
+    del os.environ["PIPELINES_LOCAL_NOOP_COPIES"]
 t = translate_step(cmd_step)
 check("B. command-runner -> local exec", t["kind"] == "exec")
 # --embedded, not --local: `sample` (and uuid/image-sync/...) reject --local per the CLI.
@@ -86,6 +102,142 @@ try:
           translate_step(cmd_step)["kind"] == "exec")
 finally:
     del os.environ["PIPELINES_SKIP_STAGES"]
+
+# EMR steps arrive wrapped in `sudo -u hadoop`, and `emr_python_step` always does.
+# Neither sudo nor the hadoop user exists in our containers, so the prefix has to go
+# or every affected step dies with "command not found".
+from pa_local_compute import build_argv, rewrite_staged_paths  # noqa: E402
+
+sudo_step = {"Name": "commit", "HadoopJarStep":
+             {"Jar": "command-runner.jar",
+              "Args": ["bash", "-c", 'sudo -u hadoop curl -X POST "http://solr:8983/solr/x/update" 1>&2']}}
+t_sudo = translate_step(sudo_step)
+check("B. `sudo -u hadoop` stripped from the command",
+      t_sudo["cmd"].startswith("curl -X POST"), t_sudo)
+
+# la_pipelines has no python3; la_airflow does and reaches Solr on the same network.
+py_step = {"Name": "create collection", "HadoopJarStep":
+           {"Jar": "command-runner.jar",
+            "Args": ["bash", "-c",
+                     " sudo -u hadoop python3 /tmp/create_solr_collection_cli.py -s http://solr:8983/solr"
+                     " -a create_solr_collection biocache-x 1>&2"]}}
+t_py = translate_step(py_step)
+check("B. python3 step routed to the Airflow container",
+      t_py.get("container") == "la_airflow", t_py)
+check("B. python3 step's argv targets that container",
+      build_argv(t_py)[:3] == ["docker", "exec", "la_airflow"], build_argv(t_py))
+# A non-python step must NOT be rerouted - it belongs in la_pipelines.
+check("B. non-python step stays on the pipelines container",
+      "container" not in translate_step(cmd_step)
+      and build_argv(translate_step(cmd_step))[:3] == ["docker", "exec", "la_pipelines"])
+
+# EMR stages these CLIs into /tmp via BootstrapActions, which our local shim has no
+# cluster to run. We mount the dags/ tree instead and repoint the reference.
+os.environ["PA_DAGS_DIR"] = os.path.join(REPO, "dags")
+try:
+    check("B. /tmp CLI reference repointed at the mounted dags tree",
+          rewrite_staged_paths("python3 /tmp/create_solr_collection_cli.py -a create")
+          == f"python3 {os.path.join(REPO, 'dags', 'create_solr_collection_cli.py')} -a create")
+    check("B. /tmp reference to a dags/sh/ helper repointed too",
+          rewrite_staged_paths("bash /tmp/download-datasets-for-indexing.sh")
+          == f"bash {os.path.join(REPO, 'dags', 'sh', 'download-datasets-for-indexing.sh')}")
+    # Anything we do not ship must be left alone rather than silently redirected.
+    check("B. unknown /tmp path left untouched",
+          rewrite_staged_paths("cat /tmp/scratch-file.txt") == "cat /tmp/scratch-file.txt")
+finally:
+    del os.environ["PA_DAGS_DIR"]
+
+# EMR steps declare what a failure means; the DAGs mark optional copies/cleanups
+# CONTINUE. Ignoring that made every optional step a hard stop.
+from pa_local_compute import run_local_step  # noqa: E402
+
+fail_cmd = "exit 3"
+continue_step = {"Name": "optional cleanup", "ActionOnFailure": "CONTINUE",
+                 "HadoopJarStep": {"Jar": "command-runner.jar",
+                                   "Args": ["bash", "-c", fail_cmd]}}
+abort_step = {"Name": "required", "ActionOnFailure": "TERMINATE_CLUSTER",
+              "HadoopJarStep": {"Jar": "command-runner.jar",
+                                "Args": ["bash", "-c", fail_cmd]}}
+check("B. ActionOnFailure carried onto the action",
+      translate_step(continue_step).get("on_failure") == "CONTINUE")
+os.environ["PIPELINES_LOCAL_BIN"] = "1"   # run in-process, no docker needed
+try:
+    try:
+        res = run_local_step(translate_step(continue_step))
+    except Exception as exc:            # regression: CONTINUE ignored -> hard stop
+        res = f"raised {exc!r}"
+    check("B. CONTINUE step does not abort the run",
+          isinstance(res, str) and res.startswith("failed-continue:"), res)
+    raised = False
+    try:
+        run_local_step(translate_step(abort_step))
+    except Exception:
+        raised = True
+    check("B. non-CONTINUE step still raises on failure", raised)
+finally:
+    del os.environ["PIPELINES_LOCAL_BIN"]
+
+from pa_local_compute import plan_copy, local_path, run_local_step as _rls  # noqa: E402
+
+check("B. hdfs:// authority stripped", local_path("hdfs://nn:8020/pipelines-outlier") == "/pipelines-outlier")
+check("B. hdfs:/// stripped", local_path("hdfs:///pipelines-all-datasets") == "/pipelines-all-datasets")
+check("B. bare local path untouched", local_path("/data/la-pipelines") == "/data/la-pipelines")
+check("B. local->s3 is an upload",
+      plan_copy("hdfs:///pipelines-outlier", "s3://avro/pipelines-outlier")
+      == {"op": "upload", "bucket": "avro", "key": "pipelines-outlier", "path": "/pipelines-outlier"})
+check("B. local->local copy recognised",
+      plan_copy("hdfs:///a", "/b") == {"op": "local", "src": "/a", "dest": "/b"})
+check("B. s3->s3 flagged unsupported", plan_copy("s3://a/x", "s3://b/y")["op"] == "unsupported")
+
+# A real local->local copy, end to end (no boto3, no MinIO needed).
+import shutil as _sh, tempfile as _tf  # noqa: E402
+_tmp = _tf.mkdtemp()
+# The copy hands ownership to the pipelines uid via `docker exec`; irrelevant here and
+# there is no docker in the unit-test environment.
+os.environ["PIPELINES_SKIP_CHOWN"] = "1"
+try:
+    os.makedirs(os.path.join(_tmp, "src", "nested"))
+    open(os.path.join(_tmp, "src", "nested", "a.avro"), "w").write("x")
+    cp_step = {"Name": "copy avro", "HadoopJarStep":
+               {"Jar": "/usr/share/aws/emr/s3-dist-cp/lib/s3-dist-cp.jar",
+                "Args": [f"--src=hdfs://{_tmp}/src", f"--dest={_tmp}/dst"]}}
+    _rls(translate_step(cp_step))
+    check("B. copy actually moves the files",
+          os.path.exists(os.path.join(_tmp, "dst", "nested", "a.avro")))
+finally:
+    _sh.rmtree(_tmp, ignore_errors=True)
+    del os.environ["PIPELINES_SKIP_CHOWN"]
+
+# The ingest DAGs get the archive onto the pipelines machine via download-datasets.sh.
+# No-op'ing it is why Load_dataset/Ingest_all_datasets would upload to MinIO and then
+# ingest nothing. It must translate into a real fetch, into the dir dwca-avro reads.
+from pa_local_compute import plan_dataset_download  # noqa: E402
+
+dl_step = {"Name": "a. Download data", "HadoopJarStep":
+           {"Jar": "command-runner.jar",
+            "Args": ["bash", "-c", " /tmp/download-datasets.sh dwca-imports pipelines-data dr0 dr1 1>&2"]}}
+os.environ["DWCA_IMPORT_DIR"] = "/data/la-pipelines/dwca-import"
+try:
+    t_dl = translate_step(dl_step)
+    check("B. download-datasets.sh -> real fetch, not a no-op",
+          t_dl["kind"] == "fetch-datasets", t_dl["kind"])
+    check("B. fetch targets every dataset in the arg list",
+          t_dl["fetch"]["datasets"] == ["dr0", "dr1"], t_dl["fetch"])
+    check("B. fetch reads the dwca bucket, not the avro one",
+          t_dl["fetch"]["bucket"] == "dwca-imports", t_dl["fetch"])
+    check("B. fetch lands where dwca-avro reads",
+          t_dl["fetch"]["dest_root"] == "/data/la-pipelines/dwca-import", t_dl["fetch"])
+    check("B. a non-download helper script is still a no-op",
+          translate_step(helper_step)["kind"] == "noop-script")
+    # The blanket escape hatch must cover this path too.
+    os.environ["PIPELINES_LOCAL_NOOP_COPIES"] = "1"
+    check("B. dataset fetch can be forced back to no-op",
+          translate_step(dl_step)["kind"] == "noop-script")
+    del os.environ["PIPELINES_LOCAL_NOOP_COPIES"]
+    check("B. a bare path with too few args is not mistaken for a fetch",
+          plan_dataset_download("/tmp/download-datasets.sh onlyone") is None)
+finally:
+    del os.environ["DWCA_IMPORT_DIR"]
 
 # ---- C. sitecustomize swaps the 4 EMR classes -------------------------------
 def _mod(name):
@@ -118,6 +270,11 @@ check("C. EmrAddStepsOperator swapped", ops.EmrAddStepsOperator.__name__ == "Loc
 check("C. EmrStepSensor swapped", sen.EmrStepSensor.__name__ == "LocalStepSensor")
 check("C. EmrJobFlowSensor swapped", sen.EmrJobFlowSensor.__name__ == "LocalJobFlowSensor")
 
+# These three assert the SHIM wiring (class swap + how `steps` is parsed), not what a
+# step does. Force copies back to no-op so the subject stays the wiring and the check
+# needs neither boto3 nor a MinIO.
+os.environ["PIPELINES_LOCAL_NOOP_COPIES"] = "1"
+
 add = ops.EmrAddStepsOperator(task_id="add_steps", job_flow_id="x",
                               aws_conn_id="aws_default", steps=[s3_step])
 check("C. shim runs a no-op step end to end", add.execute(context={}) == ["noop:copy"])
@@ -133,6 +290,7 @@ check("C. steps-as-JSON-string is parsed (not iterated)", add_str.execute(contex
 add_repr = ops.EmrAddStepsOperator(task_id="add_steps3", job_flow_id="x",
                                    aws_conn_id="aws_default", steps=str([s3_step]))
 check("C. steps-as-python-repr is parsed", add_repr.execute(context={}) == ["noop:copy"])
+del os.environ["PIPELINES_LOCAL_NOOP_COPIES"]
 
 # ---- D. notifications cluster policy (opt-in, no-op by default) -------------
 import airflow_local_settings as _notify  # noqa: E402
