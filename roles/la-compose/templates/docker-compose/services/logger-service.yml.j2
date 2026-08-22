@@ -12,12 +12,6 @@ services:
       TZ: {{ server_tz | default('UTC') }}
       JAVA_OPTS: ${LOGGER_JAVA_OPTS}
       SERVER_CONTEXT_PATH: {{ logger_context_path | default('/logger-service') }}
-    # Image CMD hardcodes -Xmx2g (ignores JAVA_OPTS -> Exit 137 OOM) and
-    # -Dspring.config.name=application,application-local-config, which never loads
-    # the role-generated logger-config.properties -> datasource falls back to
-    # localhost -> "Connection refused". Override to honor JAVA_OPTS and add the
-    # logger-config name (mirrors image-service).
-    command: ["/bin/sh", "-c", "exec java $$JAVA_OPTS -Xss512k -Djava.awt.headless=true -Dlogging.config=/data/logger-service/config/logback.xml -Dspring.config.additional-location=/data/logger-service/config/ -Dspring.config.name=application,application-local-config,logger-config -jar /opt/atlas/$$APP_ARTIFACT/app.jar"]
     volumes:
       # Role writes config to {data_dir}/logger/config; image CMD reads /data/logger-service/config.
       - {{ data_dir }}/logger/config:/data/logger-service/config

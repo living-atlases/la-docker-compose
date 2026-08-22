@@ -13,9 +13,6 @@ services:
     environment:
       TZ: {{ server_tz | default('UTC') }}
       JAVA_OPTS: ${BIOCOLLECT_JAVA_OPTS}
-    # Grails Spring Boot exec jar; override the command to honor JAVA_OPTS + external config
-    # (mirrors doi-service). logback.xml for logging. Tune config name/locations in CI.
-    command: ["/bin/sh", "-c", "exec java $$JAVA_OPTS -Djava.io.tmpdir=/data/tmp -Dlogging.config=/data/biocollect/config/logback.xml -Dspring.config.additional-location=/data/biocollect/config/ -Dspring.config.name=application,application-local-config,biocollect-config -jar /opt/atlas/$$APP_ARTIFACT/app.jar"]
     volumes:
       - {{ data_dir }}/biocollect/config:/data/biocollect/config
     networks:

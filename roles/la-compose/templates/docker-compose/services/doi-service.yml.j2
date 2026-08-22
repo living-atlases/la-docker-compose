@@ -11,11 +11,6 @@ services:
     environment:
       TZ: {{ server_tz | default('UTC') }}
       JAVA_OPTS: ${DOI_JAVA_OPTS}
-    # The baked image CMD ignores $JAVA_OPTS, points logging.config at logback.groovy (modern
-    # Logback rejects .groovy) and does not load the role-generated doi-service-config.yml, so
-    # override the command to honor JAVA_OPTS, force logback.xml and add the config name (mirrors
-    # logger-service / image-service). The image artifact is a WAR (WarLauncher), not a jar.
-    command: ["/bin/sh", "-c", "exec java $$JAVA_OPTS -Xss512k -Djava.awt.headless=true -Dlogging.config=/data/doi-service/config/logback.xml -Dspring.config.additional-location=/data/doi-service/config/ -Dspring.config.name=application,application-local-config,doi-service-config -jar /opt/atlas/$$APP_ARTIFACT/app.war"]
     volumes:
       - {{ data_dir }}/doi-service/config:/data/doi-service/config
       # logback.xml writes to /var/log/tomcat9/...; image has no /var/log/tomcat9 (not writable

@@ -13,9 +13,6 @@ services:
     environment:
       TZ: {{ server_tz | default('UTC') }}
       JAVA_OPTS: ${ECODATA_JAVA_OPTS}
-    # Grails Spring Boot exec jar; the baked CMD does not load the role-generated config, so
-    # override the command to honor JAVA_OPTS + external config (mirrors doi-service). Tune in CI.
-    command: ["/bin/sh", "-c", "exec java $$JAVA_OPTS -Djava.io.tmpdir=/data/tmp -Dlogging.config=/data/ecodata/config/logback.xml -Dspring.config.additional-location=/data/ecodata/config/ -Dspring.config.name=application,application-local-config,ecodata-config -jar /opt/atlas/$$APP_ARTIFACT/app.jar"]
     volumes:
       - {{ data_dir }}/ecodata/config:/data/ecodata/config
     networks:

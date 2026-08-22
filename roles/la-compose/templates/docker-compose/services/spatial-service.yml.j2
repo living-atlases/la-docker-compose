@@ -19,23 +19,6 @@ services:
     environment:
       TZ: {{ server_tz | default('UTC') }}
       JAVA_OPTS: ${SPATIAL_SERVICE_JAVA_OPTS}
-    # The baked image CMD hardcodes spring.config.name=application,application-local-config and
-    # ignores $JAVA_OPTS, so the role-generated spatial-service-config.yml is never loaded and the
-    # app falls back to the baked dataSource (jdbc:postgresql://localhost:5432/layersdb -> no DB in
-    # the container). Override the command to add the spatial-service-config name (which repoints
-    # dataSource to postgres/layersdb); mirrors logger/image/alerts. -Dlogging.config points at the
-    # shipped Logback xml: the 3.x image is Spring Boot + Logback, but the role only ships a legacy
-    # log4j.properties, and Logback aborts boot on it ("Unexpected filename extension") — the crash
-    # loop reason. (see spatial-logback.xml, deployed by main.yml.)
-    #
-    # Container adaptation (context path): the executable war runs an EMBEDDED Tomcat, which ignores
-    # the deprecated Grails 2 `grails.app.context` shipped in spatial-service-config.yml. The servlet
-    # context is set only by `server.servlet.context-path`. On VMs the WAR is deployed to an EXTERNAL
-    # Tomcat under /ws (via context descriptor / war name) and this flag is ignored, so VM/bare-metal
-    # is untouched. Without it the app serves at ROOT (/fields.json) while nginx (and the role's
-    # proxy_pass targets) route the /ws context (/ws, /alaspatial, /layers-service, /layers) -> 404.
-    # Prod parity: backend serves /ws/*, matching grails.serverURL and layers_service_url.
-    command: ["/bin/sh", "-c", "exec java $$JAVA_OPTS -Xss512k -Djava.awt.headless=true -Dlogging.config=/data/spatial-service/config/spatial-logback.xml -Dspring.config.additional-location=/data/spatial-service/config/ -Dspring.config.name=application,application-local-config,spatial-service-config -Dserver.servlet.context-path={{ spatial_service_context_path | default('/ws') }} -jar /opt/atlas/$$APP_ARTIFACT/app.war"]
     networks:
       default: {}
       {{ docker_network | default('internal') }}:

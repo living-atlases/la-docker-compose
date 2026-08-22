@@ -19,9 +19,6 @@ services:
       # fine. Point Spring's client at the same ES so the indicator passes. Docker-only:
       # on VMs ES is localhost and the Spring default already works (ala-install untouched).
       SPRING_ELASTICSEARCH_URIS: "{{ image_service_elasticsearch_uri | default('http://elasticsearch:9200') }}"
-    # Image CMD hardcodes -Dlogging.config=.../logback.groovy, which modern Logback
-    # (>=1.3, bundled in 4.1.0) rejects. Override to point at logback.xml and honor JAVA_OPTS.
-    command: ["/bin/sh", "-c", "exec java $$JAVA_OPTS -Djava.awt.headless=true -Dlogging.config=/data/image-service/config/logback.xml -Dspring.config.additional-location=/data/image-service/config/ -Dspring.config.name=application,application-local-config,image-service-config -jar /opt/atlas/$$APP_ARTIFACT/app.jar"]
     volumes:
       - {{ data_dir }}/image-service/config:/data/image-service/config
       - {{ data_dir }}/image-service/store:/data/image-service/store

@@ -44,10 +44,6 @@ services:
       DB_USER: "{{ alerts_db_username | default('alerts') }}"
       DB_PASSWORD: "{{ alerts_db_password | default('') }}"
       DB_DRIVER: "com.mysql.jdbc.Driver"
-    # The baked image CMD hardcodes spring.config.name=application,application-local-config and
-    # ignores $JAVA_OPTS, so the role-generated alerts-config.properties is never loaded. Override
-    # the command to honor JAVA_OPTS and add the alerts-config name (mirrors doi/logger/image).
-    command: ["/bin/sh", "-c", "exec java $$JAVA_OPTS -Xss512k -Djava.awt.headless=true -Dspring.config.additional-location=/data/alerts/config/ -Dspring.config.name=application,application-local-config,alerts-config -jar /opt/atlas/$$APP_ARTIFACT/app.war"]
     networks:
       default: {}
       {{ docker_network | default('internal') }}:
