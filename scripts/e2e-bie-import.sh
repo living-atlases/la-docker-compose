@@ -181,6 +181,20 @@ docker exec -u 0 "$BIE_INDEX_CONTAINER" rm -rf "$IMPORT_DIR_CTR/$DWCA_NAME"
 docker exec -u 0 "$BIE_INDEX_CONTAINER" mkdir -p "$IMPORT_DIR_CTR/$DWCA_NAME"
 tar -C "$FIXTURE_DIR" -cf - meta.xml eml.xml taxon.txt vernacularname.txt \
   | docker exec -i -u 0 "$BIE_INDEX_CONTAINER" tar -C "$IMPORT_DIR_CTR/$DWCA_NAME" -xf -
+
+# The import directory has to be WRITABLE by the application user, not merely readable.
+# dwca-io sorts the archive in place before iterating it, writing temporary files next to
+# the data (taxon_0txt, vernacularname.txt-sorted). Staged as root, the sort fails with
+# "Permission denied", the record iterator has nothing to open, and the resulting
+# NullPointerException is swallowed by importDwcA() -- so the import reports success over
+# an archive it never read. Measured: that is exactly how build #375 failed.
+_bie_uid=$(docker exec "$BIE_INDEX_CONTAINER" id -u 2>/dev/null || echo 0)
+docker exec -u 0 "$BIE_INDEX_CONTAINER" chown -R "$_bie_uid:$_bie_uid" "$IMPORT_DIR_CTR/$DWCA_NAME"
+docker exec "$BIE_INDEX_CONTAINER" sh -c "test -w '$IMPORT_DIR_CTR/$DWCA_NAME'" \
+  || { err "$IMPORT_DIR_CTR/$DWCA_NAME is not writable by uid $_bie_uid inside $BIE_INDEX_CONTAINER."
+       err "dwca-io sorts the archive in place, so a read-only import dir yields an import"
+       err "that reads nothing and still reports success."
+       exit 2; }
 # Fail loudly here rather than let the import "succeed" over an empty directory.
 docker exec "$BIE_INDEX_CONTAINER" test -r "$IMPORT_DIR_CTR/$DWCA_NAME/meta.xml" \
   || { err "the archive is not readable inside $BIE_INDEX_CONTAINER at $IMPORT_DIR_CTR/$DWCA_NAME."
