@@ -619,6 +619,53 @@ In CI these are controlled by the Jenkins parameters `RUN_E2E` (opt-in),
 `E2E_BLOCKING` (promote failures to build failures) and `ENABLE_AUTH_TESTS`
 (inject CAS credentials from the inventory for spec `8-auth`).
 
+### Species data: the bie index is empty until you import a taxonomy
+
+Occurrences and taxonomy are two different imports into two different Solr indexes.
+The deploy creates both, and Airflow fills the occurrence one — but nothing fills the
+taxonomy one. In ALA's operation that import is a manual action from bie-index's
+`/admin/import`, so a freshly generated stack serves species pages over an index that
+has never held a taxon.
+
+That is a legitimate state and the deploy stays green on it. It is only worth knowing
+because the symptom is invisible: on an empty index
+
+```
+GET species-ws.<domain>/search?q=Acacia
+200 {"searchResults":{"totalRecords":0,"facetResults":[],"results":[],"queryTitle":"Acacia"}}
+```
+
+— a well-formed answer that every status-based check accepts. The honest signal is the
+`species-ws taxon count` check in Gatus's **Data checks** group, which goes red while the
+index is empty and cannot fail a deploy.
+
+To put taxa in it:
+
+```bash
+scripts/e2e-bie-import.sh --blocking
+```
+
+Run on the host with `la_bie-index`. It stages a small committed checklist
+(`e2e/fixtures/bie-taxonomy/`, 41 taxa) into `import.taxonomy.dir`, triggers the real
+import through `/api/services/all`, and promotes the result. Point `FIXTURE_DIR` at your
+own expanded DwC-A to import a real checklist instead; `denormalise` and
+`link-identifiers` walk the whole index, so a national checklist takes hours, not seconds.
+
+**How promotion works here, and why it is not bie-index's own.** bie-index imports into an
+offline index and promotes it with a SolrCloud `SWAP` on the literal core names `bie` and
+`bie-offline`. Under SolrCloud the cores are `<collection>_shard1_replica_nN`, so that call
+cannot work — the `swap` step is therefore removed from the import sequence this repo
+renders. Instead `bie` and `bie-offline` are **aliases** over real collections `bie-a` and
+`bie-b` (the same model the `biocache` alias uses), and promoting crosses the two aliases,
+which is atomic and leaves the previous live index as the next offline one.
+
+A deployment created before this model carries real `bie` collections. An empty one is
+migrated automatically on the next `ansiblew`; a populated one is left untouched and
+`init-solr` prints the manual steps, because Solr cannot rename a collection and migrating
+means losing the current index.
+
+In CI this is the `RUN_BIE_IMPORT` Jenkins parameter.
+
 ---
 
 ## CI (Jenkins)

@@ -124,6 +124,11 @@ pipeline {
             description: 'Ingest a real medium DwCA (~2k occurrences, fetched from the GBIF.es IPT) instead of the 8-record fixture. Eight records only prove a stage RAN; a few thousand real ones prove it PROCESSED something -- partitioning, heap, and the messiness of real field values. Falls back to the committed fixture automatically if the download fails, so a publisher outage never reds the build.'
         )
         booleanParam(
+            name: 'RUN_BIE_IMPORT',
+            defaultValue: true,
+            description: 'Run the bie-index taxonomy import e2e: stage a tiny fixed checklist DwCA into import.taxonomy.dir, trigger the real import through /api/services/all, promote the offline index to live by crossing the Solr aliases, and assert a species search actually returns taxa. Nothing else in the chain ever populates the bie index, so without this the species suite is green over an empty index (living-atlases/la-toolkit#28). Report-only unless E2E_BLOCKING. Turning it off leaves a deployment with no species data, which is a supported state.'
+        )
+        booleanParam(
             name: 'PROBE_HUB_COLD_START',
             defaultValue: false,
             description: 'EXPERIMENT (never fails the build): on a data-less stack, settle whether biocache-hub\'s cold-start 500 on /occurrences/search needs DATA or is just an initialisation defect a restart clears. Restarts biocache-hub once and prints a verdict. Only meaningful with RUN_AIRFLOW_INGEST=false on a CLEAN_MACHINE build — it refuses to run against an index that already holds records. See gh-8.'
@@ -1175,6 +1180,103 @@ EOF
             }
         }
 
+        stage('BIE Taxonomy Import E2E') {
+            // Populates the bie index, which nothing else in the deploy chain does. ALA
+            // triggers this by hand from bie-index's /admin/import, so a generated stack was
+            // left with an index that had never held a single taxon -- and every probe stayed
+            // green over it, because /search on an empty index answers 200 with
+            // totalRecords: 0. See living-atlases/la-toolkit#28, sections 3 and C.
+            //
+            // Independent of RUN_AIRFLOW_INGEST: occurrences and taxonomy are separate
+            // imports into separate indexes, and either can be run without the other.
+            when { expression { params.RUN_BIE_IMPORT && params.AUTO_DEPLOY && !params.ONLY_CLEAN } }
+            steps {
+                script {
+                    def hosts = env.TARGET_HOSTS.trim().split(/\s+/)
+                    // Same policy as the ingest stage: the script's exit code always reflects
+                    // reality, and E2E_BLOCKING decides whether that fails the build.
+                    def run = {
+                        def ran = false
+                        for (h in hosts) {
+                            def targetHost = h
+                            // Only the host running la_bie-index imports; the rest have nothing to do.
+                            def hasBie = sh(returnStatus: true, script: """
+                                ssh -o BatchMode=yes -o StrictHostKeyChecking=no ${targetHost} \
+                                  "docker inspect -f '{{.State.Running}}' la_bie-index 2>/dev/null | grep -q true"
+                            """) == 0
+                            if (!hasBie) { echo "No la_bie-index on ${targetHost}; skipping."; continue }
+                            ran = true
+                            echo "bie taxonomy import e2e on ${targetHost}..."
+                            // Credentials come from the inventory's local-passwords.ini, the same
+                            // source the Cypress login smoke uses: the OIDC client of bie-index plus
+                            // the CAS admin account (whose plaintext password the generator leaves in
+                            // a "random password: ..." comment). set +x so none of it reaches the log.
+                            // The endpoints come from e2e-targets.json rather than being hardcoded,
+                            // for the same reason the Cypress suite reads it: subdomain and path
+                            // deployments differ and the inventory is the only authority.
+                            sh """
+                                set -eu
+                                set +x
+                                PWFILE="${INVENTORY_DIR}/lademo-local-passwords.ini"
+                                TARGETS="${WORKSPACE}/e2e/e2e-targets.json"
+                                [ -f "\$PWFILE" ]  || { echo "WARN: \$PWFILE not found; cannot authenticate the import"; exit 1; }
+                                [ -f "\$TARGETS" ] || { echo "WARN: \$TARGETS not found; cannot resolve species-ws / auth URLs"; exit 1; }
+                                BIE_CLIENT_ID="\$(sed -nE 's/^[[:space:]]*bie_index_client_id[[:space:]]*=[[:space:]]*([^[:space:]]+).*/\\1/p' "\$PWFILE" | head -1)"
+                                BIE_CLIENT_SECRET="\$(sed -nE 's/^[[:space:]]*bie_index_client_secret[[:space:]]*=[[:space:]]*([^[:space:]]+).*/\\1/p' "\$PWFILE" | head -1)"
+                                BIE_ADMIN_USER="\$(sed -nE 's/^[[:space:]]*cas_first_admin_email[[:space:]]*=[[:space:]]*([^[:space:]]+).*/\\1/p' "\$PWFILE" | head -1)"
+                                BIE_ADMIN_PASS="\$(sed -nE 's/.*random password:[[:space:]]*([^[:space:]]+).*/\\1/p' "\$PWFILE" | head -1)"
+                                SPECIES_WS="\$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["services"].get("speciesWs",""))' "\$TARGETS")"
+                                CAS_BASE="\$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("auth",""))' "\$TARGETS")"
+                                [ -n "\$SPECIES_WS" ] || { echo "WARN: speciesWs absent from the manifest; bie-index is not exposed here"; exit 1; }
+                                [ -n "\$CAS_BASE" ]   || { echo "WARN: auth absent from the manifest; cannot reach the token endpoint"; exit 1; }
+                                scp -o BatchMode=yes -o StrictHostKeyChecking=no "${WORKSPACE}/scripts/e2e-bie-import.sh" ${targetHost}:/tmp/
+                                ssh -o BatchMode=yes -o StrictHostKeyChecking=no ${targetHost} "mkdir -p /tmp/bie-e2e"
+                                scp -o BatchMode=yes -o StrictHostKeyChecking=no -r "${WORKSPACE}/e2e/fixtures/bie-taxonomy" ${targetHost}:/tmp/bie-e2e/
+                                # Credentials travel in a 0600 file, never on the ssh command line:
+                                # argv is visible in `ps` on both ends however carefully it is quoted,
+                                # and a generator-random password can carry shell metacharacters.
+                                # The file is plain KEY=VALUE and is READ, not sourced, so nothing in
+                                # a value is ever evaluated. Removed on both ends whatever happens.
+                                ENVF=\$(mktemp)
+                                trap 'rm -f "\$ENVF"' EXIT
+                                chmod 600 "\$ENVF"
+                                cat > "\$ENVF" <<ENVEOF
+BIE_CLIENT_ID=\$BIE_CLIENT_ID
+BIE_CLIENT_SECRET=\$BIE_CLIENT_SECRET
+BIE_ADMIN_USER=\$BIE_ADMIN_USER
+BIE_ADMIN_PASS=\$BIE_ADMIN_PASS
+BIE_PUBLIC_URL=\$SPECIES_WS
+CAS_TOKEN_URL=\$CAS_BASE/oidc/oidcAccessToken
+FIXTURE_DIR=/tmp/bie-e2e/bie-taxonomy
+ENVEOF
+                                scp -o BatchMode=yes -o StrictHostKeyChecking=no "\$ENVF" ${targetHost}:/tmp/bie-e2e/env
+                                ssh -o BatchMode=yes -o StrictHostKeyChecking=no ${targetHost} '
+                                    set -eu
+                                    trap "rm -f /tmp/bie-e2e/env" EXIT
+                                    # case, not `[ -n ] &&`: under set -e a false test as the
+                                    # last statement of the loop body aborts the whole script.
+                                    while IFS="=" read -r k v; do
+                                      case "\$k" in ?*) export "\$k=\$v" ;; esac
+                                    done < /tmp/bie-e2e/env
+                                    bash /tmp/e2e-bie-import.sh --blocking
+                                '
+                            """
+                            // Only now may the Cypress species count assertion apply. Set from the
+                            // stage rather than from the parameter: RUN_BIE_IMPORT=true says we tried,
+                            // this says it worked.
+                            env.BIE_HAS_DATA = 'true'
+                        }
+                        if (!ran) { echo "la_bie-index not found on any target host - no taxonomy imported." }
+                    }
+                    if (params.E2E_BLOCKING) {
+                        run()
+                    } else {
+                        catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') { run() }
+                    }
+                }
+            }
+        }
+
         stage('E2E Smoke Tests') {
             // Run after a redeploy OR after an Airflow ingest against the already-running stack:
             // the ingest (stage above) seeds the biocache/species suites, so the smoke should
@@ -1224,7 +1326,7 @@ EOF
                             # user can't rm them, so otherwise junit republishes the last good run's stale
                             # results and freezes the same failures at an ever-growing age. Then run fresh, so
                             # junit reflects THIS build (or empty -> honest -> UNSTABLE, not stale-green).
-                            docker run --rm -v "${WORKSPACE}/e2e:/e2e" -w /e2e -e CYPRESS_TARGET_ENV=lademo -e CYPRESS_TARGETS_FILE=/e2e/e2e-targets.json -e CYPRESS_LADEMO_USERNAME -e CYPRESS_LADEMO_PASSWORD -e CYPRESS_DOWNLOAD_EMAIL -e CYPRESS_ENABLE_AUTH_TESTS=${params.ENABLE_AUTH_TESTS} cypress/browsers:latest sh -c 'rm -rf /e2e/results; npm ci && npx cypress run'
+                            docker run --rm -v "${WORKSPACE}/e2e:/e2e" -w /e2e -e CYPRESS_TARGET_ENV=lademo -e CYPRESS_TARGETS_FILE=/e2e/e2e-targets.json -e CYPRESS_LADEMO_USERNAME -e CYPRESS_LADEMO_PASSWORD -e CYPRESS_DOWNLOAD_EMAIL -e CYPRESS_ENABLE_AUTH_TESTS=${params.ENABLE_AUTH_TESTS} -e CYPRESS_BIE_HAS_DATA=\${BIE_HAS_DATA:-false} cypress/browsers:latest sh -c 'rm -rf /e2e/results; npm ci && npx cypress run'
                         """
                     }
                     if (params.E2E_BLOCKING) {

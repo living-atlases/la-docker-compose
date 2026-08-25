@@ -47,6 +47,23 @@ export function authTestsEnabled(): boolean {
   return String(Cypress.env("ENABLE_AUTH_TESTS")) === "true";
 }
 
+/**
+ * True when the deployment under test is expected to hold taxonomy in the bie index
+ * (CYPRESS_BIE_HAS_DATA=true), which the CI sets only after scripts/e2e-bie-import.sh ran.
+ *
+ * The bie index is empty on a plain deploy and that is a legitimate deployment, so the
+ * count assertion cannot be unconditional. It cannot be dropped either: on an empty index
+ * `GET species-ws/search?q=Acacia` answers 200 with `totalRecords: 0`, which satisfies
+ * `apiOk` and satisfied the matching gatus check too -- the whole species suite was green
+ * over an index with no taxa in it. See living-atlases/la-toolkit#28.
+ *
+ * Stringified for the same reason as authTestsEnabled(): Cypress coerces CYPRESS_-prefixed
+ * env vars, so a bare `!== "true"` never matches.
+ */
+export function bieHasData(): boolean {
+  return String(Cypress.env("BIE_HAS_DATA")) === "true";
+}
+
 /** Skip the enclosing spec if the service isn't present in this inventory's manifest. */
 export function skipIfMissing(key: string, ctx: Mocha.Context): void {
   if (!hasService(key)) {

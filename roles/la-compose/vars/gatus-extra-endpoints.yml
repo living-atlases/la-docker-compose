@@ -200,11 +200,39 @@ gatus_extra_endpoints:
 
   # A healthy bie-index answers with `searchResults`; a broken one answers 200 with
   # `{"error": "IOException ..."}`. Status alone cannot tell them apart.
+  # This is a SHAPE check and nothing more -- see the count check below for what it cannot
+  # see. It stays in Deep checks because the shape is data-independent: an empty bie index
+  # still answers with a well-formed `searchResults`.
   - name: "species-ws name search"
     group: "Deep checks"
     service: "species-ws"
     path: "/search?q=Acacia"
     conditions: ["[STATUS] < 400", "has([BODY].searchResults) == true"]
+
+  # The hollow-green case for species, and the reason this check exists. Verified against
+  # the live deployment on 2026-08-25: with a bie index that had never been populated,
+  #   GET species-ws/search?q=Acacia  ->  200 {"searchResults":{"totalRecords":0,...}}
+  # which passes BOTH conditions of the check above, and passes the Cypress species spec
+  # too. Every probe we had was green over an index with no taxa in it at all. Same class
+  # as the `[]` field list handled by "records-ws index fields", and the same class as
+  # section 1 of living-atlases/la-toolkit#28: a step that reports success and wrote nothing.
+  #
+  # Data checks ON PURPOSE, exactly like the records ones: a portal with no species data is
+  # a legitimate install. Nothing here can fail a deploy -- verify-deployment.sh gates on
+  # "Deep checks" alone. What closes it is scripts/e2e-bie-import.sh, or a real taxonomy
+  # import from bie-index's own /admin/import.
+  #
+  # `q=*:*` is the match-all edismax special-cases; `pageSize=0` keeps the body to the
+  # counters. Both accepted by bie-index 3.1.0 (verified 2026-08-25 against the live
+  # service, which answered with a well-formed body and totalRecords 0 for every form).
+  # Re-confirm this returns the full count, not 0, the first time the index has taxa in
+  # it -- a match-all that silently matches nothing would put this check right back in the
+  # class of hollow probes it exists to close.
+  - name: "species-ws taxon count"
+    group: "Data checks"
+    service: "species-ws"
+    path: "/search?q=*:*&pageSize=0"
+    conditions: ["[STATUS] < 400", "[BODY].searchResults.totalRecords > 0"]
 
   - name: "collections ws"
     group: "Deep checks"

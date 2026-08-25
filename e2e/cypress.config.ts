@@ -33,6 +33,10 @@ module.exports = defineConfig({
       LADEMO_USERNAME: process.env.CYPRESS_LADEMO_USERNAME,
       LADEMO_PASSWORD: process.env.CYPRESS_LADEMO_PASSWORD,
       ENABLE_AUTH_TESTS: process.env.CYPRESS_ENABLE_AUTH_TESTS,
+      // Set by the CI only after scripts/e2e-bie-import.sh ran, so the species count
+      // assertion applies to a deployment that is supposed to hold taxonomy and skips on
+      // one that legitimately holds none. See bieHasData() in support/checks.ts.
+      BIE_HAS_DATA: process.env.CYPRESS_BIE_HAS_DATA,
       // Offline downloads: the address biocache-service must resolve in userdetails
       // (getDownloadUser route 3). Defaults to the auth-test account at spec level.
       DOWNLOAD_EMAIL: process.env.CYPRESS_DOWNLOAD_EMAIL,
