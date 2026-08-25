@@ -8,6 +8,13 @@ services:
     volumes:
       - {{ data_dir }}/bie-index:/data/bie-index
       - {{ data_dir }}/bie-index/logs:/var/log/tomcat9
+      # import.taxonomy.dir in bie-index-config.yml is {{ data_dir }}/bie/import, and the
+      # DwCAs to import have to be placed there from OUTSIDE the container. Without this
+      # bind that path only exists in the container's own layer, so nothing can ever stage
+      # a taxonomy and every import finds an empty directory -- silently, since an import
+      # over zero archives still reports success. ala-install's own bie-index compose
+      # template mounts {{ data_dir }}/bie for exactly this reason; ours had dropped it.
+      - {{ data_dir }}/bie:/data/bie
 {% include '_i18n_volumes.yml.j2' %}
     restart: unless-stopped
     expose:

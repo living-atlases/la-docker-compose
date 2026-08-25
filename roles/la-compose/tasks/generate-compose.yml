@@ -979,6 +979,13 @@
     bie_index_admin_url_ext: "{{ index_admin_url | default('http://solr:8983/solr') }}"
     bie_index_live_url_ext: "{{ index_live_url | default('http://solr:8983/solr/bie') }}"
     bie_index_offline_url_ext: "{{ index_offline_url | default('http://solr:8983/solr/bie-offline') }}"
+    # Same reason as the URLs above: read the inventory value into a DIFFERENT name, because
+    # `foo: "{{ foo | default(...) }}"` inside the include_role vars: block is self-referential
+    # and Ansible errors out on the recursion instead of falling back.
+    bie_index_import_sequence_eff: >-
+      {{ bie_index_import_sequence
+         | default('taxonomy-all,denormalise,link-identifiers', true) }}
+    solr_bie_boost_term_eff: "{{ solr_bie_boost_term | default('1', true) }}"
   when: service_aliases.get('bie-index') is defined
   tags:
     - bie-index
@@ -1008,6 +1015,32 @@
     index_offline_url: >-
       {{ 'http://la_solr:8983/solr/bie-offline' if (solr_docker_local | default(true)) else bie_index_offline_url_ext }}
     nginx_vhost_fast_mode: false  # bie-index has is_websocket paths; fast_mode skips the map directive
+    # Import sequence, trimmed for a container deployment. Two independent reasons:
+    #
+    #  * `swap` cannot work here. It is bie-index's promote step and it issues a SolrCloud
+    #    SWAP against the literal core names `bie` / `bie-offline` (IndexService.swap()),
+    #    but under SolrCloud the cores are <collection>_shard1_replica_nN and SWAP is not
+    #    the intended mechanism anyway. We publish bie/bie-offline as aliases instead
+    #    (init-solr.yml) and cross them from scripts/e2e-bie-import.sh.
+    #  * wordpress, knowledgebase, biocollect, occurrences, layers, regions, localities and
+    #    the list-backed steps reach for services this stack does not deploy. Each one that
+    #    fails takes the whole run with it, and the ones that "succeed" against a missing
+    #    service write nothing while reporting success -- the failure mode the upstream
+    #    report devotes its section 1 to.
+    #
+    # What is left is the taxonomy chain proper: import every DwCA under import.taxonomy.dir,
+    # denormalise the classification, build link identifiers. Note `vernacular` is NOT in it:
+    # that step is importVernacularSpeciesLists(), which reads the species-list web service,
+    # not the archive -- an archive's VernacularName extension is imported by `taxonomy-all`
+    # itself. Override with bie_index_import_sequence in the inventory when your deployment
+    # does have the other sources.
+    bie_index_import_sequence: "{{ bie_index_import_sequence_eff }}"
+    # Finding 3.5 (living-atlases/la-toolkit#28): the ala-install default is `searchWeight`,
+    # a field only an ALA-built index populates. On any other index the boost resolves to
+    # nothing useful and wrecks relevance ordering -- and commenting the key out is WORSE,
+    # because in Grails a missing key is an empty ConfigObject, not absent, whose toString
+    # lands in the SolrQuery as a function query. A neutral literal is the safe value.
+    solr_bie_boost_term: "{{ solr_bie_boost_term_eff }}"
     # Route prefixes, not endpoints: each needs a taxon guid (/taxon/{guid}). Bare they 404,
     # and they 404 identically against ALA production (bie-ws.ala.org.au/ws) and gbif.es, so
     # the check carries no information. Verified 2026-08-19. Liveness stays covered by /search.
@@ -1894,6 +1927,20 @@
     # /data/logger-service/logs. Same reason though, the JVM runs as uid 1000 and
     # /data inside that container is a root-owned docker volume.
     - "{{ data_dir }}/logger/logs"
+  tags:
+    - docker-compose
+
+# bie-index's import.taxonomy.dir. Bind-mounted into la_bie-index (bie-index.yml.j2), so
+# a taxonomy DwCA unpacked here from the host is what `taxonomy-all` picks up. Created
+# empty on every deploy: an empty import dir is the normal state of a portal that has no
+# species data yet, and that is a legitimate deployment.
+- name: Ensure the bie-index taxonomy import dir exists
+  ansible.builtin.file:
+    path: "{{ data_dir }}/bie/import"
+    state: directory
+    mode: '0755'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
   tags:
     - docker-compose
 
