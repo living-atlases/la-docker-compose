@@ -208,6 +208,17 @@ species_list_docker_host: la_species-list
 # replaces it with a dated one.
 biocache_seed_collection: biocache-seed
 
+# bie / bie-offline follow the SAME alias-over-collection model, for a different reason.
+# bie-index promotes the freshly imported offline index to live with a SolrCloud SWAP on
+# the literal core names `bie` / `bie-offline` (IndexService.swap()). Under SolrCloud the
+# cores are named <collection>_shard1_replica_nN, so that call cannot work and SWAP is not
+# the intended mechanism there anyway -- it can corrupt the index. Aliases can be repointed
+# atomically, and CREATEALIAS refuses to shadow an existing collection of the same name,
+# which is why the real collections have to be called something else.
+# Upstream finding 3.6a/3.6c: living-atlases/la-toolkit#28.
+bie_live_seed_collection: bie-a
+bie_offline_seed_collection: bie-b
+
 # Airflow (NO-AWS pipelines-airflow overlay): OPT-IN. Set use_airflow=true to deploy
 # the overlay (Airflow + MinIO, separate compose project) joined to the `la` network as
 # `la_airflow`. Define airflow_hostname (e.g. airflow.l-a.site) to also expose it via

@@ -106,7 +106,65 @@
       become: true
       changed_when: false
 
-    - name: "Solr Init: Decide how biocache is currently published"
+    # A `bie` that is a real collection is a deployment made before the alias model. Deleting
+    # one that holds an index would be unacceptable as a side effect of a deploy -- but an
+    # EMPTY one is not an index, it is the state every deployment has been in since forever,
+    # because nothing in the chain ever imported a taxonomy. Migrating those costs nothing and
+    # is the only way this change reaches a stack that already exists. A populated one is left
+    # alone and gets the explanatory message further down instead.
+    - name: "Solr Init: Count documents in legacy bie collections"
+      ansible.builtin.command: >
+        docker exec la_solr curl -s
+        "http://localhost:8983/solr/{{ item }}/select?q=*:*&rows=0&wt=json"
+      register: solr_bie_legacy_count
+      become: true
+      changed_when: false
+      # failed_when false, not ignore_errors: one of the two may legitimately not exist.
+      failed_when: false
+      loop:
+        - bie
+        - bie-offline
+      when: item in (solr_collections.stdout | from_json).get('collections', [])
+
+    - name: "Solr Init: Decide whether the legacy bie collections are safe to migrate"
+      ansible.builtin.set_fact:
+        # Safe only when EVERY legacy collection that exists answered, and answered zero.
+        # A probe that failed leaves this false, so an unreadable collection is never deleted.
+        _bie_legacy_empty: >-
+          {{ solr_bie_legacy_count.results
+             | rejectattr('skipped', 'defined')
+             | selectattr('stdout', 'search', '"numFound":0[^0-9]')
+             | list | length
+             ==
+             solr_bie_legacy_count.results | rejectattr('skipped', 'defined') | list | length }}
+
+    - name: "Solr Init: Drop the EMPTY legacy bie collections so the aliases can take the names"
+      ansible.builtin.command: >
+        docker exec la_solr curl -s -X POST
+        "http://localhost:8983/solr/admin/collections?action=DELETE&name={{ item }}&wt=json"
+      register: solr_bie_legacy_delete
+      become: true
+      loop:
+        - bie
+        - bie-offline
+      when:
+        - _bie_legacy_empty | bool
+        - item in (solr_collections.stdout | from_json).get('collections', [])
+      changed_when: '"success" in solr_bie_legacy_delete.stdout'
+      failed_when:
+        - solr_bie_legacy_delete.rc != 0 or '"failure"' in solr_bie_legacy_delete.stdout
+
+    # Re-read: the facts below decide what to create, and the deletions above just changed
+    # the answer. Without this the play would still think `bie` is a collection.
+    - name: "Solr Init: Re-list collections after the legacy cleanup"
+      ansible.builtin.command: >
+        docker exec la_solr curl -s
+        "http://localhost:8983/solr/admin/collections?action=LIST&wt=json"
+      register: solr_collections
+      become: true
+      changed_when: false
+
+    - name: "Solr Init: Decide how biocache and bie are currently published"
       ansible.builtin.set_fact:
         # A pre-existing REAL collection called `biocache` is a deployment made before
         # this change. Migrating it is not transparent -- Solr cannot rename a collection,
@@ -116,6 +174,16 @@
           {{ 'biocache' in (solr_collections.stdout | from_json).get('collections', []) }}
         _biocache_alias_present: >-
           {{ 'biocache' in (solr_aliases.stdout | from_json).get('aliases', {}) }}
+        # Same shape for bie. Deployments made before the alias model carry REAL `bie` and
+        # `bie-offline` collections; they keep them, and the promote step degrades to the
+        # broken-upstream behaviour it already had rather than dropping a live index.
+        _bie_legacy_collection: >-
+          {{ 'bie' in (solr_collections.stdout | from_json).get('collections', [])
+             or 'bie-offline' in (solr_collections.stdout | from_json).get('collections', []) }}
+        _bie_alias_present: >-
+          {{ 'bie' in (solr_aliases.stdout | from_json).get('aliases', {}) }}
+        _bie_offline_alias_present: >-
+          {{ 'bie-offline' in (solr_aliases.stdout | from_json).get('aliases', {}) }}
 
     - name: "Solr Init: Create SolrCloud collections if missing"
       ansible.builtin.command: >
@@ -124,14 +192,14 @@
       register: solr_create
       become: true
       loop:
-        - { name: "{{ biocache_seed_collection }}", config: biocache }
-        - { name: bie,         config: bie }
-        - { name: bie-offline, config: bie }
-      # Skip the biocache seed entirely on a deployment that still publishes biocache as a
-      # real collection: there the old collection stays the live index, untouched.
+        - { name: "{{ biocache_seed_collection }}",    config: biocache, legacy: "{{ _biocache_legacy_collection | bool }}" }
+        - { name: "{{ bie_live_seed_collection }}",    config: bie,      legacy: "{{ _bie_legacy_collection | bool }}" }
+        - { name: "{{ bie_offline_seed_collection }}", config: bie,      legacy: "{{ _bie_legacy_collection | bool }}" }
+      # Skip a seed entirely on a deployment that still publishes that index as a real
+      # collection: there the old collection stays the live index, untouched.
       when:
         - item.name not in (solr_collections.stdout | from_json).get('collections', [])
-        - item.name != biocache_seed_collection or not (_biocache_legacy_collection | bool)
+        - not (item.legacy | bool)
       changed_when: '"success" in solr_create.stdout'
       failed_when:
         - solr_create.rc != 0 or '"failure"' in solr_create.stdout
@@ -148,6 +216,47 @@
       changed_when: '"success" in solr_alias_create.stdout or solr_alias_create.rc == 0'
       failed_when:
         - solr_alias_create.rc != 0 or '"failure"' in solr_alias_create.stdout
+
+    # bie / bie-offline: one CREATEALIAS per side. bie-index writes the import into the
+    # OFFLINE alias and serves searches from the LIVE one, and promoting means crossing the
+    # two. Its own promote step (import.sequence's `swap`) is a SolrCloud SWAP on literal
+    # core names and cannot work here, so `swap` is dropped from the sequence
+    # (see generate-compose.yml) and scripts/e2e-bie-import.sh crosses the aliases instead.
+    - name: "Solr Init: Point the bie aliases at their seed collections"
+      ansible.builtin.command: >
+        docker exec la_solr curl -s -X POST
+        "http://localhost:8983/solr/admin/collections?action=CREATEALIAS&name={{ item.alias }}&collections={{ item.target }}&wt=json"
+      register: solr_bie_alias_create
+      become: true
+      loop:
+        - { alias: "bie",         target: "{{ bie_live_seed_collection }}",    present: "{{ _bie_alias_present | bool }}" }
+        - { alias: "bie-offline", target: "{{ bie_offline_seed_collection }}", present: "{{ _bie_offline_alias_present | bool }}" }
+      # Never re-point an alias that already exists: after the first import the live alias
+      # points at whichever collection won the last promote, and a deploy must not undo it.
+      when:
+        - not (_bie_legacy_collection | bool)
+        - not (item.present | bool)
+      changed_when: '"success" in solr_bie_alias_create.stdout or solr_bie_alias_create.rc == 0'
+      failed_when:
+        - solr_bie_alias_create.rc != 0 or '"failure"' in solr_bie_alias_create.stdout
+
+    - name: "Solr Init: bie is still a collection -- alias migration skipped"
+      ansible.builtin.debug:
+        msg: >-
+          `bie` and/or `bie-offline` exist as real SolrCloud collections on this deployment,
+          so the aliases were NOT created: Solr forbids an alias named after an existing
+          collection. Searches keep working, but promoting a fresh taxonomy import to live
+          does not: bie-index does that with a SolrCloud SWAP on the literal core names
+          (IndexService.swap()), which under SolrCloud addresses cores that are really named
+          <collection>_shard1_replica_nN. To migrate -- it costs the current bie index, so it
+          is deliberately left to you:
+            1. curl "http://<solr>:8983/solr/admin/collections?action=DELETE&name=bie"
+            2. curl ".../admin/collections?action=DELETE&name=bie-offline"
+            3. re-run this play; it creates {{ bie_live_seed_collection }} /
+               {{ bie_offline_seed_collection }} plus the two aliases
+            4. re-import the taxonomy (scripts/e2e-bie-import.sh, or bie-index /admin/import)
+          Upstream finding 3.6a/3.6c: living-atlases/la-toolkit#28.
+      when: _bie_legacy_collection | bool
 
     - name: "Solr Init: biocache is still a collection -- alias migration skipped"
       ansible.builtin.debug:
@@ -179,3 +288,21 @@
       failed_when: >-
         solr_biocache_probe.rc != 0
         or '"numFound"' not in solr_biocache_probe.stdout
+
+    # Same reason as above: LIST does not show aliases, so only a real query proves that
+    # `bie` and `bie-offline` resolve. This says nothing about whether they hold documents
+    # -- an empty bie index is a legitimate deployment, and the honest count lives in the
+    # gatus "Data checks" group, not here.
+    - name: "Solr Init: Verify the bie indexes resolve and answer a query"
+      ansible.builtin.command: >
+        docker exec la_solr curl -s
+        "http://localhost:8983/solr/{{ item }}/select?q=*:*&rows=0&wt=json"
+      register: solr_bie_probe
+      become: true
+      changed_when: false
+      loop:
+        - bie
+        - bie-offline
+      failed_when: >-
+        solr_bie_probe.rc != 0
+        or '"numFound"' not in solr_bie_probe.stdout
