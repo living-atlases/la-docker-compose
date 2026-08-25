@@ -541,3 +541,32 @@
           cases above are testing a copy nothing runs. Update both together.
       vars:
         tc10_needle: "selectattr('stdout', 'search', '\"numFound\":0[^0-9]')"
+
+
+# ── TC11: the e2e DwCA descriptors must be well-formed XML ─────────────────────────
+#
+# dwca-io parses meta.xml strictly, and bie-index's ImportService.importDwcA() catches the
+# resulting SAXParseException, logs it and returns normally. A malformed descriptor
+# therefore produces an import that runs, reports success and reads nothing at all -- the
+# failure mode of section 1 of living-atlases/la-toolkit#28, reproduced in our own fixture.
+# It cost a full CI build: an XML comment contained the two-hyphen sequence XML forbids.
+#
+# Parsed with a real XML parser, not a regex over the text. The first version of this test
+# used `regex_findall('<!--(.*?)-->')`, which does not cross newlines, so a multi-line
+# comment matched nothing and the assertion passed over the very file that had broken the
+# build. Verified since by breaking a fixture on purpose and watching this fail.
+    - name: "[TC11] Parse the e2e DwCA descriptors with a real XML parser"
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - |
+            import sys, xml.dom.minidom
+            xml.dom.minidom.parse(sys.argv[1])
+          - "{{ playbook_dir }}/../../{{ item }}"
+      changed_when: false
+      loop:
+        - e2e/fixtures/bie-taxonomy/meta.xml
+        - e2e/fixtures/bie-taxonomy/eml.xml
+        - e2e/fixtures/dr-test/meta.xml
+        - e2e/fixtures/dr-test/eml.xml

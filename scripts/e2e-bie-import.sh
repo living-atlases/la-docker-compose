@@ -188,6 +188,26 @@ docker exec "$BIE_INDEX_CONTAINER" test -r "$IMPORT_DIR_CTR/$DWCA_NAME/meta.xml"
        err "the generated compose (bie-index.yml.j2) -- re-run ansiblew and redeploy."
        exit 2; }
 
+# Parse the descriptor before triggering anything. dwca-io reads meta.xml strictly, and
+# ImportService.importDwcA() catches the resulting SAXParseException, logs it and returns
+# normally -- so a malformed descriptor produces an import that runs, reports success and
+# reads nothing. That is a real failure this harness hit: an XML comment containing "- -"
+# (without the space, which XML forbids) cost a whole CI build to diagnose. Checking here
+# turns it into one named error, before the 30-minute poll.
+if ! xml_err=$(docker exec -i "$BIE_INDEX_CONTAINER" cat "$IMPORT_DIR_CTR/$DWCA_NAME/meta.xml" \
+                 | python3 -c 'import sys, xml.dom.minidom
+try:
+    xml.dom.minidom.parseString(sys.stdin.read())
+except Exception as e:
+    sys.stderr.write(str(e))
+    sys.exit(1)' 2>&1); then
+  err "the staged meta.xml is not well-formed XML: $xml_err"
+  err "The import would run over it, log the parse error and report success having read"
+  err "nothing. Fix the descriptor in $FIXTURE_DIR."
+  exit 2
+fi
+log "archive descriptor parses"
+
 # ---------------------------------------------------------------- authenticate
 # /api/services/all is @RequireApiKey(roles=['ROLE_ADMIN']), so it needs a bearer that
 # actually carries the role. ImportController (/admin/import/*) is @AlaSecured and only

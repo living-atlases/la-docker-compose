@@ -9,8 +9,14 @@
      is why the vernacular names ride along with `taxonomy-all` and need no separate
      step (the `vernacular` step reads the species-list web service, not this file).
 
-     Deliberately tiny: ~20 taxa, so denormalise and link-identifiers -- both of which
-     walk the whole index -- stay in the seconds range in CI. -->
+     Deliberately tiny: ~41 taxa, so denormalise and link-identifiers (both of which
+     walk the whole index) stay in the seconds range in CI.
+
+     NOTE for anyone editing these comments: XML forbids the string "- -" (without the
+     space) inside a comment, and the dwca-io reader parses meta.xml strictly. Getting it
+     wrong does NOT produce a visible error: ImportService.importDwcA() catches the
+     SAXParseException, logs it and returns normally, so the import finishes "successfully"
+     having read nothing at all. That is how it failed the first time. -->
 <archive xmlns="http://rs.tdwg.org/dwc/text/" metadata="eml.xml">
   <core encoding="UTF-8"
         fieldsTerminatedBy="\t"
