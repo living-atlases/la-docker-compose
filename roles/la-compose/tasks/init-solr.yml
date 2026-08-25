@@ -240,6 +240,25 @@
       failed_when:
         - solr_bie_alias_create.rc != 0 or '"failure"' in solr_bie_alias_create.stdout
 
+    # Legacy path only: keep the pre-alias behaviour intact. A deployment whose populated
+    # `bie` blocks the alias migration must still get a `bie-offline` if it somehow lacks one,
+    # or the resolve probe at the end of this file fails a deploy that used to work.
+    - name: "Solr Init: Create the literal bie collections a legacy deployment still needs"
+      ansible.builtin.command: >
+        docker exec la_solr curl -s -X POST
+        "http://localhost:8983/solr/admin/collections?action=CREATE&name={{ item }}&collection.configName=bie&numShards=1&replicationFactor=1"
+      register: solr_bie_legacy_create
+      become: true
+      loop:
+        - bie
+        - bie-offline
+      when:
+        - _bie_legacy_collection | bool
+        - item not in (solr_collections.stdout | from_json).get('collections', [])
+      changed_when: '"success" in solr_bie_legacy_create.stdout'
+      failed_when:
+        - solr_bie_legacy_create.rc != 0 or '"failure"' in solr_bie_legacy_create.stdout
+
     - name: "Solr Init: bie is still a collection -- alias migration skipped"
       ansible.builtin.debug:
         msg: >-
