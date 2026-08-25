@@ -41,7 +41,12 @@ BLOCKING=false
 TIMEOUT=1800
 
 BIE_INDEX_CONTAINER="${BIE_INDEX_CONTAINER:-la_bie-index}"
-SOLR_CONTAINER="${SOLR_CONTAINER:-la_solr}"
+# Base URL of Solr, e.g. http://la_solr:8983/solr. Resolved from bie-index's own config
+# below when unset -- see the comment on the resolution step. NOT a container name: Solr is
+# routinely on a different host from bie-index (measured: bie-index on 2023-3, Solr on
+# 2023-2), so `docker exec la_solr` only works by luck of the topology.
+SOLR_BASE="${SOLR_BASE:-}"
+BIE_INDEX_CONFIG="${BIE_INDEX_CONFIG:-/data/bie-index/config/bie-index-config.yml}"
 # The public vhost of bie-index, e.g. https://species-ws.l-a.site. Required: the import
 # trigger is authenticated and the OIDC client is registered against this URL, and the final
 # assertion deliberately goes the same way the monitoring does.
@@ -77,10 +82,15 @@ finish() {
   exit 0
 }
 
-solr() { docker exec "$SOLR_CONTAINER" curl -s --max-time 60 "$@"; }
+# Every Solr call goes through the bie-index CONTAINER, not through a Solr container and
+# not from the host. bie-index reaches Solr by definition -- that is the connection it
+# serves every search on -- so it works whatever the topology: co-located, split across
+# hosts, or an external Solr on a VM. Going through `docker exec la_solr` instead assumed
+# co-location and broke the moment Solr and bie-index landed on different hosts.
+solr() { docker exec "$BIE_INDEX_CONTAINER" curl -s --max-time 60 "$@"; }
 
 solr_admin() {  # solr_admin <query-string> — raw JSON from the collections API
-  solr "http://localhost:8983/solr/admin/collections?$1&wt=json"
+  solr "$SOLR_BASE/admin/collections?$1&wt=json"
 }
 
 # JSON readers. The key travels in argv and is never interpolated into code, so a name
@@ -91,7 +101,7 @@ print(json.load(sys.stdin).get("aliases",{}).get(sys.argv[1],""))' "$1" 2>/dev/n
 }
 
 num_found() {  # num_found <collection-or-alias> -> document count, or -1 if unreadable
-  solr "http://localhost:8983/solr/$1/select?q=*:*&rows=0&wt=json" \
+  solr "$SOLR_BASE/$1/select?q=*:*&rows=0&wt=json" \
     | python3 -c 'import sys,json
 print(json.load(sys.stdin)["response"]["numFound"])' 2>/dev/null \
     || echo -1
@@ -107,9 +117,24 @@ print(json.load(sys.stdin)["searchResults"]["totalRecords"])' 2>/dev/null \
 # ---------------------------------------------------------------- preconditions
 docker inspect "$BIE_INDEX_CONTAINER" >/dev/null 2>&1 \
   || { err "$BIE_INDEX_CONTAINER is not present; bie-index is not part of this deployment"; exit 2; }
-docker inspect "$SOLR_CONTAINER" >/dev/null 2>&1 \
-  || { err "$SOLR_CONTAINER is not present; this harness needs a Solr in THIS stack"; exit 2; }
 [[ -d "$FIXTURE_DIR" ]] || { err "fixture not found at $FIXTURE_DIR"; exit 2; }
+
+# Take the Solr endpoint from bie-index's own configuration rather than guessing it. That
+# file is the single authority on where this deployment's bie index lives, it is already
+# correct for every topology the generator emits, and using anything else means the harness
+# can quietly verify a different Solr from the one bie-index serves.
+if [[ -z "$SOLR_BASE" ]]; then
+  SOLR_BASE=$(docker exec "$BIE_INDEX_CONTAINER" sh -c "sed -n 's|^[[:space:]]*connection:[[:space:]]*\(http[^[:space:]]*\)/bie-offline[[:space:]]*$|\1|p; s|^[[:space:]]*connection:[[:space:]]*\(http[^[:space:]]*\)/bie[[:space:]]*$|\1|p' $BIE_INDEX_CONFIG" 2>/dev/null | head -1)
+fi
+[[ -n "$SOLR_BASE" ]] \
+  || { err "could not resolve the Solr base URL from $BIE_INDEX_CONFIG inside $BIE_INDEX_CONTAINER."
+       err "Pass it explicitly, e.g. SOLR_BASE=http://la_solr:8983/solr"; exit 2; }
+log "solr: $SOLR_BASE (via $BIE_INDEX_CONTAINER)"
+
+# Prove it answers before relying on it, so a routing problem is reported as itself.
+solr_admin "action=LIST" | grep -q '"collections"' \
+  || { err "$SOLR_BASE does not answer the collections API from inside $BIE_INDEX_CONTAINER."
+       err "bie-index cannot reach its own Solr; nothing downstream can work."; exit 2; }
 
 LIVE_TARGET="$(alias_target bie || true)"
 OFFLINE_TARGET="$(alias_target bie-offline || true)"
@@ -262,7 +287,7 @@ deadline=$(( SECONDS + TIMEOUT ))
 after=0
 while (( SECONDS < deadline )); do
   sleep 15
-  solr "http://localhost:8983/solr/$OFFLINE_TARGET/update?commit=true" \
+  solr "$SOLR_BASE/$OFFLINE_TARGET/update?commit=true" \
        -H 'Content-Type: text/xml' --data-binary '<commit/>' >/dev/null || true
   after=$(num_found "$OFFLINE_TARGET")
   log "offline index ($OFFLINE_TARGET): $after documents"
@@ -287,7 +312,7 @@ fi
 log "promoting: bie -> $OFFLINE_TARGET, bie-offline -> $LIVE_TARGET"
 for pair in "bie:$OFFLINE_TARGET" "bie-offline:$LIVE_TARGET"; do
   a="${pair%%:*}"; t="${pair##*:}"
-  out=$(solr -X POST "http://localhost:8983/solr/admin/collections?action=CREATEALIAS&name=$a&collections=$t&wt=json")
+  out=$(solr -X POST "$SOLR_BASE/admin/collections?action=CREATEALIAS&name=$a&collections=$t&wt=json")
   case "$out" in *'"failure"'*) err "CREATEALIAS $a -> $t failed: $out"; finish 1 ;; esac
 done
 
