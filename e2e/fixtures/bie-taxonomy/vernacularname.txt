@@ -1,0 +1,13 @@
+taxonID	vernacularName	language	isPreferredName
+ATLAS_23	koala	en	true
+ATLAS_23	koala	es	false
+ATLAS_24	red kangaroo	en	true
+ATLAS_25	platypus	en	true
+ATLAS_26	emu	en	true
+ATLAS_27	wedge-tailed eagle	en	true
+ATLAS_28	green tree frog	en	true
+ATLAS_39	silver wattle	en	true
+ATLAS_39	mimosa	es	false
+ATLAS_40	southern blue gum	en	true
+ATLAS_40	eucalipto blanco	es	false
+ATLAS_41	green wattle	en	true

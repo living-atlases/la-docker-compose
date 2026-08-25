@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- bie-index reads only the title from this file, as defaultDatasetName for every
+     row that carries no datasetID of its own (ImportService.importDwcA). It is not
+     optional: without metadata="eml.xml" resolving, that name is null and the taxa
+     land with no attribution. -->
+<eml:eml xmlns:eml="eml://ecoinformatics.org/eml-2.1.1"
+         xmlns:dc="http://purl.org/dc/terms/"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="eml://ecoinformatics.org/eml-2.1.1 http://rs.gbif.org/schema/eml-gbif-profile/1.1/eml.xsd"
+         packageId="la-e2e-taxonomy/v1.0" system="http://gbif.org" scope="system"
+         xml:lang="en">
+  <dataset>
+    <title>Living Atlas E2E Test Taxonomy</title>
+    <creator>
+      <organizationName>Living Atlas e2e suite</organizationName>
+    </creator>
+    <pubDate>2026-01-01</pubDate>
+    <language>en</language>
+    <abstract>
+      <para>
+        Synthetic checklist used by scripts/e2e-bie-import.sh to prove that the
+        bie-index import chain reaches the Solr bie index. Covers the eight species
+        of the occurrence fixture (e2e/fixtures/dr-test) plus their higher ranks, two
+        extra Acacia species so a genus query returns more than one hit, and one
+        synonym. Not a taxonomic authority for anything.
+      </para>
+    </abstract>
+    <intellectualRights>
+      <para>Public domain (CC0).</para>
+    </intellectualRights>
+  </dataset>
+</eml:eml>

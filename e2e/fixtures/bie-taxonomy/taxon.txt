@@ -1,0 +1,42 @@
+taxonID	parentNameUsageID	acceptedNameUsageID	scientificName	scientificNameAuthorship	taxonRank	taxonomicStatus	kingdom	phylum	class	order	family	genus	datasetID
+ATLAS_1			Animalia		kingdom	accepted	Animalia						dr-atlas-e2e-taxonomy
+ATLAS_2	ATLAS_1		Chordata		phylum	accepted	Animalia	Chordata					dr-atlas-e2e-taxonomy
+ATLAS_3	ATLAS_2		Mammalia		class	accepted	Animalia	Chordata	Mammalia				dr-atlas-e2e-taxonomy
+ATLAS_4	ATLAS_2		Aves		class	accepted	Animalia	Chordata	Aves				dr-atlas-e2e-taxonomy
+ATLAS_5	ATLAS_2		Amphibia		class	accepted	Animalia	Chordata	Amphibia				dr-atlas-e2e-taxonomy
+ATLAS_6	ATLAS_3		Diprotodontia		order	accepted	Animalia	Chordata	Mammalia	Diprotodontia			dr-atlas-e2e-taxonomy
+ATLAS_7	ATLAS_3		Monotremata		order	accepted	Animalia	Chordata	Mammalia	Monotremata			dr-atlas-e2e-taxonomy
+ATLAS_8	ATLAS_4		Casuariiformes		order	accepted	Animalia	Chordata	Aves	Casuariiformes			dr-atlas-e2e-taxonomy
+ATLAS_9	ATLAS_4		Accipitriformes		order	accepted	Animalia	Chordata	Aves	Accipitriformes			dr-atlas-e2e-taxonomy
+ATLAS_10	ATLAS_5		Anura		order	accepted	Animalia	Chordata	Amphibia	Anura			dr-atlas-e2e-taxonomy
+ATLAS_11	ATLAS_6		Phascolarctidae		family	accepted	Animalia	Chordata	Mammalia	Diprotodontia	Phascolarctidae		dr-atlas-e2e-taxonomy
+ATLAS_12	ATLAS_6		Macropodidae		family	accepted	Animalia	Chordata	Mammalia	Diprotodontia	Macropodidae		dr-atlas-e2e-taxonomy
+ATLAS_13	ATLAS_7		Ornithorhynchidae		family	accepted	Animalia	Chordata	Mammalia	Monotremata	Ornithorhynchidae		dr-atlas-e2e-taxonomy
+ATLAS_14	ATLAS_8		Dromaiidae		family	accepted	Animalia	Chordata	Aves	Casuariiformes	Dromaiidae		dr-atlas-e2e-taxonomy
+ATLAS_15	ATLAS_9		Accipitridae		family	accepted	Animalia	Chordata	Aves	Accipitriformes	Accipitridae		dr-atlas-e2e-taxonomy
+ATLAS_16	ATLAS_10		Hylidae		family	accepted	Animalia	Chordata	Amphibia	Anura	Hylidae		dr-atlas-e2e-taxonomy
+ATLAS_17	ATLAS_11		Phascolarctos	Blainville, 1816	genus	accepted	Animalia	Chordata	Mammalia	Diprotodontia	Phascolarctidae	Phascolarctos	dr-atlas-e2e-taxonomy
+ATLAS_18	ATLAS_12		Macropus	Shaw, 1790	genus	accepted	Animalia	Chordata	Mammalia	Diprotodontia	Macropodidae	Macropus	dr-atlas-e2e-taxonomy
+ATLAS_19	ATLAS_13		Ornithorhynchus	Blumenbach, 1800	genus	accepted	Animalia	Chordata	Mammalia	Monotremata	Ornithorhynchidae	Ornithorhynchus	dr-atlas-e2e-taxonomy
+ATLAS_20	ATLAS_14		Dromaius	Vieillot, 1816	genus	accepted	Animalia	Chordata	Aves	Casuariiformes	Dromaiidae	Dromaius	dr-atlas-e2e-taxonomy
+ATLAS_21	ATLAS_15		Aquila	Brisson, 1760	genus	accepted	Animalia	Chordata	Aves	Accipitriformes	Accipitridae	Aquila	dr-atlas-e2e-taxonomy
+ATLAS_22	ATLAS_16		Litoria	Tschudi, 1838	genus	accepted	Animalia	Chordata	Amphibia	Anura	Hylidae	Litoria	dr-atlas-e2e-taxonomy
+ATLAS_23	ATLAS_17		Phascolarctos cinereus	(Goldfuss, 1817)	species	accepted	Animalia	Chordata	Mammalia	Diprotodontia	Phascolarctidae	Phascolarctos	dr-atlas-e2e-taxonomy
+ATLAS_24	ATLAS_18		Macropus rufus	(Desmarest, 1822)	species	accepted	Animalia	Chordata	Mammalia	Diprotodontia	Macropodidae	Macropus	dr-atlas-e2e-taxonomy
+ATLAS_25	ATLAS_19		Ornithorhynchus anatinus	(Shaw, 1799)	species	accepted	Animalia	Chordata	Mammalia	Monotremata	Ornithorhynchidae	Ornithorhynchus	dr-atlas-e2e-taxonomy
+ATLAS_26	ATLAS_20		Dromaius novaehollandiae	(Latham, 1790)	species	accepted	Animalia	Chordata	Aves	Casuariiformes	Dromaiidae	Dromaius	dr-atlas-e2e-taxonomy
+ATLAS_27	ATLAS_21		Aquila audax	(Latham, 1801)	species	accepted	Animalia	Chordata	Aves	Accipitriformes	Accipitridae	Aquila	dr-atlas-e2e-taxonomy
+ATLAS_28	ATLAS_22		Litoria caerulea	(White, 1790)	species	accepted	Animalia	Chordata	Amphibia	Anura	Hylidae	Litoria	dr-atlas-e2e-taxonomy
+ATLAS_30			Plantae		kingdom	accepted	Plantae						dr-atlas-e2e-taxonomy
+ATLAS_31	ATLAS_30		Tracheophyta		phylum	accepted	Plantae	Tracheophyta					dr-atlas-e2e-taxonomy
+ATLAS_32	ATLAS_31		Magnoliopsida		class	accepted	Plantae	Tracheophyta	Magnoliopsida				dr-atlas-e2e-taxonomy
+ATLAS_33	ATLAS_32		Fabales		order	accepted	Plantae	Tracheophyta	Magnoliopsida	Fabales			dr-atlas-e2e-taxonomy
+ATLAS_34	ATLAS_32		Myrtales		order	accepted	Plantae	Tracheophyta	Magnoliopsida	Myrtales			dr-atlas-e2e-taxonomy
+ATLAS_35	ATLAS_33		Fabaceae		family	accepted	Plantae	Tracheophyta	Magnoliopsida	Fabales	Fabaceae		dr-atlas-e2e-taxonomy
+ATLAS_36	ATLAS_34		Myrtaceae		family	accepted	Plantae	Tracheophyta	Magnoliopsida	Myrtales	Myrtaceae		dr-atlas-e2e-taxonomy
+ATLAS_37	ATLAS_35		Acacia	Mill.	genus	accepted	Plantae	Tracheophyta	Magnoliopsida	Fabales	Fabaceae	Acacia	dr-atlas-e2e-taxonomy
+ATLAS_38	ATLAS_36		Eucalyptus	L'Her.	genus	accepted	Plantae	Tracheophyta	Magnoliopsida	Myrtales	Myrtaceae	Eucalyptus	dr-atlas-e2e-taxonomy
+ATLAS_39	ATLAS_37		Acacia dealbata	Link	species	accepted	Plantae	Tracheophyta	Magnoliopsida	Fabales	Fabaceae	Acacia	dr-atlas-e2e-taxonomy
+ATLAS_40	ATLAS_38		Eucalyptus globulus	Labill.	species	accepted	Plantae	Tracheophyta	Magnoliopsida	Myrtales	Myrtaceae	Eucalyptus	dr-atlas-e2e-taxonomy
+ATLAS_41	ATLAS_37		Acacia decurrens	Willd.	species	accepted	Plantae	Tracheophyta	Magnoliopsida	Fabales	Fabaceae	Acacia	dr-atlas-e2e-taxonomy
+ATLAS_42		ATLAS_39	Racosperma dealbatum	(Link) Pedley	species	synonym	Plantae	Tracheophyta	Magnoliopsida	Fabales	Fabaceae	Racosperma	dr-atlas-e2e-taxonomy
