@@ -167,20 +167,37 @@ docker exec "$BIE_INDEX_CONTAINER" test -r "$IMPORT_DIR_CTR/$DWCA_NAME/meta.xml"
 # /api/services/all is @RequireApiKey(roles=['ROLE_ADMIN']), so it needs a bearer that
 # actually carries the role. ImportController (/admin/import/*) is @AlaSecured and only
 # accepts a browser session, which is why it is not the route used here.
-get_token() {
-  local body
-  shift  # the caller's label; the grant itself travels in the -d flags below
-  body=$(curl "${CURL_OPTS[@]}" -u "$BIE_CLIENT_ID:$BIE_CLIENT_SECRET" "$@" \
+#
+# `Accept: application/json` is load-bearing, not decoration. CAS content-negotiates this
+# endpoint and, with no Accept header, answers in YAML:
+#
+#   $ curl -u fake:fake -d grant_type=client_credentials .../oidcAccessToken
+#   --- !<java.util.LinkedHashMap>
+#   status: 401
+#
+# so a JSON parser sees garbage and every grant looks like "no token", whatever the real
+# reason was. Verified against the live CAS on 2026-08-25.
+get_token() {  # get_token <label> <curl -d flags...> -> token on stdout, diagnosis on stderr
+  local label="$1" body; shift
+  body=$(curl "${CURL_OPTS[@]}" -H 'Accept: application/json' \
+              -u "$BIE_CLIENT_ID:$BIE_CLIENT_SECRET" "$@" \
               --data-urlencode "scope=$OIDC_SCOPE" "$CAS_TOKEN_URL" || true)
-  printf '%s' "$body" | python3 -c 'import sys,json
+  printf '%s' "$body" | LABEL="$label" python3 -c 'import sys,json,os
+raw=sys.stdin.read()
+label=os.environ["LABEL"]
 try:
-    d=json.load(sys.stdin)
+    d=json.loads(raw)
 except Exception:
+    print(f"[{label}] token endpoint did not answer JSON: {raw[:200]!r}", file=sys.stderr)
     sys.exit(1)
 t=d.get("access_token")
 if not t:
+    # Report what CAS actually said. "no token" on its own sends you looking at roles when
+    # the problem is the client secret, the grant, or the scope.
+    print(f"[{label}] no access_token: {json.dumps({k: d[k] for k in d if k != \"access_token\"})[:300]}",
+          file=sys.stderr)
     sys.exit(1)
-print(t)' 2>/dev/null
+print(t)'
 }
 
 TOKEN="${BIE_ADMIN_TOKEN:-}"
@@ -209,7 +226,7 @@ BEFORE_OFFLINE=$(num_found "$OFFLINE_TARGET")
 log "offline index ($OFFLINE_TARGET) holds $BEFORE_OFFLINE documents before the import"
 
 http_code=$(curl "${CURL_OPTS[@]}" -o /tmp/bie-import-trigger.json -w '%{http_code}' \
-              -H "Authorization: Bearer $TOKEN" \
+              -H 'Accept: application/json' -H "Authorization: Bearer $TOKEN" \
               "$BIE_PUBLIC_URL/api/services/all" || echo 000)
 if [[ "$http_code" == 401 || "$http_code" == 403 ]]; then
   err "the token was rejected by /api/services/all (HTTP $http_code)."
