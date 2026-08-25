@@ -451,3 +451,93 @@
       vars:
         tc9_snapshot_task: "Snapshot the server names this host's nginx actually serves"
         tc9_merge_task: "Extract monitored hostnames into nginx_docker_internal_aliases"
+
+# ── TC10: the bie legacy-collection migration must never eat a populated index ──────
+#
+# init-solr.yml publishes bie/bie-offline as aliases over bie-a/bie-b, because bie-index's
+# own promote step is a SolrCloud SWAP on literal core names and cannot work (finding 3.6a
+# of living-atlases/la-toolkit#28). Deployments made before that carry REAL `bie`
+# collections, and CREATEALIAS refuses to shadow a collection — so they have to go.
+#
+# Deleting an EMPTY one costs nothing and is the only way the change reaches an existing
+# stack. Deleting a POPULATED one destroys the live species index. The whole safety of that
+# migration rests on one expression, so it is pinned here: a non-empty collection, and
+# equally a probe that did not answer, must both come out as "do not migrate".
+    - name: "[TC10] Evaluate the bie legacy-empty expression over every case"
+      ansible.builtin.set_fact:
+        tc10_got: >-
+          {{ item.results | rejectattr('skipped', 'defined')
+             | selectattr('stdout', 'search', '"numFound":0[^0-9]')
+             | list | length
+             ==
+             item.results | rejectattr('skipped', 'defined') | list | length }}
+      loop: "{{ tc10_cases }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: tc10_evaluated
+      vars:
+        tc10_cases:
+          - name: both collections empty -> safe to migrate
+            expect: true
+            results:
+              - {stdout: '{"response":{"numFound":0,"start":0}}'}
+              - {stdout: '{"response":{"numFound":0,"start":0}}'}
+          # 10, not 1: guards the substring trap. '"numFound":10' contains '"numFound":1',
+          # so a naive match would call a populated collection empty.
+          - name: one holds 10 docs -> must NOT migrate
+            expect: false
+            results:
+              - {stdout: '{"response":{"numFound":10,"start":0}}'}
+              - {stdout: '{"response":{"numFound":0,"start":0}}'}
+          - name: one holds a single doc -> must NOT migrate
+            expect: false
+            results:
+              - {stdout: '{"response":{"numFound":1,"start":0}}'}
+              - {stdout: '{"response":{"numFound":0,"start":0}}'}
+          - name: one collection absent (task skipped), other empty -> safe
+            expect: true
+            results:
+              - {skipped: true}
+              - {stdout: '{"response":{"numFound":0,"start":0}}'}
+          # failed_when:false on the count task means an unreachable collection still
+          # produces a result, with an empty body. It must read as "unknown", not "empty".
+          - name: a probe failed (empty body) -> must NOT migrate
+            expect: false
+            results:
+              - {stdout: ''}
+              - {stdout: '{"response":{"numFound":0,"start":0}}'}
+          - name: neither collection exists -> vacuously true, the DELETE is gated separately
+            expect: true
+            results:
+              - {skipped: true}
+              - {skipped: true}
+
+    - name: "[TC10] Assert every case matches"
+      ansible.builtin.assert:
+        that:
+          - (r.ansible_facts.tc10_got | bool) == (r.item.expect | bool)
+        msg: >
+          FAIL TC10 "{{ r.item.name }}": got {{ r.ansible_facts.tc10_got }}, expected
+          {{ r.item.expect }}. This expression decides whether init-solr.yml DELETES the
+          existing bie collections. A false positive destroys a live species index.
+      loop: "{{ tc10_evaluated.results }}"
+      loop_control:
+        loop_var: r
+        label: "{{ r.item.name }}"
+
+    # The expression is only safe if it stays byte-identical to the one in the task. A
+    # test that quietly drifts from the code it pins is worse than no test.
+    - name: "[TC10] Read init-solr.yml"
+      ansible.builtin.slurp:
+        src: "{{ playbook_dir }}/../../roles/la-compose/tasks/init-solr.yml"
+      register: tc10_init_solr_raw
+
+    - name: "[TC10] Assert init-solr.yml still uses this exact expression"
+      ansible.builtin.assert:
+        that:
+          - tc10_needle in (tc10_init_solr_raw.content | b64decode)
+        msg: >
+          FAIL TC10: init-solr.yml no longer contains the selectattr this test pins, so the
+          cases above are testing a copy nothing runs. Update both together.
+      vars:
+        tc10_needle: "selectattr('stdout', 'search', '\"numFound\":0[^0-9]')"
