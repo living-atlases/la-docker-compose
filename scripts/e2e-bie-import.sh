@@ -207,20 +207,24 @@ get_token() {  # get_token <label> <curl -d flags...> -> token on stdout, diagno
   body=$(curl "${CURL_OPTS[@]}" -H 'Accept: application/json' \
               -u "$BIE_CLIENT_ID:$BIE_CLIENT_SECRET" "$@" \
               --data-urlencode "scope=$OIDC_SCOPE" "$CAS_TOKEN_URL" || true)
-  printf '%s' "$body" | LABEL="$label" python3 -c 'import sys,json,os
-raw=sys.stdin.read()
-label=os.environ["LABEL"]
+  # No f-strings here, on purpose: an f-string expression part cannot contain a backslash,
+  # and quoting one through a single-quoted shell heredoc guarantees you write one. The
+  # first version of this diagnostic died with a SyntaxError and reported it as "no token",
+  # which is precisely the failure it exists to prevent.
+  printf '%s' "$body" | LABEL="$label" python3 -c 'import sys, json, os
+raw = sys.stdin.read()
+label = os.environ["LABEL"]
 try:
-    d=json.loads(raw)
+    d = json.loads(raw)
 except Exception:
-    print(f"[{label}] token endpoint did not answer JSON: {raw[:200]!r}", file=sys.stderr)
+    sys.stderr.write("[%s] token endpoint did not answer JSON: %r\n" % (label, raw[:200]))
     sys.exit(1)
-t=d.get("access_token")
+t = d.get("access_token")
 if not t:
     # Report what CAS actually said. "no token" on its own sends you looking at roles when
     # the problem is the client secret, the grant, or the scope.
-    print(f"[{label}] no access_token: {json.dumps({k: d[k] for k in d if k != \"access_token\"})[:300]}",
-          file=sys.stderr)
+    other = dict((k, v) for k, v in d.items() if k != "access_token")
+    sys.stderr.write("[%s] no access_token: %s\n" % (label, json.dumps(other)[:300]))
     sys.exit(1)
 print(t)'
 }
