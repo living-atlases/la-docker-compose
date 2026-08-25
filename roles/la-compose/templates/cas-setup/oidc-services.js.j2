@@ -56,7 +56,11 @@
     "logoutType": "BACK_CHANNEL",
     "environments": [],
     "attributeReleasePolicy": {
-      "allowedAttributes": [],
+      // Was hardcoded []. ReturnAllowedAttributeReleasePolicy over an empty list releases
+      // NOTHING, so no token this deployment issued carried a role, an email or a userid,
+      // and role-protected endpoints answered 403 to perfectly valid tokens. Set from
+      // cas_oidc_released_attributes (roles/la-compose/defaults/main.yml).
+      "allowedAttributes": {{ cas_oidc_released_attributes | default([]) | to_json }},
       "principalAttributesRepository": { "mergingStrategy": "MULTIVALUED", "attributeRepositoryIds": [], "ignoreResolvedAttributes": false, "_class": "org.apereo.cas.authentication.principal.DefaultPrincipalAttributesRepository" },
       "consentPolicy": { "status": "UNDEFINED", "order": 0, "_class": "org.apereo.cas.services.consent.DefaultRegisteredServiceConsentPolicy" },
       "authorizedToReleaseCredentialPassword": false,

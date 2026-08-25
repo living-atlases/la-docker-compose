@@ -217,6 +217,41 @@ biocache_seed_collection: biocache-seed
 # which is why the real collections have to be called something else.
 # Upstream finding 3.6a/3.6c: living-atlases/la-toolkit#28.
 bie_live_seed_collection: bie-a
+
+# Attributes the generated CAS OIDC services are allowed to release.
+#
+# Every service we register used to carry `allowedAttributes: []` with
+# ReturnAllowedAttributeReleasePolicy, which releases NOTHING -- so no token from any of
+# them carried a role, an email or a userid. Measured on the CI registry 2026-08-25: all 16
+# of our services empty, while CAS's own stock "Atlas of Living Australia" entry releases
+# the list below. The visible symptom is an HTTP 403 with a perfectly valid token, which
+# reads as "this user lacks the role" and sends you to the user_role table in MySQL, where
+# the role is present and always was.
+#
+# This list mirrors that stock entry. Override per deployment if your attribute repository
+# resolves a different set; releasing a name the repository does not produce is a no-op.
+#
+# NOTE this does nothing for client_credentials tokens: there is no user principal to take
+# attributes from, and CAS logs "No person records were fetched from attribute repositories"
+# for the client id. Headless callers that need a role must use a user-bound grant.
+cas_oidc_released_attributes:
+  - id
+  - userid
+  - givenName
+  - sn
+  - firstname
+  - lastname
+  - email
+  - affiliation
+  - organisation
+  - city
+  - state
+  - country
+  - role
+  - authority
+  - created
+  - lastLogin
+
 bie_offline_seed_collection: bie-b
 
 # Airflow (NO-AWS pipelines-airflow overlay): OPT-IN. Set use_airflow=true to deploy

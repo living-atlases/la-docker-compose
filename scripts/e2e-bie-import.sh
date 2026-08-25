@@ -201,22 +201,28 @@ print(t)'
 }
 
 TOKEN="${BIE_ADMIN_TOKEN:-}"
+GRANT="${BIE_ADMIN_TOKEN:+preset}"
 if [[ -z "$TOKEN" ]]; then
   [[ -n "${CAS_TOKEN_URL:-}" && -n "${BIE_CLIENT_ID:-}" && -n "${BIE_CLIENT_SECRET:-}" ]] \
     || { err "no BIE_ADMIN_TOKEN and no CAS_TOKEN_URL/BIE_CLIENT_ID/BIE_CLIENT_SECRET to obtain one"; exit 2; }
-  # Resource-owner password first: a client_credentials token has no user principal, and
-  # the generated OIDC service releases no attributes (allowedAttributes: []), so it is
-  # unlikely to carry ROLE_ADMIN. Kept as a fallback because a deployment that DOES release
-  # roles to the client should not need a user account.
+  # Resource-owner password FIRST, and it is not a preference -- client_credentials cannot
+  # work here. Measured against the CI on 2026-08-25: the grant succeeds and returns a
+  # perfectly good token, but with `roles: []`, and CAS logs
+  #   No person records were fetched from attribute repositories for
+  #   [{credentialClass=[OAuth20ClientIdClientSecretCredential], username=<client_id>}]
+  # because there is no user principal for a client id to take attributes from. The
+  # endpoint then answers 403. Only a user-bound grant carries a role.
+  # client_credentials stays as a fallback for a deployment that attaches a static role to
+  # the client itself, which ours does not.
   if [[ -n "${BIE_ADMIN_USER:-}" && -n "${BIE_ADMIN_PASS:-}" ]]; then
     TOKEN=$(get_token password -d grant_type=password \
               --data-urlencode "username=$BIE_ADMIN_USER" \
               --data-urlencode "password=$BIE_ADMIN_PASS" || true)
-    if [[ -n "$TOKEN" ]]; then log "obtained a token via grant_type=password"; fi
+    if [[ -n "$TOKEN" ]]; then GRANT=password; log "obtained a token via grant_type=password"; fi
   fi
   if [[ -z "$TOKEN" ]]; then
     TOKEN=$(get_token client_credentials -d grant_type=client_credentials || true)
-    if [[ -n "$TOKEN" ]]; then log "obtained a token via grant_type=client_credentials"; fi
+    if [[ -n "$TOKEN" ]]; then GRANT=client_credentials; log "obtained a token via grant_type=client_credentials"; fi
   fi
 fi
 [[ -n "$TOKEN" ]] || { err "could not obtain an access token from $CAS_TOKEN_URL"; exit 2; }
@@ -229,10 +235,19 @@ http_code=$(curl "${CURL_OPTS[@]}" -o /tmp/bie-import-trigger.json -w '%{http_co
               -H 'Accept: application/json' -H "Authorization: Bearer $TOKEN" \
               "$BIE_PUBLIC_URL/api/services/all" || echo 000)
 if [[ "$http_code" == 401 || "$http_code" == 403 ]]; then
-  err "the token was rejected by /api/services/all (HTTP $http_code)."
-  err "It authenticated but does not carry ROLE_ADMIN. Either use an account that has it"
-  err "(BIE_ADMIN_USER/BIE_ADMIN_PASS), or release a roles attribute to the OIDC client in"
-  err "the CAS service registry (roles/la-compose/templates/cas-setup/oidc-services.js.j2)."
+  err "the token was rejected by /api/services/all (HTTP $http_code, grant=${GRANT:-unknown})."
+  if [[ "$http_code" == 403 ]]; then
+    err "403 means it authenticated and simply carries no ROLE_ADMIN. Two known causes:"
+    err "  * grant=client_credentials: expected and unfixable this way. There is no user"
+    err "    principal, so no attributes are resolved and roles are always empty. Supply"
+    err "    BIE_ADMIN_USER/BIE_ADMIN_PASS so the harness can use the password grant."
+    err "  * grant=password: check the CAS service registry actually releases the role"
+    err "    attribute. cas_oidc_released_attributes in roles/la-compose/defaults/main.yml"
+    err "    feeds attributeReleasePolicy.allowedAttributes; an empty list there releases"
+    err "    nothing and every token comes back role-less. Inspect the live value with"
+    err "    db.services.find({}, {name:1, 'attributeReleasePolicy.allowedAttributes':1})"
+    err "    in the cas-service-registry database."
+  fi
   finish 1
 fi
 [[ "$http_code" == 200 ]] || { err "trigger returned HTTP $http_code: $(head -c 400 /tmp/bie-import-trigger.json)"; finish 1; }
