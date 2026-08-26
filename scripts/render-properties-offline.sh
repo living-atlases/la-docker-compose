@@ -196,25 +196,51 @@ for row in "${SERVICES[@]}"; do
   hosts: "{{ target_host }}"
   connection: local
   gather_facts: true
-  # Inventories commonly set ansible_become for their hosts, which would apply here too and
-  # leave root-owned 0600 files that the caller then cannot read. Rendering a template needs
-  # no privileges at all, so refuse them explicitly.
   become: false
   vars_files:
-    - "$REPO_ROOT/ala-install/ansible/group_vars/all/vars.yml"
-    - "$ROLES/common/defaults/main.yml"
-$( [[ -f "$ROLES/$role/defaults/main.yml" ]] && echo "    - \"$ROLES/$role/defaults/main.yml\"" )
 $( [[ -f "$ROLES/$role/vars/main.yml" ]] && echo "    - \"$ROLES/$role/vars/main.yml\"" )
+    - "/dev/null"
   tasks:
+    # Role DEFAULTS are the lowest-precedence source in Ansible: the inventory overrides them.
+    # Loading them through vars_files inverts that -- play vars_files outrank inventory group
+    # vars -- so the default wins and the render is quietly wrong. That is not hypothetical:
+    # bie-hub rendered every URL against the upstream production stack because the role default
+    # bie_base_url clobbered the [all:vars] entry, and it only came to light on comparing the
+    # output against the live file, which was correct. So defaults are loaded into a namespace
+    # and then applied ONLY to names the inventory does not already provide.
+    #
+    # role vars/ above stays in vars_files, because vars/ really does outrank the inventory.
+    - ansible.builtin.set_fact:
+        _inventory_names: "{{ hostvars[inventory_hostname].keys() | list }}"
+    - ansible.builtin.include_vars:
+        file: "$REPO_ROOT/ala-install/ansible/group_vars/all/vars.yml"
+        name: _defaults_global
+    - ansible.builtin.include_vars:
+        file: "$ROLES/common/defaults/main.yml"
+        name: _defaults_common
+$( if [[ -f "$ROLES/$role/defaults/main.yml" ]]; then
+     echo "    - ansible.builtin.include_vars:"
+     echo "        file: \"$ROLES/$role/defaults/main.yml\""
+     echo "        name: _defaults_role"
+   else
+     echo "    - ansible.builtin.set_fact:"
+     echo "        _defaults_role: {}"
+   fi )
+    - ansible.builtin.set_fact:
+        _defaults: "{{ _defaults_global | combine(_defaults_common) | combine(_defaults_role) }}"
+    - ansible.builtin.set_fact:
+        "{{ item.key }}": "{{ item.value }}"
+      loop: "{{ _defaults | dict2items }}"
+      when: item.key not in _inventory_names
+      loop_control:
+        label: "{{ item.key }}"
+
     - ansible.builtin.include_tasks: "$ROLES/common/tasks/setfacts.yml"
     - ansible.builtin.template:
         src: "$ROLES/$role/$tpl"
         dest: "$OUTPUT/$dest"
         mode: "0600"
 YAML
-
-  # stderr goes to a log rather than the terminal on purpose: an Ansible failure message quotes
-  # the offending value, and inventory values are exactly what must not be printed.
   # ansible_become as an inventory VARIABLE beats the play's `become: false` keyword, so it has
   # to be overridden as an extra var (which beats everything) -- otherwise the render writes
   # root-owned 0600 files the caller cannot read afterwards.

@@ -62,3 +62,6 @@ SERVICIOS-STATUS.md
 inventories/testing/lademo-branding/commonui-bs3-2019/
 .cursor/
 .opencode/
+
+# Python bytecode from the config-comparison scripts
+scripts/__pycache__/

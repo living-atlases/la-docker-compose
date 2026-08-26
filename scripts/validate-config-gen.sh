@@ -211,6 +211,37 @@ else
   warn "No docker-compose.yml found at $COMPOSE_DIR - skipping compose syntax check"
 fi
 
+# ── Check 6: rendered config has not drifted from the frozen baseline ─────────
+section "Check 6: Config URL baseline"
+
+# Renders into a temp dir of its own rather than reading $OUTPUT_DIR or a live /data. Both of
+# those accumulate hand-kept variants (.last, .es, .tests) beside the real files, and a
+# baseline extracted from one of those would pin somebody's old experiment as the expected
+# state. This render is self-contained, so this check also stands on its own: it passes or
+# fails for its own reasons, not for whatever happened in the checks above.
+# The script is invoked from the repo root (paths like $INVENTORY are relative to it),
+# but resolve it from the script location so an absolute invocation works too.
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BASELINE_FILE="$REPO_ROOT/config-baseline.json"
+if [[ ! -f "$BASELINE_FILE" ]]; then
+  warn "No config-baseline.json - skipping (create with scripts/config-baseline.py extract)"
+else
+  BASELINE_TMP="$(mktemp -d)"
+  trap 'rm -rf "$BASELINE_TMP"' EXIT
+  if "$REPO_ROOT/scripts/render-properties-offline.sh" \
+        $(printf -- '--inventory %s ' "$INVENTORY"/*.ini) \
+        --output "$BASELINE_TMP" > "$BASELINE_TMP/render.log" 2>&1; then
+    if "$REPO_ROOT/scripts/config-baseline.py" check --from "$BASELINE_TMP"; then
+      pass "rendered config matches config-baseline.json"
+    else
+      fail "rendered config drifted from config-baseline.json (see the diff above)"
+    fi
+  else
+    fail "could not render config offline for the baseline check (see $BASELINE_TMP/render.log)"
+    tail -20 "$BASELINE_TMP/render.log" || true
+  fi
+fi
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
 if [[ $FAILURES -eq 0 ]]; then
