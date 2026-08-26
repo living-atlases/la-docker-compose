@@ -1,0 +1,49 @@
+<!--
+  The same page for a deployment that HAS drifted. Every row here is modelled on a defect that
+  actually happened, so the self-test fails if the audit stops catching any of them:
+
+    userDetails.url            data-quality was found still pointing at auth.ala.org.au
+    security.apikey...         gbif.es PRODUCTION resolved the lowercase case-variant to
+                               auth-test.ala.org.au, a value present in no rendered file
+    events.graphql             api.test.ala.org.au -- ALA test infrastructure
+    biocacheService.baseUrl    ALA's records service instead of our own
+
+  It also carries every known false-positive trap, which must stay silent:
+    JAVA_OPTS / SPRING_...     ALL_CAPS environment, with ala.org.au URLs in them
+    java.vendor.url            dotted, lower-cased, URL-valued -- but a JVM system property
+    dataquality.learnmore_link ALA documentation
+    spatial.tileUrl            a DECLARED fallback (informational, not a finding)
+-->
+<html>
+  <head><title>Configuration</title></head>
+  <body>
+    <h1>Configuration</h1>
+    <table class="table table-striped table-hover">
+      <thead>
+        <tr><th scope="col">Property</th><th scope="col">Value</th></tr>
+      </thead>
+      <tbody>
+        <!-- Traps: must produce no findings. -->
+        <tr><td>CATALINA_BASE</td><td>/usr/share/tomcat9</td></tr>
+        <tr><td>JAVA_OPTS</td><td>-Xmx2g -Dsome.mirror=https://biocache.ala.org.au/ws</td></tr>
+        <tr><td>SPRING_ELASTICSEARCH_URIS</td><td>https://es.test.ala.org.au:9200</td></tr>
+        <tr><td>java.vendor.url</td><td>https://java.oracle.com/</td></tr>
+        <tr><td>user.home</td><td>/root</td></tr>
+        <tr><td>dataquality.learnmore_link</td><td>https://support.ala.org.au/support/solutions/articles/6000240256</td></tr>
+
+        <!-- Declared fallback: informational, with its reason, never a failure. -->
+        <tr><td>spatial.tileUrl</td><td>https://spatial.ala.org.au/osm/</td></tr>
+
+        <!-- Real drift: all four must be findings. -->
+        <tr><td>biocacheService.baseUrl</td><td>https://biocache.ala.org.au/ws</td></tr>
+        <tr><td>events.graphql</td><td>https://api.test.ala.org.au/event/graphql</td></tr>
+        <tr><td>security.apikey.auth.serviceUrl</td><td>https://auth-test.ala.org.au/apikey/</td></tr>
+        <tr><td>userDetails.url</td><td>https://auth.ala.org.au/userdetails/</td></tr>
+
+        <!-- Correct values, for contrast. -->
+        <tr><td>collectory.baseUrl</td><td>https://collections.l-a.site</td></tr>
+        <tr><td>security.apiKey.auth.serviceUrl</td><td>https://auth.l-a.site/apikey/</td></tr>
+      </tbody>
+    </table>
+  </body>
+</html>

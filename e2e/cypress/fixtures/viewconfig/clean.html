@@ -1,0 +1,72 @@
+<!--
+  A /alaAdmin/viewConfig page for a correctly configured deployment.
+
+  Shaped like the real thing (ala-admin-plugin view-config.gsp): a Bootstrap table with no id,
+  Property/Value columns, one row per flattened config entry, keys sorted. It carries the same
+  process-environment noise the real page does, because the point of this fixture is that the
+  noise must NOT produce findings.
+
+  Expected audit result: zero findings, and the two ALA documentation links as informational.
+-->
+<html>
+  <head><title>Configuration</title></head>
+  <body>
+    <h1>Configuration</h1>
+    <table class="table table-striped table-hover">
+      <thead>
+        <tr><th scope="col">Property</th><th scope="col">Value</th></tr>
+      </thead>
+      <tbody>
+        <!-- Process environment: ALL_CAPS. Never config, never a finding. JAVA_OPTS carries an
+             ala.org.au URL on purpose — it is the trap the shape filter exists for. -->
+        <tr><td>CATALINA_BASE</td><td>/usr/share/tomcat9</td></tr>
+        <tr><td>HOME</td><td>/root</td></tr>
+        <tr><td>JAVA_OPTS</td><td>-Xmx2g -Dsome.mirror=https://biocache.ala.org.au/ws</td></tr>
+        <tr><td>LANG</td><td>en_US.UTF-8</td></tr>
+        <tr><td>PATH</td><td>/usr/local/sbin:/usr/local/bin:/usr/bin</td></tr>
+        <tr><td>PWD</td><td>/</td></tr>
+
+        <!-- JVM system properties: dotted and lower-cased like real config, so the ALL_CAPS
+             filter does not catch them. java.vendor.url is a URL. Excluded by namespace. -->
+        <tr><td>file.encoding</td><td>UTF-8</td></tr>
+        <tr><td>java.vendor.url</td><td>https://java.oracle.com/</td></tr>
+        <tr><td>java.vendor.url.bug</td><td>https://bugreport.sun.com/bugreport/</td></tr>
+        <tr><td>java.version</td><td>11.0.22</td></tr>
+        <tr><td>os.name</td><td>Linux</td></tr>
+        <tr><td>user.home</td><td>/root</td></tr>
+
+        <!-- Real config, all pointing at our own deployment. -->
+        <tr><td>biocacheService.baseUrl</td><td>https://records-ws.l-a.site/ws</td></tr>
+        <tr><td>bie.baseUrl</td><td>https://species.l-a.site</td></tr>
+        <tr><td>bieService.baseUrl</td><td>https://species-ws.l-a.site</td></tr>
+        <tr><td>collectory.baseUrl</td><td>https://collections.l-a.site</td></tr>
+        <tr><td>grails.serverURL</td><td>https://collections.l-a.site</td></tr>
+        <tr><td>headerAndFooter.baseURL</td><td>https://l-a.site/commonui-bs4</td></tr>
+        <tr><td>imageService.baseUrl</td><td>https://images.l-a.site</td></tr>
+        <tr><td>loggerService.baseUrl</td><td>https://logger.l-a.site</td></tr>
+        <tr><td>security.cas.appServerName</td><td>https://collections.l-a.site</td></tr>
+        <tr><td>security.cas.casServerUrlPrefix</td><td>https://auth.l-a.site/cas</td></tr>
+        <tr><td>security.oidc.discoveryUri</td><td>https://auth.l-a.site/cas/oidc/.well-known</td></tr>
+        <tr><td>speciesList.baseUrl</td><td>https://lists.l-a.site</td></tr>
+        <tr><td>userDetails.url</td><td>https://auth.l-a.site/userdetails/</td></tr>
+        <tr><td>webservice.jwt</td><td>true</td></tr>
+
+        <!-- Secret-shaped keys: must never reach the artifact, whatever their value. The
+             tokenEndpoint one is URL-valued on purpose, so the exclusion is really exercised
+             and not passing merely because the value was not a URL. -->
+        <tr><td>security.apikey.secret</td><td>s3cr3t-value</td></tr>
+        <tr><td>security.oidc.tokenEndpoint</td><td>https://auth.l-a.site/cas/oidc/token</td></tr>
+        <tr><td>webservice.apiKey</td><td>abcdef123456</td></tr>
+
+        <!-- ALA documentation and content. Informational, never fatal. -->
+        <tr><td>dataquality.learnmore_link</td><td>https://support.ala.org.au/support/solutions/articles/6000240256</td></tr>
+        <tr><td>skin.exploreUrl</td><td>https://www.ala.org.au/explore-by-location/</td></tr>
+
+        <!-- Non-URL values and third parties: out of scope by construction. -->
+        <tr><td>gbifApi.baseUrl</td><td>https://api.gbif.org/v1</td></tr>
+        <tr><td>rifcs.excludeBounds</td><td>false</td></tr>
+        <tr><td>solr.home</td><td>la_solr:8983</td></tr>
+      </tbody>
+    </table>
+  </body>
+</html>

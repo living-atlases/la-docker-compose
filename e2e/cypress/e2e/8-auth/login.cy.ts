@@ -26,15 +26,37 @@ describe("Authentication (CAS/OIDC)", () => {
   // Root cause: ala-install collectory `security.oidc.scope` was rendered only inside the
   // cognito block, and the generator never emitted `scope`. Fixed in generator v1.8.27
   // (webservice scopes + `scope` var) and ala-install (render security.oidc.scope for CAS).
+  // HOLLOW BEFORE, DO NOT REVERT. This used to be:
+  //     cy.login(); cy.visit(collections/admin);
+  //     cy.get("h1").should("exist");
+  //     cy.contains("ROLE_ADMIN is required").should("not.exist");
+  // and it passed on the CAS LOGIN PAGE. Verified by fetching the page directly: when
+  // collectory bounces an unauthorised request to CAS, the login page it serves contains
+  // `<h1 class="hidden">Welcome the Atlas of Living Australia` and does not contain the
+  // string "ROLE_ADMIN is required" -- so both assertions held while the admin tools were
+  // completely unreachable. The regression guard was passing over the very regression it
+  // was written to catch.
+  //
+  // Rewritten to ask the only question that distinguishes the two: does /admin answer 200
+  // by itself, or does it 302 to the auth server? A request, not a visit, because the
+  // redirect is what carries the answer and following it destroys the evidence.
   it("admin retains ROLE_ADMIN — collectory admin tools are accessible", function () {
     if (!hasService("collections")) {
       this.skip();
     }
-    cy.login();
-    cy.visit(serviceUrl("collections", "/admin"));
-    // admin page shell rendered (heading present)
-    cy.get("h1", { timeout: 25000 }).should("exist");
-    // with ROLE_ADMIN released, the access error must NOT be present
-    cy.contains("ROLE_ADMIN is required").should("not.exist");
+    cy.loginTo("collections", "/admin");
+    cy.request({
+      url: serviceUrl("collections", "/admin"),
+      followRedirect: false,
+      failOnStatusCode: false,
+    }).then((resp) => {
+      expect(
+        resp.status,
+        "collectory /admin with an authenticated admin session. A 302 to the auth server " +
+          "means the token carries no ROLE_ADMIN and the hub is bouncing the admin back to " +
+          "CAS, which is what this guard exists to detect.",
+      ).to.eq(200);
+      expect(String(resp.body || "")).to.not.contain("ROLE_ADMIN is required");
+    });
   });
 });

@@ -655,3 +655,43 @@ images_max_memory: "1g"
 images_min_memory: "1g"
 logger_max_memory: "1g"
 logger_min_memory: "1g"
+
+# ALA-hosted upstreams this deployment deliberately still depends on.
+#
+# Consumed by the effective-config check (e2e/cypress/e2e/9-config/effective-config.cy.ts),
+# which reads each Grails service's /alaAdmin/viewConfig and fails on any config property
+# resolving to ALA infrastructure that is not declared here. The failure mode being addressed
+# is not falling back to ALA -- that is often the only option -- it is forgetting that you did,
+# and then reading auth-test.ala.org.au in a production config months later.
+#
+# Each entry needs a `reason` saying what would remove the dependency, so the list stays a
+# review of open items rather than an allowlist that only grows. `property` scopes the
+# exemption to a single config key; omit it to exempt the whole host. Scoping matters:
+# spatial.ala.org.au is an accepted tile source, but the same host under some other key would
+# mean we are pointing at ALA's spatial portal instead of our own.
+#
+# Seeded from what the stack actually resolves today, each reviewed by vjrj (2026-08-26).
+# Overridable per portal from the inventory.
+ala_upstream_fallbacks:
+  - host: api.test.ala.org.au
+    property: events.graphql
+    reason: >-
+      events service is still in development; it exists neither in our deployment nor in ALA
+      production, so there is nothing to point at yet.
+  - host: events.test.ala.org.au
+    property: events.eventUrl
+    reason: >-
+      same events service, still in development.
+  - host: pdfgen.ala.org.au
+    property: pdfgen.baseURL
+    reason: >-
+      removing this needs the ecodata / pdfgen / biocollect services deployed; they are not
+      part of the stack yet.
+  - host: spatial.ala.org.au
+    property: openstreetmap.tileUrl
+    reason: >-
+      no alternative OSM tile server available to us.
+  - host: nectar-spatial-staging.ala.org.au
+    property: spatialService.remoteUrl
+    reason: >-
+      used to copy spatial layers from ALA; a new portal has no equivalent source.

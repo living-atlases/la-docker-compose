@@ -62,6 +62,11 @@
       root: "{{ (ala_base_url | default(default_logout_redirect_url | default(''))) | regex_replace('/+$', '') }}"
       auth: "{{ (cas_url | default('')) | regex_replace('/+$', '') }}"
       services: "{{ e2e_targets_services }}"
+      # ALA upstreams this deployment deliberately still depends on (see
+      # roles/la-compose/defaults/main.yml). The effective-config e2e check treats anything
+      # else resolving to ALA infrastructure as a failure, so the declaration has to travel
+      # with the manifest rather than being hardcoded in the test.
+      alaUpstreamFallbacks: "{{ ala_upstream_fallbacks | default([]) }}"
   tags:
     - docker-compose
     - e2e-targets
