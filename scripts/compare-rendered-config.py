@@ -182,7 +182,15 @@ def case_variant_conflicts(props: dict[str, str]) -> list[tuple[list[str], list[
     return conflicts
 
 
-def report(ours_dir: Path, ref_dir: Path | None, own_hosts: set[str]) -> list[str]:
+def report(ours_dir: Path, ref_dir: Path | None, own_hosts: set[str],
+           ours_is_reference: bool = False) -> list[str]:
+    """ours_is_reference: treat the LEFT side as a reference too, i.e. redact it the same way.
+
+    Needed when both sides are somebody else's config -- comparing two variants of the same
+    reference against each other, which is how you find out what is genuinely specific to one
+    of them rather than guessing one key at a time. Without it the left side would print raw.
+    """
+    left_is_ours = not ours_is_reference
     lines: list[str] = []
     ours_files = config_files(ours_dir)
     ref_files = config_files(ref_dir) if ref_dir else {}
@@ -214,7 +222,7 @@ def report(ours_dir: Path, ref_dir: Path | None, own_hosts: set[str]) -> list[st
             if extra:
                 lines.append(f"  keys we set and the reference does not ({len(extra)}):")
                 for k in extra:
-                    lines.append(f"    {k} = {classify(k, ours[k], ours=True)}")
+                    lines.append(f"    {k} = {classify(k, ours[k], ours=left_is_ours)}")
 
             type_diffs = [
                 k for k in sorted(set(ours) & set(ref))
@@ -225,7 +233,7 @@ def report(ours_dir: Path, ref_dir: Path | None, own_hosts: set[str]) -> list[st
                 for k in type_diffs:
                     lines.append(
                         f"    {k}: ours {value_type(ours[k])} = "
-                        f"{classify(k, ours[k], ours=True)} | "
+                        f"{classify(k, ours[k], ours=left_is_ours)} | "
                         f"reference {value_type(ref[k])}"
                     )
 
@@ -233,7 +241,7 @@ def report(ours_dir: Path, ref_dir: Path | None, own_hosts: set[str]) -> list[st
         for k in sorted(ours):
             h = url_host(ours[k])
             if h and h not in own_hosts:
-                foreign.append((k, h, classify(k, ours[k], ours=True)))
+                foreign.append((k, h, classify(k, ours[k], ours=left_is_ours)))
         if foreign:
             lines.append(f"  our URL-valued keys pointing outside this deployment ({len(foreign)}):")
             for k, h, v in foreign:
@@ -244,7 +252,7 @@ def report(ours_dir: Path, ref_dir: Path | None, own_hosts: set[str]) -> list[st
             lines.append(f"  case-variant keys whose values disagree ({len(conflicts)}) [information only]:")
             for keys, values in conflicts:
                 for k, v in zip(keys, values):
-                    lines.append(f"    {k} = {classify(k, v, ours=True)}")
+                    lines.append(f"    {k} = {classify(k, v, ours=left_is_ours)}")
         lines.append("")
 
     return lines
@@ -307,7 +315,18 @@ extra.only.ours=https://collections.example.test
                    {"records-ws.example.test", "collections.example.test"})
         )
 
-    failures = [f"LEAKED: {s}" for s in must_not_appear if s in text]
+        # The --redact-ours path is a second redaction route, so it gets asserted too rather
+        # than trusted: with it, values from the LEFT side must be withheld as well.
+        text_both = "\n".join(
+            report(root / "ours", root / "ref",
+                   {"records-ws.example.test", "collections.example.test"},
+                   ours_is_reference=True)
+        )
+
+    failures = [f"LEAKED (--redact-ours): {s}" for s in
+                ("records-ws.example.test/ws", "notanumber", "collections.example.test")
+                if s in text_both]
+    failures += [f"LEAKED: {s}" for s in must_not_appear if s in text]
     failures += [f"MISSING: {s}" for s in must_appear if s not in text]
     for f in failures:
         print(f, file=sys.stderr)
@@ -332,6 +351,12 @@ def main() -> int:
         default=[],
         help="hostname belonging to this deployment; repeatable. Used to decide which of our "
              "URLs point somewhere else.",
+    )
+    ap.add_argument(
+        "--redact-ours",
+        action="store_true",
+        help="treat the --ours side as a reference too and redact it identically. Use when "
+             "comparing two variants of the same reference against each other.",
     )
     ap.add_argument(
         "--own-hosts-from",
@@ -363,7 +388,7 @@ def main() -> int:
             host = urlparse(u).hostname if u else None
             if host:
                 own.add(host.lower())
-    lines = report(args.ours, args.reference, own)
+    lines = report(args.ours, args.reference, own, ours_is_reference=args.redact_ours)
     text = "\n".join(lines) + "\n"
     if args.out:
         args.out.write_text(text)
