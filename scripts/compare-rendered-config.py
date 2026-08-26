@@ -138,7 +138,13 @@ def parse_yaml(text: str) -> dict[str, str]:
     try:
         import yaml
     except ImportError:  # pragma: no cover
-        return {}
+        # Loud, not silent. Falling back to the properties parser here would read a YAML file
+        # as a handful of accidental key=value lines, and the baseline check would then report
+        # confident-looking drift caused by nothing but a missing dependency.
+        raise SystemExit(
+            "PyYAML is required to read .yml configs (pip install PyYAML). Refusing to "
+            "parse them as properties, which would produce meaningless differences."
+        )
     out: dict[str, str] = {}
     try:
         # A rendered config can hold several documents; keep them all.

@@ -646,6 +646,37 @@ EOF
             }
         }
 
+        stage('Config URL baseline') {
+            // Runs right after the inventories exist and BEFORE anything is deployed: this
+            // check renders the service configs offline and diffs the URLs they resolve to
+            // against config-baseline.json. No hosts are contacted and nothing is deployed,
+            // so it costs seconds and can fail fast, before a redeploy has happened.
+            //
+            // The whole point of the baseline is to be a ratchet, and a ratchet that only
+            // fires when somebody remembers to run a script by hand is not one -- which is
+            // exactly what it was until this stage existed.
+            //
+            // Wrapped in catchError for its FIRST runs: it has been verified locally (by
+            // planting a drifted URL and watching it fail) but never in CI, and an unproven
+            // guard should report before it starts blocking. Once it has been green here,
+            // drop the wrapper so real drift fails the build.
+            when { expression { !params.ONLY_CLEAN } }
+            steps {
+                catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+                    sh """
+                        set -eu
+                        cd "\${WORKSPACE}"
+                        BASE_TMP="\$(mktemp -d)"
+                        trap 'rm -rf "\$BASE_TMP"' EXIT
+                        scripts/render-properties-offline.sh \
+                            \$(printf -- '--inventory %s ' "${INVENTORY_DIR}"/*.ini) \
+                            --output "\$BASE_TMP"
+                        scripts/config-baseline.py check --from "\$BASE_TMP"
+                    """
+                }
+            }
+        }
+
         stage('Pre-Deploy Docker Cleanup') {
             when { 
                 expression { 
