@@ -33,7 +33,12 @@
     "applicationType": "web",
     "subjectType": "public",
     "dynamicallyRegistered": false,
-    "scopes": ["users/read", "Openid", "Email", "Profile", "ala", "roles"],
+    // OIDC scope names are case sensitive and these are matched against CAS's own list.
+    // `Openid`, `Email` and `Profile` were capitalised here; CAS advertises them lowercase in
+    // scopes_supported, so three of every service's six scopes named something CAS does not
+    // know. Finding 8.2 of living-atlases/la-toolkit#28, and the same defect the report found
+    // in the upstream oidc-keys-add template this file mirrors.
+    "scopes": ["users/read", "openid", "email", "profile", "ala", "roles"],
     "clientSecret": clientSecret,
     "clientId": clientId,
     "bypassApprovalPrompt": true,
