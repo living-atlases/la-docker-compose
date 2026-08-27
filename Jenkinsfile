@@ -666,6 +666,10 @@ EOF
                     sh """
                         set -eu
                         cd "\${WORKSPACE}"
+                        # ansible lives in the pipeline's venv, not on the default PATH. The
+                        # first run of this stage died claiming it could not parse the
+                        # inventory, when ansible-inventory simply was not there.
+                        export PATH="${VENV_DIR}/bin:\$PATH"
                         BASE_TMP="\$(mktemp -d)"
                         trap 'rm -rf "\$BASE_TMP"' EXIT
                         scripts/render-properties-offline.sh \

@@ -105,8 +105,19 @@ for ((i = 1; i < ${#INV_ARGS[@]}; i += 2)); do
 done
 [[ -n "$VAULT_FILE" ]] && INV_ARGS+=(--vault-password-file "$VAULT_FILE")
 
-INV_JSON="$(ansible-inventory "${INV_ARGS[@]}" --list 2>/dev/null)" \
-  || die "ansible-inventory could not parse the inventory"
+# Check the tool exists BEFORE blaming the inventory. The first CI run of this script died
+# with "could not parse the inventory" when the real problem was that ansible lives in a venv
+# that the stage had not put on PATH -- an error message asserting a cause it never checked.
+command -v ansible-inventory > /dev/null 2>&1 \
+  || die "ansible-inventory is not on PATH (activate the ansible venv before calling this)"
+
+# stderr goes to a file rather than the terminal: with a reference inventory it can quote
+# inventory values. The path is printed so the reason is recoverable without guessing.
+INV_ERR="$(mktemp)"
+if ! INV_JSON="$(ansible-inventory "${INV_ARGS[@]}" --list 2> "$INV_ERR")"; then
+  die "ansible-inventory failed on this inventory (reason in $INV_ERR)"
+fi
+rm -f "$INV_ERR"
 
 # First host of the first group that exists. Returns the host name for use as a play target;
 # it is never echoed, since host names are part of what stays inside --output.
