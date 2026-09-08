@@ -1341,6 +1341,14 @@
     nginx_vhost_fast_mode: true
     namematching_user: "{{ docker_default_user }}"
     namematching_search_config_dir: /data/ala-namematching-server/config
+    # The species group files must match the taxonomy of the index we actually load. Our
+    # inventories fetch it through custom_namematching_url, so nameindex_to_use says
+    # `custom` and tells the role nothing about what is inside — and the artefact is
+    # COL-derived (its taxonConceptIDs resolve in ChecklistBank, e.g. 5BSG3 = Vulpes
+    # vulpes, where a GBIF-backbone build would carry numeric keys). Without this the role
+    # installs the ALA-taxonomy defaults and every bird also comes back tagged "Fishes".
+    # Verify with scripts/validate-species-groups.sh.
+    species_groups_variant: col
     # docker-local: nginx proxies to the app container via the compose service-name
     # alias (docker DNS), not 127.0.0.1 (which is nginx itself).
     namematching_service_upstream_host: "namematching-service"

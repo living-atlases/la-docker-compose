@@ -867,6 +867,57 @@ EOF
             }
         }
 
+        stage('Species groups baseline') {
+            // groups.json maps display groups ("Fishes", "Monocots") onto taxon names that
+            // SpeciesGroupsUtil resolves against the deployed name index, so a file written
+            // for one backbone misclassifies on another. Ours is COL: ALA's `Osteichthyes`
+            // resolves there to an unranked clade whose lft/rgt range contains Aves and
+            // Mammalia, so every bird and mammal also came back tagged "Fishes" -- through
+            // 300-odd green builds, because nothing in the pipeline ever looked at
+            // species_group. The e2e spec catches the symptom once records are indexed;
+            // this catches the cause as soon as namematching answers, on an empty index too.
+            //
+            // Report-only for now, like the other post-deploy checks: E2E_BLOCKING decides
+            // whether a red one fails the build or just marks the stage UNSTABLE.
+            when { expression { env.DO_REDEPLOY == 'true' && params.AUTO_DEPLOY && !params.ONLY_CLEAN } }
+            steps {
+                script {
+                    def hosts = env.TARGET_HOSTS.trim().split(/\s+/)
+                    def targetHost = hosts[0]
+                    def run = {
+                        // The namematching URL is not guessable: take it from the manifest
+                        // config-gen already emits from the inventory, same as Cypress does.
+                        sh """
+                            set -eu
+                            if [ "${targetHost}" = "localhost" ] || [ "${targetHost}" = "127.0.0.1" ]; then
+                                cp /data/docker-compose/e2e-targets.json "${WORKSPACE}/e2e-targets.json"
+                                cp /data/ala-namematching-service/config/groups.json "${WORKSPACE}/deployed-groups.json"
+                            else
+                                ssh -o BatchMode=yes -o StrictHostKeyChecking=no ${targetHost} "cat /data/docker-compose/e2e-targets.json" > "${WORKSPACE}/e2e-targets.json"
+                                ssh -o BatchMode=yes -o StrictHostKeyChecking=no ${targetHost} "cat /data/ala-namematching-service/config/groups.json" > "${WORKSPACE}/deployed-groups.json"
+                            fi
+                            cd "${WORKSPACE}"
+                            # Validate the file the deployment ACTUALLY installed, not the
+                            # variant we believe was selected: a wrong species_groups_variant
+                            # is exactly the mistake worth catching. --reference keeps the
+                            # group names pinned to the role's own file, because the
+                            # occurrence facet publishes them as species_group.<Name> i18n
+                            # codes and a rename breaks every translation keyed on them.
+                            E2E_TARGETS="${WORKSPACE}/e2e-targets.json" \
+                                scripts/validate-species-groups.sh \
+                                    --groups "${WORKSPACE}/deployed-groups.json" \
+                                    --reference ala-install/ansible/roles/namematching-service/files/groups.json
+                        """
+                    }
+                    if (params.E2E_BLOCKING) {
+                        run()
+                    } else {
+                        catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') { run() }
+                    }
+                }
+            }
+        }
+
         // ----- Post-deploy verification (opt-in via RUN_E2E, report-only by default) -----
         // Report-only: on failure the stage is marked UNSTABLE (visible) without failing the
         // build, unless E2E_BLOCKING is set. Keeps the fragile multi-host CI green while the

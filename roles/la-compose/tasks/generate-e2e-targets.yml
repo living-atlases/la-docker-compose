@@ -25,6 +25,9 @@
       lists: "{{ ((lists_base_url | default('')) ~ (lists_context_path | default(''))) | regex_replace('/+$', '') }}"
       images: "{{ ((image_service_base_url | default('')) ~ (image_service_context_path | default(''))) | regex_replace('/+$', '') }}"
       logger: "{{ ((logger_base_url | default('')) ~ (logger_context_path | default(''))) | regex_replace('/+$', '') }}"
+      # Name matching. Carries no context path; the species-group and vernacular checks
+      # resolve it from here instead of hardcoding a hostname.
+      namematching: "{{ (namematching_service_url | default('')) | regex_replace('/+$', '') }}"
       regions: "{{ ((regions_base_url | default('')) ~ (regions_context_path | default(''))) | regex_replace('/+$', '') }}"
       # gatus_url is a bare hostname in the inventory (no scheme) — add https:// when missing.
       gatus: "{{ (('https://' ~ gatus_url) if (gatus_url is defined and gatus_url and not (gatus_url is match('^https?://'))) else (gatus_url | default(''))) | regex_replace('/+$', '') }}"
