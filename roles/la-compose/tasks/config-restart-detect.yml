@@ -33,8 +33,15 @@
           { 'svc': 'biocache_service',     'service': 'biocache-service',            'path': data_dir ~ '/biocache/config' },
           { 'svc': 'logger',               'service': 'logger-service',              'path': data_dir ~ '/logger/config' },
           { 'svc': 'images',               'service': 'image-service',               'path': data_dir ~ '/image-service/config' },
-          { 'svc': 'namematchingService',  'service': 'namematching-service',        'path': data_dir ~ '/ala-namematching-server/config' },
-          { 'svc': 'sensitiveDataService', 'service': 'sensitive-data-service',      'path': data_dir ~ '/ala-sensitive-data-server/config' },
+          # HOST path, not the container's. Both services mount host
+          # <data_dir>/ala-*-SERVICE/config onto /data/ala-*-SERVER/config inside the
+          # container, and this list is hashed on the host: pointing it at the
+          # container path hashed a directory that does not exist, so the hash never
+          # changed and neither service was ever restarted for a config change. That
+          # is how a corrected groups.json reached the disk in #383 and namematching
+          # kept serving the old species groups from memory.
+          { 'svc': 'namematchingService',  'service': 'namematching-service',        'path': data_dir ~ '/ala-namematching-service/config' },
+          { 'svc': 'sensitiveDataService', 'service': 'sensitive-data-service',      'path': data_dir ~ '/ala-sensitive-data-service/config' },
           { 'svc': 'alerts',               'service': 'alerts',                      'path': data_dir ~ '/alerts/config' },
           { 'svc': 'regions',              'service': 'regions',                     'path': data_dir ~ '/regions/config' },
           { 'svc': 'doi',                  'service': 'doi-service',                 'path': data_dir ~ '/doi-service/config' },

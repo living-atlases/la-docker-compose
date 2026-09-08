@@ -884,18 +884,40 @@ EOF
                 script {
                     def hosts = env.TARGET_HOSTS.trim().split(/\s+/)
                     def targetHost = hosts[0]
+                    def allHosts = hosts.join(' ')
                     def run = {
                         // The namematching URL is not guessable: take it from the manifest
                         // config-gen already emits from the inventory, same as Cypress does.
+                        // The manifest is identical on every host, but the group files only
+                        // exist on the one that RUNS namematching-service -- which is not
+                        // hosts[0] in a multi-host layout, and was not in #383. So look for
+                        // them across the hosts instead of guessing.
                         sh """
                             set -eu
                             if [ "${targetHost}" = "localhost" ] || [ "${targetHost}" = "127.0.0.1" ]; then
                                 cp /data/docker-compose/e2e-targets.json "${WORKSPACE}/e2e-targets.json"
-                                cp /data/ala-namematching-service/config/groups.json "${WORKSPACE}/deployed-groups.json"
                             else
                                 ssh -o BatchMode=yes -o StrictHostKeyChecking=no ${targetHost} "cat /data/docker-compose/e2e-targets.json" > "${WORKSPACE}/e2e-targets.json"
-                                ssh -o BatchMode=yes -o StrictHostKeyChecking=no ${targetHost} "cat /data/ala-namematching-service/config/groups.json" > "${WORKSPACE}/deployed-groups.json"
                             fi
+                            GROUPS_SRC=""
+                            for h in ${allHosts}; do
+                                if [ "\$h" = "localhost" ] || [ "\$h" = "127.0.0.1" ]; then
+                                    if [ -f /data/ala-namematching-service/config/groups.json ]; then
+                                        cp /data/ala-namematching-service/config/groups.json "${WORKSPACE}/deployed-groups.json"
+                                        GROUPS_SRC="\$h"; break
+                                    fi
+                                elif ssh -o BatchMode=yes -o StrictHostKeyChecking=no "\$h" \
+                                        "cat /data/ala-namematching-service/config/groups.json" \
+                                        > "${WORKSPACE}/deployed-groups.json" 2>/dev/null \
+                                     && [ -s "${WORKSPACE}/deployed-groups.json" ]; then
+                                    GROUPS_SRC="\$h"; break
+                                fi
+                            done
+                            if [ -z "\$GROUPS_SRC" ]; then
+                                echo "No host carries /data/ala-namematching-service/config/groups.json -- namematching-service is not deployed in this topology."
+                                exit 0
+                            fi
+                            echo "species groups file taken from \$GROUPS_SRC"
                             cd "${WORKSPACE}"
                             # Validate the file the deployment ACTUALLY installed, not the
                             # variant we believe was selected: a wrong species_groups_variant
