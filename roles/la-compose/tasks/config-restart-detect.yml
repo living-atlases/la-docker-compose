@@ -18,6 +18,15 @@
   ansible.builtin.set_fact:
     # svc: services_enabled key (per-host gating) / service: compose service name
     # (container la_<service>) / path: host config dir the container mounts.
+    #
+    # `path` is the HOST directory, always. namematching-service and
+    # sensitive-data-service mount host <data_dir>/ala-*-service/config onto
+    # /data/ala-*-server/config inside the container, and this list is hashed on the
+    # host: carrying the -server spelling here hashed a directory that does not
+    # exist, which is not an error and never changes, so neither service was ever
+    # restarted for a config change. That is how a corrected groups.json reached the
+    # disk in #383 while namematching kept serving the old species groups from
+    # memory. Comments cannot go inside the expression below -- Jinja rejects `#`.
     config_watch: >-
       {{
         [
@@ -33,13 +42,6 @@
           { 'svc': 'biocache_service',     'service': 'biocache-service',            'path': data_dir ~ '/biocache/config' },
           { 'svc': 'logger',               'service': 'logger-service',              'path': data_dir ~ '/logger/config' },
           { 'svc': 'images',               'service': 'image-service',               'path': data_dir ~ '/image-service/config' },
-          # HOST path, not the container's. Both services mount host
-          # <data_dir>/ala-*-SERVICE/config onto /data/ala-*-SERVER/config inside the
-          # container, and this list is hashed on the host: pointing it at the
-          # container path hashed a directory that does not exist, so the hash never
-          # changed and neither service was ever restarted for a config change. That
-          # is how a corrected groups.json reached the disk in #383 and namematching
-          # kept serving the old species groups from memory.
           { 'svc': 'namematchingService',  'service': 'namematching-service',        'path': data_dir ~ '/ala-namematching-service/config' },
           { 'svc': 'sensitiveDataService', 'service': 'sensitive-data-service',      'path': data_dir ~ '/ala-sensitive-data-service/config' },
           { 'svc': 'alerts',               'service': 'alerts',                      'path': data_dir ~ '/alerts/config' },
