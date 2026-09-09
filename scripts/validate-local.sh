@@ -171,6 +171,19 @@ run_layer1() {
         log_skip "yamllint (not installed: sudo apt install yamllint)"
     fi
 
+    # Jinja expression syntax. Neither yamllint nor ansible-lint nor --syntax-check
+    # looks inside `{{ }}`: Ansible compiles a template only when it renders it, so a
+    # malformed expression in a set_fact first fails mid-deploy, on every host at once
+    # (build #384, a `#` comment inside a Jinja list). A parse needs no variables, so
+    # it cannot false-positive on undefined ones.
+    if "${REPO_ROOT}/scripts/check-jinja-syntax.py" >/dev/null 2>&1; then
+        log_pass "jinja expression syntax (roles + config-gen)"
+    else
+        log_fail "jinja expression syntax failed"
+        "${REPO_ROOT}/scripts/check-jinja-syntax.py" 2>&1 | head -20 | sed 's/^/    /'
+        ((LAYER1_FAILED++)) || true
+    fi
+
     # ansible-lint
     #
     # Prefer the one from .venv-molecule: it is installed alongside its own
