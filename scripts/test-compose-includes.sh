@@ -30,24 +30,32 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BASE="$REPO_DIR/roles/la-compose/templates/docker-compose/base.yml.j2"
-GEN="$REPO_DIR/roles/la-compose/tasks/generate-compose.yml"
+TASKS_DIR="$REPO_DIR/roles/la-compose/tasks"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; BLUE='\033[0;34m'; NC='\033[0m'
 pass() { echo -e "${GREEN}[PASS]${NC} $*"; }
 fail() { echo -e "${RED}[FAIL]${NC} $*"; }
 info() { echo -e "${BLUE}[INFO]${NC} $*"; }
 
-for f in "$BASE" "$GEN"; do
-    if [[ ! -f "$f" ]]; then
-        fail "not found: $f"
-        exit 1
-    fi
-done
+if [[ ! -f "$BASE" ]]; then
+    fail "not found: $BASE"
+    exit 1
+fi
+if [[ ! -d "$TASKS_DIR" ]]; then
+    fail "not found: $TASKS_DIR"
+    exit 1
+fi
 
 # `  - ./services/foo.yml` -> `services/foo.yml`. Jinja conditionals around the include
 # are irrelevant here: a file included on ANY host has to be generated on that host, and
-# every generating task is unconditional for exactly that reason.
-mapfile -t includes < <(grep -oE '^[[:space:]]+- \./\S+' "$BASE" | sed 's|^[[:space:]]*- \./||' | sort -u)
+# every generating task is gated on the same flag for exactly that reason.
+#
+# A data hub's includes carry the instance suffix -- `- ./services/regions{{ inst.suffix }}.yml`
+# -- so the path is matched to the end of the line, not to the first space, and the
+# Jinja expression is collapsed to a wildcard before the search. Matching only up to
+# the space compared the literal `regions{{` against every task file and reported a
+# missing generator for every hub fragment.
+mapfile -t includes < <(sed -nE 's|^[[:space:]]+- \./([^[:space:]].*)$|\1|p' "$BASE" | sed 's|[[:space:]]*$||' | sort -u)
 
 if [[ ${#includes[@]} -eq 0 ]]; then
     fail "parsed 0 includes out of $BASE — the test itself is broken, not the templates"
@@ -56,11 +64,21 @@ fi
 
 missing=()
 for inc in "${includes[@]}"; do
-    # Matches the task's `dest: "{{ docker_compose_data_dir }}/<inc>"`.
-    grep -qF "/$inc\"" "$GEN" || missing+=("$inc")
+    # Matches the task's `dest: "{{ docker_compose_data_dir }}/<inc>"`, in both
+    # directions:
+    #   - a Jinja expression in the INCLUDE becomes `.*`, so
+    #     `regions{{ inst.suffix }}.yml` finds its dest whatever the loop var is called;
+    #   - a literal include may still be produced by a SUFFIXED dest, because the portal
+    #     is hub instance #0 with an empty suffix -- `infrastructure/branding.yml` is
+    #     written by stage-branding-source.yml as `branding{{ inst.suffix }}.yml`. So an
+    #     optional Jinja expression is allowed just before the extension.
+    stem="${inc%.*}"; ext=".${inc##*.}"
+    esc() { printf '%s' "$1" | sed -E 's|[][\.^$*+?(){}|]|\\&|g; s|\\\{\\\{[^}]*\\\}\\\}|.*|g'; }
+    pattern="/$(esc "$stem")(\{\{[^}]*\}\})?$(esc "$ext")\""
+    grep -qrE -- "$pattern" "$TASKS_DIR" || missing+=("$inc")
 done
 
-info "checked ${#includes[@]} include(s) in base.yml.j2 against generate-compose.yml"
+info "checked ${#includes[@]} include(s) in base.yml.j2 against roles/la-compose/tasks/"
 
 if [[ ${#missing[@]} -eq 0 ]]; then
     pass "every compose include has a task that generates it"
@@ -68,7 +86,7 @@ if [[ ${#missing[@]} -eq 0 ]]; then
 fi
 
 for inc in "${missing[@]}"; do
-    fail "base.yml.j2 includes ./$inc but no task in generate-compose.yml writes it"
+    fail "base.yml.j2 includes ./$inc but no task in roles/la-compose/tasks/ writes it"
 done
 echo
 fail "${#missing[@]} include(s) without a generating task — every compose command on the"

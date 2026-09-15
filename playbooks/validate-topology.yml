@@ -15,6 +15,11 @@
 #      one physical host.
 #   4. Hosts without a resolvable private IP (extra_hosts/publish-ports need it).
 #
+# Data hubs: a hub's front-ends may be SPREAD across compose hosts, and its aliases
+# are excluded from services_enabled (setup-facts.yml), so checks 1 and 3 see only
+# the portal's own placement. Check 2 still applies to a hub's public vhosts -- an
+# external proxy cannot route one subdomain to two VMs, hub or not.
+#
 # Run standalone:
 #   ANSIBLE_ROLES_PATH=roles:ala-install/ansible/roles ansible-playbook \
 #     playbooks/validate-topology.yml \
@@ -66,7 +71,15 @@
           {%- set orphans = [] -%}
           {%- for svc, desc in docker_services_desc.items() -%}
             {%- set grp = desc.group | default('') -%}
-            {%- if grp in groups and (groups[grp] | length > 0) and svc not in enabled_union -%}
+            {#- A data hub joins the canonical group through [<group>:children], so a
+                group can be non-empty with hub aliases alone. Those are not the
+                portal's placement and never enter services_enabled, so counting them
+                here would report a permanent orphan for a service the portal simply
+                does not run. -#}
+            {%- set portal_hosts = groups[grp] | default([])
+                                   | reject('in', hostvars[groups['docker_compose'][0]].get('hub_alias_hosts', []))
+                                   | list -%}
+            {%- if grp in groups and (portal_hosts | length > 0) and svc not in enabled_union -%}
               {%- set _ = orphans.append(svc ~ ' (group ' ~ grp ~ ')') -%}
             {%- endif -%}
           {%- endfor -%}

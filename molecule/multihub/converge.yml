@@ -1,0 +1,376 @@
+---
+# Unit tests for roles/la-compose/tasks/setup-hub-facts.yml
+#
+# Covers:
+#   1. The portal is always instance #0, with an empty suffix, so a deployment
+#      without hubs renders exactly what it rendered before hubs existed.
+#   2. Each hub gets its own data dir names and its resolved aliases.
+#   3. A hub whose records front-end lives on ANOTHER docker host is not rendered here.
+#   4. use_species/use_regions follow both la_hubs and the groups actually present.
+#   5. use_branding follows branding_source: no source means the hub reuses the
+#      portal's branding through its header_and_footer_baseurl.
+#   6. skip_hubs and la_hub_only narrow the list.
+
+- name: Unit test setup-hub-facts.yml
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    # Inputs the fact file reads from the wider setup-facts pipeline.
+    services_enabled: ['ala_hub', 'ala_bie', 'regions', 'branding']
+    biocache_hub: ala-hub
+    branding_source: ../lademo-branding
+    # What generator-living-atlas emits in [docker_compose:vars].
+    # Enough of the compose vars for TC13-14 to render the real templates (see below).
+    # Values are irrelevant to the cross-check; only the conditions are.
+    tc13_flag: {'biocache-hub': 'use_records', 'bie-hub': 'use_species', 'regions': 'use_regions'}
+    physical_server_groups: []
+    data_dir: /data
+    docker_network: internal
+    deployment_type: container
+    server_tz: UTC
+    docker_extra_hosts_dict: {}
+    i18n:
+      enabled: true
+      strategy: volume
+      volume: {name: ala-i18n-data, source: init-container}
+    la_hubs:
+      - {pkg: lademohub, use_species: true, use_regions: true,
+         branding_source: 'https://github.com/living-atlases/base-branding'}
+      - {pkg: lademohub2, use_species: false, use_regions: false, branding_source: null}
+      - {pkg: elsewhere, use_species: true, use_regions: true, branding_source: null}
+
+  tasks:
+
+    - name: "[TC1-5] Compute hub facts"
+      ansible.builtin.include_tasks: ../../roles/la-compose/tasks/setup-hub-facts.yml
+
+    - name: "[TC1] The portal is instance #0 and keeps its current names"
+      ansible.builtin.assert:
+        that:
+          - hub_instances[0].is_portal
+          - hub_instances[0].pkg == ''
+          - hub_instances[0].suffix == ''
+          - hub_instances[0].biocache_hub == 'ala-hub'
+          - hub_instances[0].bie_hub == 'ala-bie-hub'
+          - hub_instances[0].regions == 'regions'
+        fail_msg: "portal instance drifted: {{ hub_instances[0] }}"
+
+    - name: "[TC2] Each hub gets suffixed data dirs and its resolved aliases"
+      ansible.builtin.assert:
+        that:
+          - hub_instances[1].pkg == 'lademohub'
+          - hub_instances[1].suffix == '-lademohub'
+          - hub_instances[1].biocache_hub == 'lademohub-hub'
+          - hub_instances[1].bie_hub == 'lademohub-bie-hub'
+          - hub_instances[1].regions == 'lademohub-regions'
+          - hub_instances[1].aliases['biocache-hub'] == 'localhost.ala_hub_lademohub'
+          - hub_instances[1].aliases['branding'] == 'localhost.branding_lademohub'
+        fail_msg: "hub instance drifted: {{ hub_instances[1] }}"
+
+    - name: "[TC3] A hub deployed on another docker host is not rendered here"
+      ansible.builtin.assert:
+        that:
+          - "'elsewhere' not in (hub_instances | map(attribute='pkg') | list)"
+          - hub_instances | length == 3
+        fail_msg: "rendered hubs: {{ hub_instances | map(attribute='pkg') | list }}"
+
+    - name: "[TC4] A records-only hub declares no species and no regions"
+      ansible.builtin.assert:
+        that:
+          - not hub_instances[2].use_species
+          - not hub_instances[2].use_regions
+          - hub_instances[1].use_species
+          - hub_instances[1].use_regions
+
+    - name: "[TC5] Branding is per hub and follows branding_source"
+      ansible.builtin.assert:
+        that:
+          - hub_instances[1].use_branding
+          - not hub_instances[2].use_branding
+        fail_msg: "branding: {{ hub_instances | map(attribute='use_branding') | list }}"
+
+    - name: "[TC6] skip_hubs drops a hub without touching the portal"
+      ansible.builtin.include_tasks: ../../roles/la-compose/tasks/setup-hub-facts.yml
+      vars:
+        skip_hubs: "lademohub2"
+
+    - name: "[TC6] assert skip_hubs"
+      ansible.builtin.assert:
+        that:
+          - hub_instances | map(attribute='pkg') | list == ['', 'lademohub']
+        fail_msg: "skip_hubs ignored: {{ hub_instances | map(attribute='pkg') | list }}"
+
+    # la_hub_only must NOT shorten the list: docker-compose.yml is one file, so a hub
+    # missing from the render loses its include and the next `up` removes containers
+    # nobody asked to remove. It only says which hub re-renders its (slow) app config.
+    - name: "[TC7] la_hub_only narrows the config work, not the stack"
+      ansible.builtin.include_tasks: ../../roles/la-compose/tasks/setup-hub-facts.yml
+      vars:
+        skip_hubs: []
+        la_hub_only: lademohub2
+
+    - name: "[TC7] assert la_hub_only"
+      ansible.builtin.assert:
+        that:
+          - hub_instances | map(attribute='pkg') | list == ['', 'lademohub', 'lademohub2']
+          - hub_instances | selectattr('render_config') | map(attribute='pkg') | list == ['', 'lademohub2']
+        fail_msg: >-
+          la_hub_only mishandled: pkgs={{ hub_instances | map(attribute='pkg') | list }}
+          render={{ hub_instances | map(attribute='render_config') | list }}
+
+    # This is how it really arrives: the ini plugin literal_evals inventory values
+    # and JSON's lowercase true/null are not Python literals, so the whole list
+    # comes through as one string. A real deploy died on `h.pkg` here.
+    - name: "[TC9] la_hubs as the ini plugin delivers it: one JSON string"
+      ansible.builtin.include_tasks: ../../roles/la-compose/tasks/setup-hub-facts.yml
+      vars:
+        skip_hubs: []
+        la_hubs: >-
+          [{"pkg":"lademohub","use_species":true,"use_regions":true,"branding_source":"https://github.com/living-atlases/base-branding"},{"pkg":"lademohub2","use_species":false,"use_regions":false,"branding_source":null}]
+
+    - name: "[TC9] assert the string form yields the same instances"
+      ansible.builtin.assert:
+        that:
+          - hub_instances | map(attribute='pkg') | list == ['', 'lademohub', 'lademohub2']
+          - hub_instances[1].use_branding
+          - not hub_instances[2].use_branding
+          - not hub_instances[2].use_species
+        fail_msg: "la_hubs as text was not parsed: {{ hub_instances }}"
+
+    # ---------------------------------------------------------------- issue #14
+    # A hub may be SPREAD across compose hosts. Presence is "any alias resolves here",
+    # not "the records alias resolves here", and every front-end is its own flag.
+    - name: "[TC10-11] Hubs spread across docker hosts"
+      ansible.builtin.include_tasks: ../../roles/la-compose/tasks/setup-hub-facts.yml
+      vars:
+        skip_hubs: []
+        la_hubs:
+          - {pkg: splithub, use_species: true, use_regions: true, branding_source: null}
+          - {pkg: farhub, use_species: true, use_regions: true,
+             branding_source: 'https://github.com/living-atlases/base-branding'}
+
+    - name: "[TC10] A hub with records here and species elsewhere renders records only"
+      ansible.builtin.assert:
+        that:
+          - hub_instances[1].pkg == 'splithub'
+          - hub_instances[1].use_records
+          - not hub_instances[1].use_species
+          - not hub_instances[1].use_regions
+        fail_msg: "splithub: {{ hub_instances[1] }}"
+
+    # The regression this whole change is about: before it, a hub whose records front-end
+    # lives on another machine resolved to nothing here and its species and regions were
+    # silently never deployed.
+    - name: "[TC11] A hub whose records live elsewhere still renders its species here"
+      ansible.builtin.assert:
+        that:
+          - hub_instances | map(attribute='pkg') | list == ['', 'splithub', 'farhub']
+          - not hub_instances[2].use_records
+          - hub_instances[2].use_species
+          - hub_instances[2].use_regions
+          - not hub_instances[2].use_branding
+          - "'biocache-hub' not in hub_instances[2].aliases"
+          - hub_instances[2].aliases['bie-hub'] == 'localhost.ala_bie_farhub'
+        fail_msg: "farhub: {{ hub_instances[2] }}"
+
+    # use_branding is what decides whether branding{{ suffix }}.yml, its external volume
+    # and its vhost are rendered. farhub declares a branding_source but placed it on the
+    # other machine, so this host must not claim it (a second branding container on the
+    # same public vhost is validate-topology check 2).
+    # use_branding decides the container, its volume and its vhost; has_branding decides
+    # the readiness gate, which is a curl poll on the public URL and therefore belongs on
+    # every host carrying one of this hub's front-ends. farhub declares a branding but
+    # placed it on the other machine: this host waits for it without serving it.
+    - name: "[TC11] Branding renders where placed, but the gate follows the front-ends"
+      ansible.builtin.assert:
+        that:
+          - not hub_instances[2].use_branding
+          - hub_instances[2].has_branding
+          - "'branding' not in hub_instances[2].aliases"
+          - not hub_instances[1].has_branding
+        fail_msg: "farhub branding: {{ hub_instances[2] }}"
+
+    # A hub SPREAD across hosts emits one slice per host, but the Cypress suite reads
+    # ONE e2e-targets.json. The two stub docker_compose hosts in the inventory carry
+    # the slices a split lademohub produces.
+    - name: "[TC12] The per-host e2e slices of a spread hub are joined into one entry"
+      ansible.builtin.include_tasks: ../../roles/la-compose/tasks/merge-hub-e2e-targets.yml
+
+    - name: "[TC12] assert the merge"
+      ansible.builtin.assert:
+        that:
+          - e2e_targets_hubs_merged | map(attribute='key') | list == ['lademohub', 'lademohub2']
+          - e2e_targets_hubs_merged[0].services | length == 3
+          - e2e_targets_hubs_merged[0].services.records == 'https://records-hub.l-a.site'
+          - e2e_targets_hubs_merged[0].services.species == 'https://species-hub.l-a.site'
+          - e2e_targets_hubs_merged[0].services.regions == 'https://regions-hub.l-a.site'
+          - e2e_targets_hubs_merged[0].name == 'LA Demo Hub'
+          - e2e_targets_hubs_merged[0].queryContext == 'data_hub_uid:dh3'
+          - e2e_targets_hubs_merged[0].branding == 'https://hub.l-a.site'
+          - e2e_targets_hubs_merged[1].services | length == 1
+        fail_msg: "merged hubs: {{ e2e_targets_hubs_merged }}"
+
+    - name: "[TC8] service_aliases never resolves the portal to a hub alias"
+      ansible.builtin.set_fact:
+        portal_alias: >-
+          {%- set matching = groups['biocache-hub'] | select('match', '^' ~ ansible_host ~ '(\..+)?$') | list -%}
+          {%- set hub_aliases = [] -%}
+          {%- for g in groups.keys() | select('match', '^hub-') -%}
+            {%- set _ = hub_aliases.extend(groups[g] | default([])) -%}
+          {%- endfor -%}
+          {{ (matching | reject('in', hub_aliases) | list) }}
+
+    - name: "[TC8] assert portal alias"
+      ansible.builtin.assert:
+        that:
+          - portal_alias == ['localhost.ala_hub']
+        fail_msg: "portal alias would be hijacked by a hub: {{ portal_alias }}"
+
+    # ------------------------------------------------------------------ TC13-14
+    # Everything above is fact-level. The failure these guard against is not: a
+    # `depends_on` naming a service no include provides makes EVERY docker compose
+    # command on that host die at parse time (the #284/#285 class). The condition
+    # that emits the dependency lives in the service template and the condition that
+    # includes the gate lives in base.yml.j2, so the two can drift apart silently.
+    # So render the real templates with the real facts and cross-check them.
+    - name: "[TC13] Somewhere to render into"
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: -compose-render
+      register: tc13_dir
+
+    # hub_instances here is still the TC10-11 split set: splithub (records here, no
+    # branding of its own) and farhub (species+regions here, branding on the other
+    # machine). Both lean on a gate rendered under a condition they do not control.
+    - name: "[TC13] Render base.yml.j2 with the split hub facts"
+      ansible.builtin.template:
+        src: ../../roles/la-compose/templates/docker-compose/base.yml.j2
+        dest: "{{ tc13_dir.path }}/docker-compose.yml"
+        mode: "0644"
+
+    - name: "[TC13] Render every hub front-end fragment the base includes"
+      ansible.builtin.template:
+        src: "../../roles/la-compose/templates/docker-compose/services/{{ item.1 }}.yml.j2"
+        dest: "{{ tc13_dir.path }}/{{ item.1 }}{{ item.0.suffix }}.yml"
+        mode: "0644"
+      vars:
+        inst: "{{ item.0 }}"
+      loop: "{{ (hub_instances | rejectattr('is_portal') | list) | product(['biocache-hub', 'bie-hub', 'regions']) | list }}"
+      loop_control:
+        label: "{{ item.1 }}{{ item.0.suffix }}"
+      when: item.0[tc13_flag[item.1]]
+      # which use_* flag gates which fragment
+
+    # The portal's own three, rendered WITHOUT inst so the template defaults apply --
+    # the path a deployment that has never heard of hubs takes.
+    - name: "[TC13] Render the portal's front-ends the same way"
+      ansible.builtin.template:
+        src: "../../roles/la-compose/templates/docker-compose/services/{{ item }}.yml.j2"
+        dest: "{{ tc13_dir.path }}/{{ item }}.yml"
+        mode: "0644"
+      loop: ['biocache-hub', 'bie-hub', 'regions']
+
+    - name: "[TC13] The fragments that were rendered"
+      ansible.builtin.find:
+        paths: "{{ tc13_dir.path }}"
+        patterns: "*.yml"
+        excludes: "docker-compose.yml"
+      register: tc13_fragments
+
+    - name: "[TC13] Collect what the base includes and what the fragments depend on"
+      ansible.builtin.set_fact:
+        # Include lines are `  - ./services/x.yml`; the service a depends_on names maps
+        # to the fragment of the same basename (i18n-init is the one exception, it lives
+        # in infrastructure/i18n.yml).
+        tc13_included: >-
+          {{ lookup('file', tc13_dir.path ~ '/docker-compose.yml').splitlines()
+             | map('regex_search', '^\s+- \./(?:services|infrastructure)/(.+)\.yml$', '\1')
+             | reject('none') | map('first') | list }}
+        tc13_deps: >-
+          {%- set out = [] -%}
+          {%- for f in (tc13_fragments.files | map(attribute='path') | list) -%}
+            {%- set doc = lookup('file', f) | from_yaml -%}
+            {%- for svc, spec in (doc.services | default({})).items() -%}
+              {%- for dep in (spec.depends_on | default({})).keys() -%}
+                {%- set _ = out.append({'fragment': f | basename, 'service': svc, 'needs': dep}) -%}
+              {%- endfor -%}
+            {%- endfor -%}
+          {%- endfor -%}
+          {{ out }}
+
+    - name: "[TC13] Every depends_on target is a service the base actually includes"
+      ansible.builtin.assert:
+        that:
+          - tc13_included | length > 0
+          - tc13_deps | length > 0
+          - tc13_dangling | length == 0
+        fail_msg: >-
+          compose would not parse: {{ tc13_dangling }} -- included fragments were
+          {{ tc13_included }}
+        success_msg: "{{ tc13_deps | length }} depends_on edge(s), all provided"
+      vars:
+        tc13_dangling: >-
+          {{ tc13_deps | rejectattr('needs', 'in',
+               tc13_included + (['i18n-init'] if 'i18n' in tc13_included else [])) | list }}
+
+    # The specific edge the split exercises: splithub declares no branding of its own, so
+    # it waits on the PORTAL's unsuffixed gate -- which base.yml.j2 only includes because
+    # of its `rejectattr('has_branding')` term. Drop that term and TC13 goes red.
+    - name: "[TC13] A branding-less hub pulls in the unsuffixed gate"
+      ansible.builtin.assert:
+        that:
+          - "'wait-for-branding' in tc13_included"
+          - "'wait-for-branding-farhub' in tc13_included"
+          - "'wait-for-branding-splithub' not in tc13_included"
+        fail_msg: "gates included: {{ tc13_included | select('search', 'wait-for-branding') | list }}"
+
+    # And the mirror image, which is where the portal can break: regions with no
+    # collectory and no bie-hub means base.yml.j2 includes no gate at all, so the
+    # fragment must not emit the dependency either.
+    - name: "[TC14] Render regions alone, portal-style"
+      ansible.builtin.template:
+        src: ../../roles/la-compose/templates/docker-compose/services/regions.yml.j2
+        dest: "{{ tc13_dir.path }}/tc14-regions.yml"
+        mode: "0644"
+      vars:
+        services_enabled: ['regions']
+
+    - name: "[TC14] No gate included means no dependency emitted"
+      ansible.builtin.assert:
+        that:
+          - (lookup('file', tc13_dir.path ~ '/tc14-regions.yml') | from_yaml).services.regions.depends_on is not defined
+        fail_msg: >-
+          regions depends on a branding gate the base would not include:
+          {{ lookup('file', tc13_dir.path ~ '/tc14-regions.yml') }}
+
+    # TC13's splithub edge is satisfied in that render because the portal itself runs
+    # bie-hub. Isolate the hub term: a portal with neither collectory nor bie-hub, hosting
+    # one branding-less hub, must STILL include the unsuffixed gate -- that hub's records
+    # fragment depends on it unconditionally.
+    - name: "[TC15] Render the base for a portal that only runs records"
+      ansible.builtin.template:
+        src: ../../roles/la-compose/templates/docker-compose/base.yml.j2
+        dest: "{{ tc13_dir.path }}/tc15-base.yml"
+        mode: "0644"
+      vars:
+        services_enabled: ['ala_hub']
+
+    - name: "[TC15] The branding-less hub alone pulls the gate in"
+      ansible.builtin.assert:
+        that:
+          - "'./infrastructure/wait-for-branding.yml' in tc15_includes"
+          - "'./services/biocache-hub-splithub.yml' in tc15_includes"
+        fail_msg: >-
+          biocache-hub-splithub depends on wait-for-branding but the base would not
+          include it: {{ tc15_includes }}
+      vars:
+        tc15_includes: >-
+          {{ lookup('file', tc13_dir.path ~ '/tc15-base.yml').splitlines()
+             | map('regex_search', '^\s+- (\./.*\.yml)$', '\1')
+             | reject('none') | map('first') | list }}
+
+    - name: "[TC13-14] Clean up"
+      ansible.builtin.file:
+        path: "{{ tc13_dir.path }}"
+        state: absent

@@ -1,0 +1,135 @@
+---
+# Molecule unit scenario for the data hub facts (roles/la-compose/tasks/setup-hub-facts.yml).
+# Same shape as the 'unit' scenario: default driver, managed: false, everything on localhost.
+#
+# Setup: scripts/setup-molecule.sh
+# Run:   molecule test -s multihub    (from project root)
+#
+# The inventory below is the point of the scenario: it declares the per-hub groups a
+# generated hub inventory would create, on two different machines, so the fact under
+# test has to decide which hubs belong to THIS docker host.
+
+dependency:
+  name: galaxy
+
+driver:
+  name: default
+  options:
+    managed: false
+
+platforms:
+  - name: localhost
+
+provisioner:
+  name: ansible
+  inventory:
+    hosts:
+      all:
+        hosts:
+          localhost:
+            ansible_connection: local
+            ansible_python_interpreter: "{{ ansible_playbook_python }}"
+        children:
+          biocache-hub:
+            hosts:
+              localhost.ala_hub: {ansible_host: localhost}
+              localhost.ala_hub_lademohub: {ansible_host: localhost}
+              localhost.ala_hub_lademohub2: {ansible_host: localhost}
+              other.ala_hub_elsewhere: {ansible_host: other-host}
+          biocache-hub-lademohub:
+            hosts:
+              localhost.ala_hub_lademohub: {ansible_host: localhost}
+          bie-hub-lademohub:
+            hosts:
+              localhost.ala_bie_lademohub: {ansible_host: localhost}
+          regions-lademohub:
+            hosts:
+              localhost.regions_lademohub: {ansible_host: localhost}
+          branding-lademohub:
+            hosts:
+              localhost.branding_lademohub: {ansible_host: localhost}
+          biocache-hub-lademohub2:
+            hosts:
+              localhost.ala_hub_lademohub2: {ansible_host: localhost}
+          branding-lademohub2:
+            hosts:
+              localhost.branding_lademohub2: {ansible_host: localhost}
+          biocache-hub-elsewhere:
+            hosts:
+              other.ala_hub_elsewhere: {ansible_host: other-host}
+          hub-lademohub:
+            children:
+              biocache-hub-lademohub: {}
+              bie-hub-lademohub: {}
+              regions-lademohub: {}
+              branding-lademohub: {}
+          hub-lademohub2:
+            children:
+              biocache-hub-lademohub2: {}
+              branding-lademohub2: {}
+          # Two hubs SPREAD across docker hosts (issue #14). 'splithub' keeps its
+          # records here and puts species elsewhere; 'farhub' is the interesting one,
+          # with its records and branding on the OTHER machine and only species and
+          # regions here -- before the split it rendered nothing at all on this host.
+          biocache-hub-splithub:
+            hosts:
+              localhost.ala_hub_splithub: {ansible_host: localhost}
+          bie-hub-splithub:
+            hosts:
+              other.ala_bie_splithub: {ansible_host: other-host}
+          hub-splithub:
+            children:
+              biocache-hub-splithub: {}
+              bie-hub-splithub: {}
+          biocache-hub-farhub:
+            hosts:
+              other.ala_hub_farhub: {ansible_host: other-host}
+          bie-hub-farhub:
+            hosts:
+              localhost.ala_bie_farhub: {ansible_host: localhost}
+          regions-farhub:
+            hosts:
+              localhost.regions_farhub: {ansible_host: localhost}
+          branding-farhub:
+            hosts:
+              other.branding_farhub: {ansible_host: other-host}
+          hub-farhub:
+            children:
+              biocache-hub-farhub: {}
+              bie-hub-farhub: {}
+              regions-farhub: {}
+              branding-farhub: {}
+          # Stub compose hosts carrying the per-host e2e slices a spread hub produces.
+          # merge-hub-e2e-targets.yml reads them straight out of hostvars, so declaring
+          # them here is enough to exercise the real join.
+          docker_compose:
+            hosts:
+              e2e-host-1:
+                ansible_host: e2e-host-1
+                e2e_targets_hubs:
+                  - {key: lademohub, name: LA Demo Hub, queryContext: 'data_hub_uid:dh3',
+                     branding: 'https://hub.l-a.site',
+                     services: {records: 'https://records-hub.l-a.site'}}
+                  - {key: lademohub2, name: Hub Two, queryContext: 'data_hub_uid:dh2',
+                     branding: '',
+                     services: {records: 'https://records-hub2.l-a.site'}}
+              e2e-host-3:
+                ansible_host: e2e-host-3
+                e2e_targets_hubs:
+                  - {key: lademohub,
+                     services: {species: 'https://species-hub.l-a.site',
+                                regions: 'https://regions-hub.l-a.site'}}
+
+verifier:
+  name: ansible
+
+scenario:
+  name: multihub
+  test_sequence:
+    - syntax
+    - converge
+    - verify
+  create_sequence:
+    - create
+  destroy_sequence:
+    - destroy

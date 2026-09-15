@@ -1,0 +1,10 @@
+---
+# All assertions are in converge.yml (facts do not persist across plays with the
+# default/managed:false driver).
+- name: Verify
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: All multihub assertions passed in converge
+      ansible.builtin.debug:
+        msg: "PASS: hub_instances, skip_hubs/la_hub_only scoping and hub-aware service_aliases (TC1-TC9) completed in converge.yml"

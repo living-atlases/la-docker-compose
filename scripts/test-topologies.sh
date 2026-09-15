@@ -71,8 +71,26 @@ sys.exit(0 if a == b else 1)"; then
   fi
   rm -f "$tmp_rc"
 
+  # Data hub inventories, when the variant has any. The portal inventory declares
+  # the [hub-<pkg>] groups EMPTY on purpose, so a hub's placement lives only in its
+  # own file; a hub's ansiblew passes both. Without them the checks below would
+  # validate a portal that has no hubs at all, whatever the .yo-rc says.
+  inv_args=(-i "$inv")
+  hub_invs=()
+  for hubdir in "${FIXTURES}/${variant}"/*-inventories; do
+    hubpkg="$(basename "$hubdir" -inventories)"
+    hubinv="${hubdir}/${hubpkg}-inventory.ini"
+    [ "$hubinv" = "$inv" ] && continue
+    [ -f "$hubinv" ] || continue
+    inv_args+=(-i "$hubinv")
+    hub_invs+=("$hubpkg")
+  done
+  if [ "${#hub_invs[@]}" -gt 0 ]; then
+    echo "    data hubs: ${hub_invs[*]}"
+  fi
+
   # 1. Scope-leak check
-  if "$ANSIBLE_PLAYBOOK" molecule/multihost/converge.yml -i "$inv" --limit docker_compose >/tmp/topo-scope-${variant}.log 2>&1; then
+  if "$ANSIBLE_PLAYBOOK" molecule/multihost/converge.yml "${inv_args[@]}" --limit docker_compose >/tmp/topo-scope-${variant}.log 2>&1; then
     pass "${variant}: scope-leak check (no localhost in inter-service deps)"
   else
     fail "${variant}: scope-leak check — see /tmp/topo-scope-${variant}.log"
@@ -80,7 +98,7 @@ sys.exit(0 if a == b else 1)"; then
   fi
 
   # 2. Topology invariants
-  if "$ANSIBLE_PLAYBOOK" playbooks/validate-topology.yml -i "$inv" --limit docker_compose >/tmp/topo-invariants-${variant}.log 2>&1; then
+  if "$ANSIBLE_PLAYBOOK" playbooks/validate-topology.yml "${inv_args[@]}" --limit docker_compose >/tmp/topo-invariants-${variant}.log 2>&1; then
     pass "${variant}: topology invariants (orphans/vhosts/placement/IPs)"
   else
     fail "${variant}: topology invariants — see /tmp/topo-invariants-${variant}.log"

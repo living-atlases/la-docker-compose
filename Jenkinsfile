@@ -315,6 +315,13 @@ EOF
                     "$VENV_MOL/bin/pip" install --quiet molecule ansible-core
                     VENV_MOLECULE="$VENV_MOL" PATH="$VENV_MOL/bin:$PATH" "$VENV_MOL/bin/molecule" test -s unit
 
+                    # Data hub facts. A hub may be SPREAD across compose hosts (records
+                    # on one, species and regions on another), and presence is decided
+                    # per front-end from the resolved aliases -- get that wrong and a
+                    # hub's species are silently never deployed. No inventory, no roles
+                    # path, seconds.
+                    VENV_MOLECULE="$VENV_MOL" PATH="$VENV_MOL/bin:$PATH" "$VENV_MOL/bin/molecule" test -s multihub
+
                     # Behavioural half of the health-gate regression (the molecule unit
                     # scenario only asserts the budget arithmetic): one throwaway alpine
                     # container, ~90s, no inventory and no deployed stack.
@@ -350,6 +357,13 @@ EOF
                 sh '''
                     set -eu
                     VENV_MOLECULE="${WORKSPACE}/.venv-molecule" bash scripts/test-topologies.sh
+
+                    # A data hub joins the portal's canonical service groups through
+                    # [<group>:children], so it can silently enable the portal's copy of
+                    # a service on the hub's host -- an extra container, an extra vhost,
+                    # a re-pointed variable, none of it visible in a deploy log. Require
+                    # the portal's facts to be identical with and without its hubs.
+                    VENV_MOLECULE="${WORKSPACE}/.venv-molecule" bash scripts/test-hub-baseline.sh
                 '''
             }
         }
@@ -656,28 +670,26 @@ EOF
             // fires when somebody remembers to run a script by hand is not one -- which is
             // exactly what it was until this stage existed.
             //
-            // Wrapped in catchError for its FIRST runs: it has been verified locally (by
-            // planting a drifted URL and watching it fail) but never in CI, and an unproven
-            // guard should report before it starts blocking. Once it has been green here,
-            // drop the wrapper so real drift fails the build.
+            // Blocking. It reported without blocking for its first runs, as an unproven guard
+            // should; it came out green in #382 (11/11 rendered, 374 URL keys unchanged), so
+            // the wrapper is gone and undeclared drift now fails the build. Intended changes
+            // refresh the baseline in the same commit -- the failure message says how.
             when { expression { !params.ONLY_CLEAN } }
             steps {
-                catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
-                    sh """
-                        set -eu
-                        cd "\${WORKSPACE}"
-                        # ansible lives in the pipeline's venv, not on the default PATH. The
-                        # first run of this stage died claiming it could not parse the
-                        # inventory, when ansible-inventory simply was not there.
-                        export PATH="${VENV_DIR}/bin:\$PATH"
-                        BASE_TMP="\$(mktemp -d)"
-                        trap 'rm -rf "\$BASE_TMP"' EXIT
-                        scripts/render-properties-offline.sh \
-                            \$(printf -- '--inventory %s ' "${INVENTORY_DIR}"/*.ini) \
-                            --output "\$BASE_TMP"
-                        scripts/config-baseline.py check --from "\$BASE_TMP"
-                    """
-                }
+                sh """
+                    set -eu
+                    cd "\${WORKSPACE}"
+                    # ansible lives in the pipeline's venv, not on the default PATH. The
+                    # first run of this stage died claiming it could not parse the
+                    # inventory, when ansible-inventory simply was not there.
+                    export PATH="${VENV_DIR}/bin:\$PATH"
+                    BASE_TMP="\$(mktemp -d)"
+                    trap 'rm -rf "\$BASE_TMP"' EXIT
+                    scripts/render-properties-offline.sh \
+                        \$(printf -- '--inventory %s ' "${INVENTORY_DIR}"/*.ini) \
+                        --output "\$BASE_TMP"
+                    scripts/config-baseline.py check --from "\$BASE_TMP"
+                """
             }
         }
 

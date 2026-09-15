@@ -1,0 +1,9 @@
+---
+# Delegated driver: localhost always exists, nothing to create.
+- name: Create
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Delegated driver - no instance creation needed
+      ansible.builtin.debug:
+        msg: "Using delegated driver on localhost - skipping create"
