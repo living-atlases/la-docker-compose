@@ -41,12 +41,22 @@ for variant in "${VARIANTS[@]}"; do
   (cd "$dir" && yo living-atlas --replay-dont-ask --force >/dev/null)
   test -f "${dir}/lademo-inventories/lademo-inventory.ini" \
     || { echo "ERROR: ${variant}: inventory not generated" >&2; exit 1; }
-  # Fixtures only need the inventory (+ the .yo-rc they came from). Drop the
-  # branding clone and other deploy-time artifacts the generator provisions.
+  # Fixtures only need the inventories (+ the .yo-rc they came from). Drop the
+  # branding clones and other deploy-time artifacts the generator provisions.
+  #
+  # Data hub inventories are kept: the PORTAL inventory declares the [hub-<pkg>]
+  # groups EMPTY on purpose, so a hub's placement lives only in its own
+  # <pkg>-inventories/<pkg>-inventory.ini. Without them no fixture would ever
+  # exercise a hub, and a hub may be SPREAD across hosts. This mirrors what the
+  # hub's own ansiblew does: -i ../<portal>-inventory.ini -i ./<hub>-inventory.ini.
   find "$dir" -mindepth 1 -maxdepth 1 \
-    ! -name '.yo-rc.json' ! -name 'lademo-inventories' -exec rm -rf {} +
-  find "${dir}/lademo-inventories" -mindepth 1 -maxdepth 1 \
-    ! -name 'lademo-inventory.ini' -exec rm -rf {} +
+    ! -name '.yo-rc.json' ! -name '*-inventories' -exec rm -rf {} +
+  for invdir in "${dir}"/*-inventories; do
+    pkg="$(basename "$invdir" -inventories)"
+    find "$invdir" -mindepth 1 -maxdepth 1 \
+      ! -name "${pkg}-inventory.ini" -exec rm -rf {} +
+    rmdir "$invdir" 2>/dev/null || true
+  done
   echo "    -> ${dir}/lademo-inventories/lademo-inventory.ini"
 done
 echo "Done. Review the diff and commit the regenerated fixtures."

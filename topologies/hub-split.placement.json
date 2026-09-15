@@ -1,0 +1,48 @@
+{
+  "description": "Data hub SPREAD across compose hosts, away from the portal's own copies (issue #14): lademohub serves records and its branding from host2, where the portal runs no front-end at all, and species+regions from host3. The portal layout is the control topology's, unchanged.",
+  "hosts": [
+    "host1",
+    "host2",
+    "host3"
+  ],
+  "services": {
+    "cas": "host1",
+    "collectory": "host1",
+    "ala_hub": "host1",
+    "biocache_service": "host1",
+    "lists": "host1",
+    "logger": "host1",
+    "alerts": "host1",
+    "branding": "host1",
+    "spatial": "host2",
+    "images": "host2",
+    "doi": "host2",
+    "data_quality": "host2",
+    "solrcloud": "host2",
+    "zookeeper": "host2",
+    "ala_bie": "host3",
+    "bie_index": "host3",
+    "regions": "host3",
+    "sds": "host3",
+    "namematching_service": "host3",
+    "sensitive_data_service": "host3",
+    "pipelines": "host3",
+    "spark": "host3",
+    "hadoop": "host3",
+    "cassandra": "host3",
+    "airflow": "host3",
+    "gatus": "host3"
+  },
+  "hubs": {
+    "lademohub": {
+      "ala_hub": "host2",
+      "branding": "host2",
+      "ala_bie": "host3",
+      "regions": "host3"
+    },
+    "lademohub2": {
+      "ala_hub": "host2"
+    }
+  },
+  "skip_services": []
+}

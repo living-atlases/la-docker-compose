@@ -24,10 +24,19 @@ Placement overlay format (topologies/*.placement.json):
                                           # slots than base hosts drops the
                                           # trailing base hosts
     "services": {"collectory": "host1", ...},
+    "hubs": {"lademohub": {"ala_bie": "host2"}},  # OPTIONAL per-data-hub override;
+                                          # any front-end left out follows the
+                                          # PORTAL's slot for the same service
     "skip_services": ["spatial", ...]     # runtime SKIP_SERVICES for reduced
                                           # variants (consumed by Jenkinsfile,
                                           # not by this script)
   }
+
+Data hubs (LA_hubs) are placed per front-end, exactly like the portal's services:
+a hub may be SPREAD across hosts (records on one, species and regions on another).
+Their public vhosts join LA_nginx_docker_internal_aliases_by_host and the cross-host
+extra_hosts map, so a hub is visible to nginx and to validate-topology's duplicate
+vhost check.
 
 Sub-services (userdetails/apikey/cas_management -> cas; spatial_service/
 geoserver/geonetwork -> spatial) default to their parent's slot and may not
@@ -57,6 +66,10 @@ SUBSERVICE_PARENT = {
 # Placement bookkeeping keys that look like LA_<service>_hostname but are not
 # individually placeable services.
 NON_SERVICE_HOSTNAME_KEYS = {"docker_compose", "docker_common"}
+
+# A data hub's front-ends, named after the portal service each one mirrors. Each is
+# optional per hub: a records-only hub carries LA_ala_hub_hostname and nothing else.
+HUB_FRONTENDS = ("ala_hub", "ala_bie", "regions", "branding")
 
 # Secret-bearing .yo-rc keys (values replaced on sanitize).
 SECRET_KEY_RE = re.compile(
@@ -107,11 +120,17 @@ def service_hostname_keys(pv):
 
 
 def alias_union(pv):
-    """All public vhost aliases across hosts, from the base aliases dict."""
+    """The PORTAL's public vhost aliases across hosts, from the base aliases dict.
+
+    Data hub vhosts are excluded and resolved separately (hub_vhosts): they are owned
+    by an LA_hubs entry, not by a top-level LA_<svc>_url, so alias_owners could never
+    find their owner and would die.
+    """
+    hubs = set(hub_vhosts(pv))
     aliases = []
     for host_aliases in (pv.get("LA_nginx_docker_internal_aliases_by_host") or {}).values():
         for a in host_aliases:
-            if a not in aliases:
+            if a not in aliases and a not in hubs:
                 aliases.append(a)
     return aliases
 
@@ -123,6 +142,62 @@ def alias_owners(pv, services):
         svcs = [s for s in services if str(pv.get("LA_%s_url" % s, "")).strip() == alias]
         owners[alias] = svcs
     return owners
+
+
+def hub_entries(pv):
+    """[(index, pkg, {frontend: hostname})] for every declared data hub."""
+    out = []
+    for i, hub in enumerate(pv.get("LA_hubs") or []):
+        placed = {}
+        for fe in HUB_FRONTENDS:
+            host = str(hub.get("LA_%s_hostname" % fe, "") or "").strip()
+            if host:
+                placed[fe] = host
+        out.append((i, str(hub.get("LA_pkg_name", "") or "hub%d" % i), placed))
+    return out
+
+
+def hub_vhosts(pv):
+    """{alias: (hub index, frontend)} for every data hub public vhost."""
+    out = {}
+    for i, _pkg, placed in hub_entries(pv):
+        hub = pv["LA_hubs"][i]
+        for fe in placed:
+            alias = str(hub.get("LA_%s_url" % fe, "") or "").strip()
+            if alias:
+                out[alias] = (i, fe)
+    return out
+
+
+def resolve_hub_placement(pv, placement, slot_index, svc_slot):
+    """{hub index: {frontend: slot}}.
+
+    Default: a hub front-end follows the PORTAL's slot for the same service. That
+    reproduces the base layout on a full-size variant (the toolkit places a hub
+    alongside the portal's copy) and collapses safely on a reduced one, where the
+    hub's own base host may no longer exist. A placement can override any single
+    front-end through its optional "hubs" key.
+    """
+    overrides = placement.get("hubs") or {}
+    out = {}
+    for i, pkg, placed in hub_entries(pv):
+        fe_slot = {}
+        for fe in placed:
+            slot = (overrides.get(pkg) or {}).get(fe)
+            if slot is not None:
+                if slot not in slot_index:
+                    die("hub '%s' places '%s' on unknown slot '%s'" % (pkg, fe, slot))
+                fe_slot[fe] = slot_index[slot]
+            elif fe in svc_slot:
+                fe_slot[fe] = svc_slot[fe]
+            else:
+                die(
+                    "hub '%s' declares '%s' but the portal does not run it, so there is "
+                    "no slot to follow — place it explicitly under the placement's "
+                    '"hubs" key' % (pkg, fe)
+                )
+        out[i] = fe_slot
+    return out
 
 
 def resolve_placement(pv, placement):
@@ -187,8 +262,21 @@ def compute_variant(pv, placement):
             )
         alias_host[alias] = names[slots.pop()]
 
+    # Data hubs: each front-end gets its own slot, so a hub may be SPREAD across
+    # hosts. Its vhosts then join alias_host like any other, which is what puts them
+    # in the per-host alias list and in every OTHER host's extra_hosts.
+    slot_index = {slot: i for i, slot in enumerate(placement.get("hosts") or [])}
+    hub_slots = resolve_hub_placement(pv, placement, slot_index, svc_slot)
+    for alias, (i, fe) in hub_vhosts(pv).items():
+        if alias in alias_host:
+            die(
+                "data hub vhost '%s' is also a portal vhost — an external proxy can "
+                "only route one subdomain to one VM" % alias
+            )
+        alias_host[alias] = names[hub_slots[i][fe]]
+
     aliases_by_host = OrderedDict((n, []) for n in names)
-    for alias in alias_union(pv):
+    for alias in list(alias_union(pv)) + list(hub_vhosts(pv)):
         aliases_by_host[alias_host[alias]].append(alias)
     for n in names:
         aliases_by_host[n] = sorted(aliases_by_host[n])
@@ -196,7 +284,7 @@ def compute_variant(pv, placement):
     # External extra_hosts entries (name is neither a cluster host nor a
     # managed vhost alias, e.g. datos.gbif.es) are preserved on every host.
     bnames = {n for n, _ in base_hosts(pv)}
-    managed = set(alias_union(pv))
+    managed = set(alias_union(pv)) | set(hub_vhosts(pv))
     external = []
     for entries in (pv.get("LA_docker_extra_hosts_by_host") or {}).values():
         for e in entries:
@@ -219,6 +307,14 @@ def compute_variant(pv, placement):
         out[svc_keys[svc]] = names[slot]
     if "solrcloud" in svc_slot:
         out["LA_docker_solr_hosts"] = [names[svc_slot["solrcloud"]]]
+    if hub_slots:
+        rehomed = []
+        for i, hub in enumerate(pv.get("LA_hubs") or []):
+            entry = OrderedDict(hub)
+            for fe, slot in (hub_slots.get(i) or {}).items():
+                entry["LA_%s_hostname" % fe] = names[slot]
+            rehomed.append(entry)
+        out["LA_hubs"] = rehomed
     out["LA_nginx_docker_internal_aliases_by_host"] = aliases_by_host
     out["LA_docker_extra_hosts_by_host"] = extra_by_host
     if "LA_etc_hosts" in pv:

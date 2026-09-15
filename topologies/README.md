@@ -12,12 +12,14 @@ offline (Level 1) and with real deploys (Level 2).
 | File | What |
 |---|---|
 | `base.lademo.yo-rc.json` | Sanitized copy of the CI's la-toolkit `.yo-rc.json` (hosts renamed to `la-mh-*`, IPs to `10.77.0.*`, secrets replaced). The base every fixture derives from. |
-| `<variant>.placement.json` | Small declarative overlay: host slots + service→slot map + runtime `skip_services` for reduced variants. |
-| `../inventories/testing/topologies/<variant>/` | COMMITTED generated fixture (`.yo-rc.json` + `lademo-inventories/lademo-inventory.ini`) for each variant. |
+| `<variant>.placement.json` | Small declarative overlay: host slots + service→slot map + optional per-data-hub front-end placement + runtime `skip_services` for reduced variants. |
+| `../inventories/testing/topologies/<variant>/` | COMMITTED generated fixture (`.yo-rc.json`, `lademo-inventories/lademo-inventory.ini` and one `<pkg>-inventories/<pkg>-inventory.ini` per data hub) for each variant. |
 
 Variants: `default-3host` (control — the current CI split; the matrix must
 always pass it), `3host-alt` (same 3 hosts, deliberately shuffled split),
-`2host` (auth+apps / datastores, heavy services skipped), `1host`
+`2host` (auth+apps / datastores, heavy services skipped), `hub-split`
+(control portal layout, but a data hub spread across two hosts where the
+portal runs no front-end), `1host`
 (all-in-one, aggressive skips).
 
 ### Known blind spot: one host per service
@@ -55,6 +57,13 @@ vhost served from two hosts, apps placed on exactly one host, private IPs
 present). Runs in seconds, no docker/node/real hosts. CI runs it in the
 "Topology matrix" stage on every build.
 
+A second check runs alongside it, `scripts/test-hub-baseline.sh`: it computes the
+portal's group-derived facts from the portal inventory alone and again with the data
+hub inventories added, and requires them to be identical. A hub joins the portal's
+canonical service groups through `[<group>:children]`, so without this a hub alias
+reads as "the portal runs this service here" and quietly adds a container, a vhost or
+a re-pointed variable on a host where the portal never placed the service.
+
 The single-host FULL-RENDER path is covered separately by
 `scripts/validate-config-gen.sh` (against `inventories/testing/lademo-inventories`);
 a full multi-host render cannot run without the target hosts (see the header
@@ -71,6 +80,27 @@ of `molecule/multihost/converge.yml`).
    ```
 3. `scripts/test-topologies.sh <name>` must pass. A stale fixture fails the
    matrix with a "run regen" message.
+
+### Data hubs in a topology
+
+A data hub (`LA_hubs`) is placed per front-end, so it may be SPREAD across hosts:
+records on one, species and regions on another. Each front-end follows the PORTAL's
+slot for the same service unless the placement says otherwise:
+
+```json
+"hubs": { "lademohub": { "ala_hub": "host2", "branding": "host2", "ala_bie": "host3" } }
+```
+
+Front-end keys are `ala_hub`, `ala_bie`, `regions` and `branding`; a hub only carries
+the ones it declares. Their public vhosts join the per-host alias list and the
+cross-host `extra_hosts` map, so a hub is visible to nginx and to the duplicate-vhost
+invariant like any other service.
+
+The portal inventory declares the `[hub-<pkg>]` groups EMPTY on purpose, so a hub's
+placement lives only in its own `<pkg>-inventories/<pkg>-inventory.ini`. The fixtures
+keep those files and the checks pass them alongside the portal's, exactly as the hub's
+own `ansiblew` does. `hub-split` is the variant that puts a hub where the portal runs
+no front-end at all.
 
 To refresh `base.lademo.yo-rc.json` after la-toolkit config changes:
 ```bash
