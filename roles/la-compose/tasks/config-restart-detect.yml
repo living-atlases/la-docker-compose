@@ -27,6 +27,23 @@
     # restarted for a config change. That is how a corrected groups.json reached the
     # disk in #383 while namematching kept serving the old species groups from
     # memory. Comments cannot go inside the expression below -- Jinja rejects `#`.
+    hub_config_watch: >-
+      {%- set out = [] -%}
+      {%- for inst in hub_instances | default([]) if not inst.is_portal -%}
+        {%- if inst.use_records -%}
+          {%- set _ = out.append({'svc': 'ala_hub', 'service': 'biocache-hub' ~ inst.suffix,
+                                  'path': data_dir ~ '/' ~ inst.biocache_hub ~ '/config'}) -%}
+        {%- endif -%}
+        {%- if inst.use_species -%}
+          {%- set _ = out.append({'svc': 'ala_bie', 'service': 'bie-hub' ~ inst.suffix,
+                                  'path': data_dir ~ '/' ~ inst.bie_hub ~ '/config'}) -%}
+        {%- endif -%}
+        {%- if inst.use_regions -%}
+          {%- set _ = out.append({'svc': 'regions', 'service': 'regions' ~ inst.suffix,
+                                  'path': data_dir ~ '/' ~ inst.regions ~ '/config'}) -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ out }}
     config_watch: >-
       {{
         [
@@ -53,6 +70,7 @@
           { 'svc': 'ecodata',              'service': 'ecodata',                     'path': data_dir ~ '/ecodata/config' },
           { 'svc': 'biocollect',           'service': 'biocollect',                  'path': data_dir ~ '/biocollect/config' },
         ] | selectattr('svc', 'in', services_enabled) | list
+        + (hub_config_watch | default([]))
       }}
   tags: [docker-compose, deploy, config-restart]
 

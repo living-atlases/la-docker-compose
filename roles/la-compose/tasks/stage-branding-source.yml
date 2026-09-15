@@ -1,0 +1,293 @@
+---
+# Stage one branding source and render its compose fragment.
+#
+# Extracted from generate-compose.yml so a data hub can have a branding of its own:
+# same steps, once per instance. hub_instances[0] is the portal, with an empty
+# suffix, so the portal's build directory, image tag and fragment keep their exact
+# names and this file renders byte-identical artifacts for a deployment with no hubs.
+#
+# PARAMETERS (pass through `vars:` on the include)
+#   inst                     one element of hub_instances
+#   inst_branding_source     that instance's branding_source (a git URL, an absolute
+#                            path, or a path relative to the inventory dir)
+#   inst_branding_enabled    whether to do anything at all. A hub with no
+#                            branding_source reuses the portal's through its
+#                            header_and_footer_baseurl, so it stages nothing.
+#
+# Every task here carries the `docker-compose` tag, not only the ones that write
+# compose artifacts: the content hash below reads the directory the clone/copy tasks
+# above create, so a run limited to that tag skipped the producer and kept the
+# consumer, and `find dockerfiles/branding-<pkg>/` failed on anything but a
+# directory an earlier run had left behind.
+#
+# Each instance appends its resolved build source and image tag to
+# `branding_render_list`, which docker-bake.hcl.j2 turns into one bake target per
+# branding. Accumulating instead of overwriting is what keeps the portal's own
+# branding_version from being clobbered by the last hub.
+
+- name: Detect if branding_source is a git URL
+  ansible.builtin.set_fact:
+    branding_is_git_url: "{{ inst_branding_source is defined and inst_branding_source is match('^(https?://|git@).*') }}"
+    branding_build_source: "{{ 'git' if (inst_branding_source is defined and inst_branding_source is match('^(https?://|git@).*')) else 'local' }}"
+  when: inst_branding_enabled | bool
+  tags:
+    - branding
+    - docker-compose
+
+- name: Set branding source path for local builds
+  ansible.builtin.set_fact:
+    branding_source_path: >-
+      {%- if branding_is_git_url | default(false) -%}
+        /tmp/branding-git-checkout{{ inst.suffix }}
+      {%- elif inst_branding_source is match('^/') -%}
+        {{ inst_branding_source }}
+      {%- else -%}
+        {{ inventory_dir }}/{{ inst_branding_source }}
+      {%- endif -%}
+  when: inst_branding_enabled | bool
+  tags:
+    - branding
+    - docker-compose
+
+- name: Debug branding source path
+  ansible.builtin.debug:
+    verbosity: 2
+    msg: "Branding source path: [{{ branding_source_path }}]"
+  when: inst_branding_enabled | bool
+  tags:
+    - branding
+    - docker-compose
+
+# Fail fast (before the submodule/synchronize steps below) when a LOCAL branding_source resolves
+# to a path that does not exist on the controller — otherwise the synchronize step dies with a raw
+# `rsync ... change_dir ... failed (code 23)` that hides the real cause (typically a dir-name typo,
+# e.g. gbif.es-branding vs gbif-es-branding). The git-URL case is skipped here (it is cloned below).
+# Stat on localhost/run_once like the skin-detect stat above: branding_source_path is a controller-side
+# path (inventory_dir/..), so an undelegated stat on remote hosts would spuriously report exists:false.
+- name: Verify local branding source exists (controller)
+  ansible.builtin.stat:
+    path: "{{ branding_source_path }}"
+  register: branding_src_stat
+  delegate_to: localhost
+  run_once: true
+  when:
+    - inst_branding_enabled | bool
+    - not (branding_is_git_url | default(false) | bool)
+  tags:
+    - branding
+    - docker-compose
+
+- name: Fail early with an actionable message if local branding is missing
+  ansible.builtin.fail:
+    msg: >-
+      Branding enabled (branding_source={{ inst_branding_source }}) but the resolved local path
+      {{ branding_source_path }} does not exist. Check the branding dir name matches the project
+      (<project>-branding, e.g. gbif-es-branding, not gbif.es-branding), or set branding_source
+      to a git URL (https://… or git@…) to have it auto-cloned.
+  when:
+    - inst_branding_enabled | bool
+    - not (branding_is_git_url | default(false) | bool)
+    - not (branding_src_stat.stat.exists | default(false))
+  tags:
+    - branding
+    - docker-compose
+
+- name: Ensure branding build directory exists
+  ansible.builtin.file:
+    path: "{{ docker_compose_data_dir }}/dockerfiles/branding{{ inst.suffix }}"
+    state: directory
+    mode: '0755'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  become: true
+  when: inst_branding_enabled | bool
+  tags:
+    - branding
+    - docker-compose
+
+# HEAD, not 'master': the git module resolves it to whatever the remote's default
+# branch is. living-atlases/base-branding has no master any more (its default is
+# main), so the hardcoded default made every git-URL branding fail outright with
+# "pathspec 'master' did not match any file(s)". Set branding_git_ref to pin a
+# branch or tag.
+- name: Clone branding from git repository (if git URL)
+  ansible.builtin.git:
+    repo: "{{ inst_branding_source }}"
+    dest: "{{ branding_source_path }}"
+    version: "{{ branding_git_ref | default('HEAD') }}"
+    update: yes
+    force: yes
+    recursive: yes
+  become: false
+  when: "(inst_branding_enabled | bool) and (branding_is_git_url | bool)"
+  tags:
+    - branding
+    - docker-compose
+
+# Local (non-git-URL) branding sources are checked out by the user and may carry
+# git submodules (e.g. commonui-bs3-2019, which ships jquery/bootstrap/font-awesome
+# under build/{js,css,fonts}). The Vite build COPYs those into the assets volume,
+# and the Docker build context excludes .git, so submodules must be materialised on
+# the host before the synchronize below. The git-URL path already does this via
+# recursive: yes. Mirrors deploy.sh's required "git submodule update --init" step.
+- name: Stat branding .gitmodules (local source)
+  ansible.builtin.stat:
+    path: "{{ branding_source_path }}/.gitmodules"
+  register: branding_gitmodules
+  when: "(inst_branding_enabled | bool) and not (branding_is_git_url | default(false) | bool)"
+  tags:
+    - branding
+    - docker-compose
+
+- name: Initialize branding git submodules (local source)
+  ansible.builtin.command:
+    cmd: git submodule update --init --recursive
+    chdir: "{{ branding_source_path }}"
+  register: branding_submodule_init
+  changed_when: "branding_submodule_init.stdout | trim | length > 0"
+  when: >-
+    (inst_branding_enabled | bool)
+    and not (branding_is_git_url | default(false) | bool)
+    and branding_gitmodules.stat.exists | default(false)
+  tags:
+    - branding
+    - docker-compose
+
+- name: Copy branding source to build directory
+  ansible.posix.synchronize:
+    src: "{{ branding_source_path }}/"
+    dest: "{{ docker_compose_data_dir }}/dockerfiles/branding{{ inst.suffix }}/"
+    delete: yes
+    recursive: yes
+    rsync_opts:
+      - "--exclude=node_modules"
+      - "--exclude=.git"
+      - "--exclude=public"
+      - "--exclude=dist"
+  when: inst_branding_enabled | bool
+  tags:
+    - branding
+    - docker-compose
+
+# Deploy-time guard for the Spatial Portal skin. `spatial_hub_skin_layout: spatial-layout` mounts
+# la_branding-assets:spatial/views into the container and sets skin.layout=spatial-layout; if the
+# branding being deployed doesn't actually generate dist/spatial/ (e.g. an older base-branding),
+# the subpath mount would refuse to start the container and the layout would 500. Local branding is
+# auto-detected earlier (before docker-compose.yml is generated), so this mainly backstops a git-URL
+# branding — only materialised here — or an explicit spatial_hub_skin_layout: if the skin is
+# requested but the branding source lacks it, fail early with an actionable message instead.
+- name: Check the branding provides the Spatial Portal skin layout (when requested)
+  ansible.builtin.stat:
+    path: "{{ branding_source_path }}/app/spatial/spatial-layout.gsp"
+  register: spatial_skin_gsp
+  # Same as the detection above: the branding source is a controller-side path. Stat it once on
+  # localhost so this guard doesn't false-fail on remote hosts once the skin auto-detects.
+  delegate_to: localhost
+  run_once: true
+  when:
+    - inst_branding_enabled | bool
+    # spatial_skin_active (not the layout var): bulk-loads re-promote the inventory
+    # 'portal' over the flipped fact, which would silently skip this guard.
+    - inst.is_portal | default(true)
+    - spatial_skin_active | default(false) | bool
+  tags:
+    - branding
+    - spatial-hub
+    - docker-compose
+
+- name: Fail clearly if the Spatial skin is requested but missing from the branding
+  ansible.builtin.fail:
+    msg: >-
+      spatial_hub_skin_layout is 'spatial-layout' but the branding at
+      '{{ branding_source_path }}' does not provide app/spatial/spatial-layout.gsp — it needs a
+      base-branding version that ships the Spatial skin (the branding-builder image then serves the
+      built dist/spatial/ over nginx, which la_spatial-skin-init fetches). Update the branding, or set
+      spatial_hub_skin_layout to 'portal' (stock) or 'generic' (branding banner/footer via
+      header_and_footer_baseurl).
+  when:
+    - inst_branding_enabled | bool
+    - inst.is_portal | default(true)
+    - spatial_skin_active | default(false) | bool
+    - not (spatial_skin_gsp.stat.exists | default(false))
+  tags:
+    - branding
+    - spatial-hub
+    - docker-compose
+
+# Derive branding_version from a content hash of the synced source so the image
+# tag changes only when the branding actually changes. This gives docker compose
+# a deterministic signal to recreate the run-once branding-init container (which
+# repopulates the la_branding-assets volume); identical source => identical tag
+# => bake and recreate are no-ops (idempotent).
+- name: Compute branding source content hash
+  ansible.builtin.shell: >-
+    set -o pipefail;
+    find "{{ docker_compose_data_dir }}/dockerfiles/branding{{ inst.suffix }}/" -type f
+    -not -path '*/node_modules/*' -not -path '*/.git/*'
+    -not -path '*/public/*' -not -path '*/dist/*'
+    -print0 | sort -z | xargs -0 sha1sum | sha1sum | cut -c1-12
+  args:
+    executable: /bin/bash
+  register: branding_src_hash
+  changed_when: false
+  when: inst_branding_enabled | bool
+  tags:
+    - branding
+    - docker-compose
+
+- name: Set branding_version from source hash
+  ansible.builtin.set_fact:
+    branding_version: "{{ branding_src_hash.stdout | trim }}"
+  when: inst_branding_enabled | bool
+  tags:
+    - branding
+    - docker-compose
+
+- name: Copy branding Dockerfile to build directory
+  ansible.builtin.copy:
+    src: "docker/branding/Dockerfile"
+    dest: "{{ docker_compose_data_dir }}/dockerfiles/branding{{ inst.suffix }}/Dockerfile"
+    mode: '0644'
+  when: inst_branding_enabled | bool
+  tags:
+    - branding
+    - docker-compose
+
+- name: Copy branding nginx.conf
+  ansible.builtin.copy:
+    src: "docker/branding/nginx.conf"
+    dest: "{{ docker_compose_data_dir }}/dockerfiles/branding{{ inst.suffix }}/nginx.conf"
+    mode: '0644'
+  when: inst_branding_enabled | bool
+  tags:
+    - branding
+    - docker-compose
+
+- name: Generate branding.yml
+  ansible.builtin.template:
+    src: docker-compose/infrastructure/branding.yml.j2
+    dest: "{{ docker_compose_data_dir }}/infrastructure/branding{{ inst.suffix }}.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: inst_branding_enabled | bool
+  tags:
+    - branding
+    - docker-compose
+
+# One bake target per branding, accumulated so the portal's own tag survives the loop.
+- name: "Branding{{ inst.suffix }}: record the bake target"
+  ansible.builtin.set_fact:
+    branding_render_list: >-
+      {{ (branding_render_list | default([])) + [{
+           'suffix': inst.suffix,
+           'source': inst_branding_source,
+           'is_git': branding_is_git_url | default(false),
+           'build_source': branding_build_source | default('local'),
+           'git_ref': branding_git_ref | default('HEAD'),
+           'version': branding_version | default('latest')
+         }] }}
+  when: inst_branding_enabled | bool
+  tags:
+    - branding
+    - docker-compose

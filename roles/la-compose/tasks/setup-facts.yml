@@ -18,13 +18,58 @@
     - only
     - docker-compose
 
+# Every include_role: nginx_vhost call below re-loads that role's own defaults/main.yml
+# (nginx_listen_ipv6: true), which -- being the lowest ansible precedence -- clobbers this
+# role's nginx_listen_ipv6: false default for the rest of the play. Pinning it as a set_fact
+# here (higher precedence than any role default) makes it stick across every nginx_vhost call.
+- name: Pin nginx_listen_ipv6 as a host fact so nginx_vhost's own role defaults can't clobber it
+  ansible.builtin.set_fact:
+    nginx_listen_ipv6: "{{ nginx_listen_ipv6 }}"
+  tags:
+    - always
+    - docker-compose
+
+# Inventory hosts that are data hub ALIASES rather than the portal's own services.
+#
+# A generated hub inventory declares one group per hub service (biocache-hub-<pkg>,
+# bie-hub-<pkg>, regions-<pkg>, branding-<pkg>), joins them all into
+# [hub-<pkg>:children] and ALSO joins them into the CANONICAL service groups
+# ([biocache-hub:children] and friends) so the stock ala-install roles keep working
+# unchanged. That second join is what makes this fact necessary: without it a hub
+# alias is indistinguishable from the portal's own alias for the same service, and
+# every group-derived fact below reads the hub as "the portal runs this service on
+# this machine".
+#
+# Computed once, from groups alone, so both physical_server_groups below and
+# service_aliases further down share one definition.
+#
+# Invariant: [hub-<pkg>:children] must enumerate EVERY per-hub group. One left out
+# stays invisible here and silently re-enables the portal's copy of that service on
+# the hub's host.
+- name: Collect the inventory hosts that are data hub aliases
+  ansible.builtin.set_fact:
+    hub_alias_hosts: >-
+      {%- set out = [] -%}
+      {%- for g in groups.keys() | select('match', '^hub-') -%}
+        {%- set _ = out.extend(groups[g] | default([])) -%}
+      {%- endfor -%}
+      {{ out | unique | list }}
+  tags:
+    - always
+    - only
+    - docker-compose
+
 # Find all hosts that share the same physical server (ansible_host) as this docker_compose host
 - name: Find all service groups deployed on this physical server
   ansible.builtin.set_fact:
     physical_server_groups: >-
       {%- set result = [] -%}
       {%- for host in groups['all'] -%}
-        {%- if hostvars[host].get('ansible_host', host) == hostvars[inventory_hostname].get('ansible_host', inventory_hostname) -%}
+        {#- Hub aliases are skipped: they describe a hub's front-end placement, not the
+            portal's, and they carry the canonical group through [<group>:children].
+            A hub is placed by hub_instances (setup-hub-facts.yml), never from here. -#}
+        {%- if host not in (hub_alias_hosts | default([]))
+               and hostvars[host].get('ansible_host', host) == hostvars[inventory_hostname].get('ansible_host', inventory_hostname) -%}
           {%- for group in hostvars[host].get('group_names', []) -%}
             {%- if group not in ['all', 'docker_compose', 'docker-common', 'ungrouped'] and not group.endswith('_group') -%}
               {%- set _ = result.append(group) -%}
@@ -208,8 +253,13 @@
       ] -%}
         {%- if service in groups -%}
           {%- set matching = groups[service] | select('match', '^' + ansible_host + '(\\..+)?$') | list -%}
-          {%- if matching | length > 0 -%}
-            {%- set _ = result.update({service: matching[0]}) -%}
+          {#- A data hub joins the canonical group through [<group>:children], so its
+              alias shows up here too. Taking matching[0] would let a hub hijack the
+              portal's variable scope for that service, at random depending on group
+              ordering. Hub aliases are addressed via hub_instances[*].aliases. -#}
+          {%- set portal_only = matching | reject('in', hub_alias_hosts | default([])) | list -%}
+          {%- if portal_only | length > 0 -%}
+            {%- set _ = result.update({service: portal_only[0]}) -%}
           {%- endif -%}
         {%- endif -%}
       {%- endfor -%}
@@ -309,6 +359,14 @@
         {%- endif -%}
       {%- endfor -%}
       {{ result | unique | list }}
+  tags:
+    - always
+    - docker-compose
+
+# Data hub facts live in their own file so the multihub molecule scenario can
+# exercise them on their own, without standing up the whole fact pipeline.
+- name: Compute data hub facts
+  ansible.builtin.include_tasks: setup-hub-facts.yml
   tags:
     - always
     - docker-compose

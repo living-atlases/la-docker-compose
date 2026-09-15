@@ -285,6 +285,39 @@
       tags:
         - docker-compose
 
+    # Same thing for the data hubs, data-driven instead of a static list: each hub's
+    # config and logs live under its own host directory (/data/<pkg>-hub/...), which
+    # the container mounts onto the fixed path the stock image reads. The role copies
+    # some files as root:root 0640, so without this the container (uid 1000) gets a
+    # FileNotFoundException on its own config.
+    - name: Ensure per data hub config and log dirs are readable by the container user
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ docker_container_uid }}"
+        group: "{{ docker_container_gid }}"
+        recurse: true
+      become: true
+      loop: >-
+        {%- set out = [] -%}
+        {%- for inst in hub_instances | default([]) if not inst.is_portal -%}
+          {%- if inst.use_records -%}
+            {%- set _ = out.extend([data_dir ~ '/' ~ inst.biocache_hub ~ '/config',
+                                    data_dir ~ '/' ~ inst.biocache_hub ~ '/logs']) -%}
+          {%- endif -%}
+          {%- if inst.use_species -%}
+            {%- set _ = out.extend([data_dir ~ '/' ~ inst.bie_hub ~ '/config',
+                                    data_dir ~ '/' ~ inst.bie_hub ~ '/logs']) -%}
+          {%- endif -%}
+          {%- if inst.use_regions -%}
+            {%- set _ = out.extend([data_dir ~ '/' ~ inst.regions ~ '/config',
+                                    data_dir ~ '/' ~ inst.regions ~ '/logs']) -%}
+          {%- endif -%}
+        {%- endfor -%}
+        {{ out }}
+      tags:
+        - docker-compose
+
     # Per-service persistent overrides for Spring Boot services. These containers
     # start with `-Dspring.config.name=application,application-local-config,...` and
     # `-Dspring.config.additional-location=/data/<svc>/config/`, so a local

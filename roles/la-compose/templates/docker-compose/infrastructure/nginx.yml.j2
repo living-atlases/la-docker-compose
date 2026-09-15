@@ -117,6 +117,16 @@ services:
       # Mount srv directory only if no branding (branding uses volume instead)
       - ../srv:/srv:ro
 {% endif %}
+{# One volume per data hub that builds a branding of its own, each under its OWN
+   branding_url, so nginx serves the right assets per hub instead of the portal's.
+   The hub's branding_url comes from its inventory alias: this template renders in the
+   portal's scope, where the plain branding_url is the portal's. #}
+{% for inst in (hub_instances | default([])) if not inst.is_portal and inst.use_branding %}
+{% set hub_branding_url = (hostvars[inst.aliases.get('branding', '')] | default({})).get('branding_url', '') %}
+{% if hub_branding_url %}
+      - la_branding-assets{{ inst.suffix }}:/srv/{{ hub_branding_url }}/www:ro
+{% endif %}
+{% endfor %}
 {# ---- Static `alias` locations declared by ala-install's nginx_vhost role ----------------
    Several roles register an `alias:` entry in `nginx_paths` (grep '^\s*alias:' over
    ala-install/ansible/roles/*/tasks/*.yml). nginx_vhost renders them verbatim as

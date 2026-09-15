@@ -756,6 +756,7 @@
     - nginx_vhost
     - bulk-load
     - normalize
+    - docker-compose
 
 # CRITICAL: Build MongoDB URIs AFTER all CAS-related bulk loads
 # All bulk-loads (CAS5, USERDETAILS, APIKEY, CAS-MANAGEMENT) can overwrite URI vars
@@ -878,6 +879,7 @@
     - nginx_vhost
     - bulk-load
     - normalize
+    - docker-compose
 
 - name: Run collectory configuration generation (asset copy, config templates)
   ansible.builtin.include_role:
@@ -907,6 +909,7 @@
     - config
     - bulk-load
     - normalize
+    - docker-compose
 
 - name: Run species-list configuration generation (asset copy, config templates)
   ansible.builtin.include_role:
@@ -933,6 +936,7 @@
     - bie-hub
     - config
     - bulk-load
+    - docker-compose
 
 - name: Run bie-hub configuration generation
   ansible.builtin.include_role:
@@ -969,6 +973,7 @@
     - bie-index
     - config
     - bulk-load
+    - docker-compose
 
 # Capture the inventory-provided bie-index Solr URLs BEFORE the include_role vars below
 # can shadow them. Used only when Solr is external (solr_docker_local=false) so bie-index
@@ -1066,6 +1071,7 @@
     - biocache-hub
     - config
     - bulk-load
+    - docker-compose
 
 # The upstream biocache-hub role copies these via `template: src=config/{{ var }}`,
 # which only resolves a BARE FILENAME under roles/biocache-hub/templates/config/.
@@ -1113,11 +1119,91 @@
       become: true
   vars:
     biocache_hub_docker_host: la_biocache-hub
-    nginx_vhost_fast_mode: true
-  when: "'ala_hub' in services_enabled"
+    nginx_vhost_fast_mode: "{{ biocache_hub_hostname not in (nginx_shared_vhost_hostnames | default([])) }}"
+    vhost_with_appname_conf: "{{ biocache_hub_hostname in (nginx_shared_vhost_hostnames | default([])) }}"
+  # The alias guard 16 other service blocks already carry. Without it this block
+  # renders the PORTAL's records config wherever 'ala_hub' is enabled, including a
+  # host that only carries a data hub's records front-end.
+  when:
+    - "'ala_hub' in services_enabled"
+    - "service_aliases.get('biocache-hub') is defined"
   tags:
     - biocache-hub
     - config
+    - docker-compose
+
+# Both directories are created here, before ANY fragment is written: the data hub
+# loop right below writes services/<app>-<pkg>.yml, and on a fresh docker_compose_data_dir
+# it used to run before the mkdir further down and fail with "Destination directory
+# .../services does not exist" -- only on a first deploy, never on a redeploy.
+- name: Create infrastructure directory for docker-compose files
+  ansible.builtin.file:
+    path: "{{ docker_compose_data_dir }}/infrastructure"
+    state: directory
+    mode: '0755'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  become: true
+  tags:
+    - always
+    - docker-compose
+
+- name: Create services directory for docker-compose files
+  ansible.builtin.file:
+    path: "{{ docker_compose_data_dir }}/services"
+    state: directory
+    mode: '0755'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  become: true
+  tags:
+    - always
+    - docker-compose
+
+# --- Data hubs -------------------------------------------------------------
+# Each hub renders its own containers here, with the same roles the portal just used.
+# The snapshot/restore around the loop is not optional: every bulk load inside leaves
+# the hub's variables behind as facts, and without it the last hub's branding_url and
+# base URLs would be what nginx and the e2e manifest publish as the PORTAL's.
+- name: "Hubs: snapshot the portal variable scope"
+  ansible.builtin.include_tasks: hub-scope-snapshot.yml
+  when: (hub_instances | default([]) | rejectattr('is_portal') | list | length) > 0
+  tags:
+    - hubs
+    - config
+    - docker-compose
+
+- name: "Hubs: render each data hub deployed on this host"
+  ansible.builtin.include_tasks: generate-hub-instance.yml
+  loop: "{{ hub_instances | default([]) | rejectattr('is_portal') | list }}"
+  loop_control:
+    loop_var: inst
+    label: "{{ inst.pkg }}"
+  tags:
+    - hubs
+    - config
+    - docker-compose
+
+- name: "Hubs: restore the portal variable scope"
+  ansible.builtin.include_tasks: hub-scope-restore.yml
+  when: (hub_instances | default([]) | rejectattr('is_portal') | list | length) > 0
+  tags:
+    - hubs
+    - config
+    - docker-compose
+
+# branding_version is set per branding as it is staged, so after the loop it holds the
+# last hub's. Put the portal's back for whatever renders later (the bake file reads the
+# accumulated branding_render_list, but nothing else should see a hub's tag).
+- name: "Hubs: restore the portal branding version"
+  ansible.builtin.set_fact:
+    branding_version: "{{ (branding_render_list | default([])) | selectattr('suffix', 'equalto', '') | map(attribute='version') | first }}"
+  when:
+    - (hub_instances | default([]) | rejectattr('is_portal') | list | length) > 0
+    - ((branding_render_list | default([])) | selectattr('suffix', 'equalto', '') | list | length) > 0
+  tags:
+    - hubs
+    - branding
     - docker-compose
 
 - name: Load BIOCACHE-SERVICE variables from service alias context
@@ -1129,6 +1215,7 @@
     - config
     - bulk-load
     - normalize
+    - docker-compose
 
 # Capture the inventory-provided Solr/ZK ensemble BEFORE biocache3-properties runs
 # ala-install's solrcloud/docker-facts.yml, which overrides solr_url with the docker-local
@@ -1252,6 +1339,7 @@
     - config
     - bulk-load
     - normalize
+    - docker-compose
 
 - name: Run logger-service configuration generation
   ansible.builtin.include_role:
@@ -1288,6 +1376,7 @@
     - config
     - bulk-load
     - normalize
+    - docker-compose
 
 - name: Run image-service configuration generation
   ansible.builtin.include_role:
@@ -1329,6 +1418,7 @@
     - namematching-service
     - config
     - bulk-load
+    - docker-compose
 
 - name: Run namematching-service configuration generation (config + nameindex download)
   ansible.builtin.include_role:
@@ -1370,6 +1460,7 @@
     - sensitive-data-service
     - config
     - bulk-load
+    - docker-compose
 
 - name: Run sensitive-data-service configuration generation (config + data download)
   ansible.builtin.include_role:
@@ -1425,6 +1516,7 @@
     - config
     - bulk-load
     - normalize
+    - docker-compose
 
 - name: Run alerts configuration generation
   ansible.builtin.include_role:
@@ -1458,6 +1550,7 @@
     - regions
     - config
     - bulk-load
+    - docker-compose
 
 - name: Run regions configuration generation
   ansible.builtin.include_role:
@@ -1492,6 +1585,7 @@
     - config
     - bulk-load
     - normalize
+    - docker-compose
 
 - name: Run doi-service configuration generation
   ansible.builtin.include_role:
@@ -1536,6 +1630,7 @@
     - config
     - bulk-load
     - normalize
+    - docker-compose
 
 - name: Run sds (legacy sds-webapp2) configuration generation
   ansible.builtin.include_role:
@@ -1571,6 +1666,7 @@
     - config
     - bulk-load
     - normalize
+    - docker-compose
 
 - name: Run data-quality-filter-service configuration generation
   ansible.builtin.include_role:
@@ -1614,6 +1710,7 @@
     - config
     - bulk-load
     - normalize
+    - docker-compose
 
 # Auto-detect the base-branding Spatial Portal skin and flip skin.layout BEFORE the spatial-hub role
 # renders spatial-hub-config.yml below (and before docker-compose.yml is generated further down), so
@@ -1654,11 +1751,13 @@
     - branding
     - spatial-hub
 
+# HEAD = the remote's default branch; see the same default in
+# stage-branding-source.yml. base-branding has no master any more.
 - name: Clone branding from git repository early (if git URL, for skin detection)
   ansible.builtin.git:
     repo: "{{ branding_source }}"
     dest: "{{ branding_source_path }}"
-    version: "{{ branding_git_ref | default('master') }}"
+    version: "{{ branding_git_ref | default('HEAD') }}"
     update: yes
     force: yes
     recursive: yes
@@ -1764,6 +1863,7 @@
     - config
     - bulk-load
     - normalize
+    - docker-compose
 
 - name: Run spatial-service configuration generation
   ansible.builtin.include_role:
@@ -2095,30 +2195,6 @@
     - docker-compose
 
 # Create subdirectories for organized service files
-- name: Create infrastructure directory for docker-compose files
-  ansible.builtin.file:
-    path: "{{ docker_compose_data_dir }}/infrastructure"
-    state: directory
-    mode: '0755'
-    owner: "{{ docker_compose_userid }}"
-    group: "{{ docker_compose_usergid }}"
-  become: true
-  tags:
-    - always
-    - docker-compose
-
-- name: Create services directory for docker-compose files
-  ansible.builtin.file:
-    path: "{{ docker_compose_data_dir }}/services"
-    state: directory
-    mode: '0755'
-    owner: "{{ docker_compose_userid }}"
-    group: "{{ docker_compose_usergid }}"
-  become: true
-  tags:
-    - always
-    - docker-compose
-
 
 # Generate infrastructure service files
 - name: Generate i18n.yml if enabled
@@ -2169,236 +2245,19 @@
 # include_role calls — including branding, mailhog, and gatus — letting the
 # nginx container resolve every public FQDN to itself via Docker's DNS.
 
-# Branding preparation and generation
-
-- name: Detect if branding_source is a git URL
-  ansible.builtin.set_fact:
-    branding_is_git_url: "{{ branding_source is defined and branding_source is match('^(https?://|git@).*') }}"
-    branding_build_source: "{{ 'git' if (branding_source is defined and branding_source is match('^(https?://|git@).*')) else 'local' }}"
-  when: "'branding' in services_to_build"
-  tags:
-    - branding
-
-- name: Set branding source path for local builds
-  ansible.builtin.set_fact:
-    branding_source_path: >-
-      {%- if branding_is_git_url | default(false) -%}
-        /tmp/branding-git-checkout
-      {%- elif branding_source is match('^/') -%}
-        {{ branding_source }}
-      {%- else -%}
-        {{ inventory_dir }}/{{ branding_source }}
-      {%- endif -%}
-  when: "'branding' in services_to_build"
-  tags:
-    - branding
-
-- name: Debug branding source path
-  ansible.builtin.debug:
-    verbosity: 2
-    msg: "Branding source path: [{{ branding_source_path }}]"
-  when: "'branding' in services_to_build"
-  tags:
-    - branding
-
-# Fail fast (before the submodule/synchronize steps below) when a LOCAL branding_source resolves
-# to a path that does not exist on the controller — otherwise the synchronize step dies with a raw
-# `rsync ... change_dir ... failed (code 23)` that hides the real cause (typically a dir-name typo,
-# e.g. gbif.es-branding vs gbif-es-branding). The git-URL case is skipped here (it is cloned below).
-# Stat on localhost/run_once like the skin-detect stat above: branding_source_path is a controller-side
-# path (inventory_dir/..), so an undelegated stat on remote hosts would spuriously report exists:false.
-- name: Verify local branding source exists (controller)
-  ansible.builtin.stat:
-    path: "{{ branding_source_path }}"
-  register: branding_src_stat
-  delegate_to: localhost
-  run_once: true
-  when:
-    - "'branding' in services_to_build"
-    - not (branding_is_git_url | default(false) | bool)
-  tags:
-    - branding
-
-- name: Fail early with an actionable message if local branding is missing
-  ansible.builtin.fail:
-    msg: >-
-      Branding enabled (branding_source={{ branding_source }}) but the resolved local path
-      {{ branding_source_path }} does not exist. Check the branding dir name matches the project
-      (<project>-branding, e.g. gbif-es-branding, not gbif.es-branding), or set branding_source
-      to a git URL (https://… or git@…) to have it auto-cloned.
-  when:
-    - "'branding' in services_to_build"
-    - not (branding_is_git_url | default(false) | bool)
-    - not (branding_src_stat.stat.exists | default(false))
-  tags:
-    - branding
-
-- name: Ensure branding build directory exists
-  ansible.builtin.file:
-    path: "{{ docker_compose_data_dir }}/dockerfiles/branding"
-    state: directory
-    mode: '0755'
-    owner: "{{ docker_compose_userid }}"
-    group: "{{ docker_compose_usergid }}"
-  become: true
-  when: "'branding' in services_to_build"
-  tags:
-    - branding
-
-- name: Clone branding from git repository (if git URL)
-  ansible.builtin.git:
-    repo: "{{ branding_source }}"
-    dest: "{{ branding_source_path }}"
-    version: "{{ branding_git_ref | default('master') }}"
-    update: yes
-    force: yes
-    recursive: yes
-  become: false
-  when: "'branding' in services_to_build and branding_is_git_url | bool"
-  tags:
-    - branding
-
-# Local (non-git-URL) branding sources are checked out by the user and may carry
-# git submodules (e.g. commonui-bs3-2019, which ships jquery/bootstrap/font-awesome
-# under build/{js,css,fonts}). The Vite build COPYs those into the assets volume,
-# and the Docker build context excludes .git, so submodules must be materialised on
-# the host before the synchronize below. The git-URL path already does this via
-# recursive: yes. Mirrors deploy.sh's required "git submodule update --init" step.
-- name: Stat branding .gitmodules (local source)
-  ansible.builtin.stat:
-    path: "{{ branding_source_path }}/.gitmodules"
-  register: branding_gitmodules
-  when: "'branding' in services_to_build and not (branding_is_git_url | default(false) | bool)"
-  tags:
-    - branding
-
-- name: Initialize branding git submodules (local source)
-  ansible.builtin.command:
-    cmd: git submodule update --init --recursive
-    chdir: "{{ branding_source_path }}"
-  register: branding_submodule_init
-  changed_when: "branding_submodule_init.stdout | trim | length > 0"
-  when: >-
-    'branding' in services_to_build
-    and not (branding_is_git_url | default(false) | bool)
-    and branding_gitmodules.stat.exists | default(false)
-  tags:
-    - branding
-
-- name: Copy branding source to build directory
-  ansible.posix.synchronize:
-    src: "{{ branding_source_path }}/"
-    dest: "{{ docker_compose_data_dir }}/dockerfiles/branding/"
-    delete: yes
-    recursive: yes
-    rsync_opts:
-      - "--exclude=node_modules"
-      - "--exclude=.git"
-      - "--exclude=public"
-      - "--exclude=dist"
-  when: "'branding' in services_to_build"
-  tags:
-    - branding
-
-# Deploy-time guard for the Spatial Portal skin. `spatial_hub_skin_layout: spatial-layout` mounts
-# la_branding-assets:spatial/views into the container and sets skin.layout=spatial-layout; if the
-# branding being deployed doesn't actually generate dist/spatial/ (e.g. an older base-branding),
-# the subpath mount would refuse to start the container and the layout would 500. Local branding is
-# auto-detected earlier (before docker-compose.yml is generated), so this mainly backstops a git-URL
-# branding — only materialised here — or an explicit spatial_hub_skin_layout: if the skin is
-# requested but the branding source lacks it, fail early with an actionable message instead.
-- name: Check the branding provides the Spatial Portal skin layout (when requested)
-  ansible.builtin.stat:
-    path: "{{ branding_source_path }}/app/spatial/spatial-layout.gsp"
-  register: spatial_skin_gsp
-  # Same as the detection above: the branding source is a controller-side path. Stat it once on
-  # localhost so this guard doesn't false-fail on remote hosts once the skin auto-detects.
-  delegate_to: localhost
-  run_once: true
-  when:
-    - "'branding' in services_to_build"
-    # spatial_skin_active (not the layout var): bulk-loads re-promote the inventory
-    # 'portal' over the flipped fact, which would silently skip this guard.
-    - spatial_skin_active | default(false) | bool
-  tags:
-    - branding
-    - spatial-hub
-
-- name: Fail clearly if the Spatial skin is requested but missing from the branding
-  ansible.builtin.fail:
-    msg: >-
-      spatial_hub_skin_layout is 'spatial-layout' but the branding at
-      '{{ branding_source_path }}' does not provide app/spatial/spatial-layout.gsp — it needs a
-      base-branding version that ships the Spatial skin (the branding-builder image then serves the
-      built dist/spatial/ over nginx, which la_spatial-skin-init fetches). Update the branding, or set
-      spatial_hub_skin_layout to 'portal' (stock) or 'generic' (branding banner/footer via
-      header_and_footer_baseurl).
-  when:
-    - "'branding' in services_to_build"
-    - spatial_skin_active | default(false) | bool
-    - not (spatial_skin_gsp.stat.exists | default(false))
-  tags:
-    - branding
-    - spatial-hub
-
-# Derive branding_version from a content hash of the synced source so the image
-# tag changes only when the branding actually changes. This gives docker compose
-# a deterministic signal to recreate the run-once branding-init container (which
-# repopulates the la_branding-assets volume); identical source => identical tag
-# => bake and recreate are no-ops (idempotent).
-- name: Compute branding source content hash
-  ansible.builtin.shell: >-
-    set -o pipefail;
-    find "{{ docker_compose_data_dir }}/dockerfiles/branding/" -type f
-    -not -path '*/node_modules/*' -not -path '*/.git/*'
-    -not -path '*/public/*' -not -path '*/dist/*'
-    -print0 | sort -z | xargs -0 sha1sum | sha1sum | cut -c1-12
-  args:
-    executable: /bin/bash
-  register: branding_src_hash
-  changed_when: false
-  when: "'branding' in services_to_build"
+# Branding preparation and generation. The steps live in stage-branding-source.yml so
+# a data hub can stage a branding of its own with exactly the same ones; this call is
+# the portal, i.e. hub_instances[0].
+- name: Stage the portal branding and render its compose fragment
+  ansible.builtin.include_tasks: stage-branding-source.yml
+  vars:
+    inst: "{{ hub_instances[0] }}"
+    inst_branding_source: "{{ branding_source | default(none) }}"
+    inst_branding_enabled: "{{ 'branding' in services_to_build }}"
   tags:
     - branding
     - docker-compose
 
-- name: Set branding_version from source hash
-  ansible.builtin.set_fact:
-    branding_version: "{{ branding_src_hash.stdout | trim }}"
-  when: "'branding' in services_to_build"
-  tags:
-    - branding
-    - docker-compose
-
-- name: Copy branding Dockerfile to build directory
-  ansible.builtin.copy:
-    src: "docker/branding/Dockerfile"
-    dest: "{{ docker_compose_data_dir }}/dockerfiles/branding/Dockerfile"
-    mode: '0644'
-  when: "'branding' in services_to_build"
-  tags:
-    - branding
-
-- name: Copy branding nginx.conf
-  ansible.builtin.copy:
-    src: "docker/branding/nginx.conf"
-    dest: "{{ docker_compose_data_dir }}/dockerfiles/branding/nginx.conf"
-    mode: '0644'
-  when: "'branding' in services_to_build"
-  tags:
-    - branding
-
-- name: Generate branding.yml
-  ansible.builtin.template:
-    src: docker-compose/infrastructure/branding.yml.j2
-    dest: "{{ docker_compose_data_dir }}/infrastructure/branding.yml"
-    mode: '0644'
-    owner: "{{ docker_compose_userid }}"
-    group: "{{ docker_compose_usergid }}"
-  when: "'branding' in group_names or 'branding' in physical_server_groups"
-  tags:
-    - branding
-    - docker-compose
 
 - name: Register branding nginx vhost for gatus monitoring
   ansible.builtin.include_role:

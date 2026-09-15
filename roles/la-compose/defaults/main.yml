@@ -284,10 +284,20 @@ sensitive_data_docker_tag: "latest"
 
 services_enabled: []
 
+# Inventory hosts that belong to a data hub rather than to the portal (see
+# setup-facts.yml). Empty on a deployment without hubs, and on the partial fact
+# pipelines the molecule scenarios import.
+hub_alias_hosts: []
+
 # Lista TEMPORAL de servicios a omitir en el despliegue (nombres de grupo de inventario),
 # p.ej. ['sds-static-home','sensitive-data-service']. Vacío = desplegar todo.
 # Se pasa por ansiblew -e o por el parámetro SKIP_SERVICES de Jenkins. No tocar inventarios.
 skip_services: []
+
+# Data hubs to skip on this run, by their la_hubs pkg name (e.g. ['lademohub2']).
+# Same spirit as skip_services: an operator switch for a constrained host, never a
+# reason to edit inventories. Empty = deploy every hub the inventory declares.
+skip_hubs: []
 
 # ============================================
 # Nginx Configuration
@@ -323,7 +333,10 @@ branding_source: null
 branding_url: "branding"
 branding_node_version: "18"
 branding_version: "latest"
-branding_git_ref: "master"
+# HEAD, not a branch name: the git module resolves it to the remote's default
+# branch, and living-atlases/base-branding (and any branding forked from it after
+# the rename) has no master. Set this to pin a branch or a tag.
+branding_git_ref: "HEAD"
 branding_dev_mode: false
 branding_dev_port: "3000"
 branding_git_watch: false

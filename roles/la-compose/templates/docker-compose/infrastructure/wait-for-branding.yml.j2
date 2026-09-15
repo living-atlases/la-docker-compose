@@ -1,3 +1,9 @@
+{# Rendered once per branding-owning instance (tasks/generate-hub-instance.yml).
+   hub_instances[0] is the portal, with an empty suffix, so the default below keeps
+   the portal's file byte-identical. A hub without a branding_source of its own gets
+   no copy of this file at all: it reuses the portal's branding through its
+   header_and_footer_baseurl. #}
+{% set inst = inst | default({'pkg': '', 'suffix': '', 'is_portal': true}) %}
 services:
   # Order-independent branding readiness gate.
   #
@@ -14,8 +20,8 @@ services:
   # waits for the whole chain (branding-init volume -> nginx -> proxy), wherever branding
   # happens to be deployed. It always exits 0 (after success or a generous timeout) so it
   # can never deadlock the converge.
-  wait-for-branding:
-    container_name: la_wait-for-branding
+  wait-for-branding{{ inst.suffix }}:
+    container_name: la_wait-for-branding{{ inst.suffix }}
     # core-auth included so CAS (profile core-auth) can depend on this gate even
     # when brought up without the app-core profile.
     profiles: [app-core, core-auth, full]

@@ -1,0 +1,44 @@
+---
+# Snapshot the portal's variable scope before rendering any data hub.
+#
+# bulk-load-service-vars.yml works by set_fact'ing a service's inventory variables
+# onto the rendering host, and those facts PERSIST for the rest of the play. That is
+# harmless while the loads are portal-only and each one is immediately consumed by
+# its role. It stops being harmless with hubs: after the hub loop, the last hub's
+# branding_url would be what nginx.yml.j2 mounts, and its biocache_hub_base_url what
+# generate-e2e-targets.yml publishes as the PORTAL's records URL.
+#
+# So: remember the portal's value for every name a hub alias can possibly set, and
+# put them all back afterwards (hub-scope-restore.yml).
+#
+# The detector for a leak that slips through is the config baseline: rendering the
+# portal's properties must not change a single key when hubs are added.
+
+- name: "Hubs: collect every variable name a hub alias can set"
+  ansible.builtin.set_fact:
+    hub_scope_keys: >-
+      {{ hub_instances | rejectattr('is_portal') | map(attribute='aliases')
+         | map('dict2items') | flatten | map(attribute='value')
+         | map('extract', hostvars) | select('defined')
+         | map('dict2items') | flatten | map(attribute='key')
+         | select('match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
+         | reject('match', '^ansible_.*')
+         | reject('in', system_vars_blacklist)
+         | unique | list }}
+  tags:
+    - always
+    - docker-compose
+
+# Only names that currently HAVE a value are snapshotted; a name the portal never
+# defined must stay undefined afterwards, not be resurrected as an empty string.
+- name: "Hubs: snapshot the portal's current values for those names"
+  ansible.builtin.set_fact:
+    portal_scope_snapshot: >-
+      {%- set snap = {} -%}
+      {%- for k in hub_scope_keys -%}
+        {%- if k in vars -%}{%- set _ = snap.update({k: vars[k]}) -%}{%- endif -%}
+      {%- endfor -%}
+      {{ snap }}
+  tags:
+    - always
+    - docker-compose

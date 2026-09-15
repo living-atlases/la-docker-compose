@@ -1,17 +1,23 @@
+{# Rendered once per branding-owning instance (tasks/generate-hub-instance.yml).
+   hub_instances[0] is the portal, with an empty suffix, so the default below keeps
+   the portal's file byte-identical. A hub without a branding_source of its own gets
+   no copy of this file at all: it reuses the portal's branding through its
+   header_and_footer_baseurl. #}
+{% set inst = inst | default({'pkg': '', 'suffix': '', 'is_portal': true}) %}
 services:
   # Branding builder - builds and extracts assets to volume
   # This is an init container that runs once to populate the volume
   # Note: Image is built by docker buildx bake (see roles/la-compose/tasks/build-images.yml)
   #       This avoids docker-compose build metadata tracking issues on container recreation
-  branding-init:
-    container_name: la_branding-init
+  branding-init{{ inst.suffix }}:
+    container_name: la_branding-init{{ inst.suffix }}
     profiles: [infra, core-auth, app-core, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     # Image built by docker buildx bake - must exist before docker compose up
-    image: branding-builder:{{ branding_version | default('latest') }}
+    image: branding-builder{{ inst.suffix }}:{{ branding_version | default('latest') }}
     pull_policy: never
     volumes:
-      - la_branding-assets:/output
+      - la_branding-assets{{ inst.suffix }}:/output
     # IMPORTANT: never wipe the live volume unless the source actually has assets.
     # The old 'find -delete && cp' wiped /output first; if /build/public was empty
     # (stale/rebuilt branding-builder image, pull_policy: never) or the cp failed,

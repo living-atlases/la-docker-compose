@@ -18,11 +18,16 @@ include:
 {% if 'branding' in all_groups %}
   - ./infrastructure/branding.yml
 {% endif %}
-{% if 'collectory' in services_enabled or 'ala_bie' in services_enabled or ('spatial' in services_enabled and (spatial_skin_active | default(false) | bool)) %}
+{% if 'collectory' in services_enabled or 'ala_bie' in services_enabled or ('spatial' in services_enabled and (spatial_skin_active | default(false) | bool)) or (hub_instances | default([]) | rejectattr('is_portal') | rejectattr('has_branding') | list | length) > 0 %}
   # Order-independent branding readiness gate for commonui hubs (collectory, bie-hub) and, when the
   # Spatial skin is active, for la_spatial-skin-init (which fetches spatial-layout.gsp once branding
   # actually serves). Included on the spatial host only when the skin is on, so a branding-less
   # deploy never pays the poll timeout.
+  #
+  # A data hub WITHOUT a branding of its own depends on this unsuffixed gate (see the
+  # brand_gate default in the service templates), so a host that carries only such a
+  # hub needs it too -- otherwise every compose command on that host dies at parse
+  # time on an undefined service, the #284/#285 failure class.
   - ./infrastructure/wait-for-branding.yml
 {% endif %}
 {% if docker_mail_development_mode | default(false) %}
@@ -88,6 +93,30 @@ include:
 {% if 'ala_hub' in services_enabled %}
   - ./services/biocache-hub.yml
 {% endif %}
+{# Data hubs: one set of front-ends per hub deployed on this host, each with its own
+   containers and its own config mounts. hub_instances[0] is the portal and is already
+   covered by the plain includes above, so only the suffixed instances are listed here
+   and a deployment without hubs renders exactly the same file as before. #}
+{% for inst in (hub_instances | default([])) if not inst.is_portal %}
+{% if inst.use_records %}
+  - ./services/biocache-hub{{ inst.suffix }}.yml
+{% endif %}
+{% if inst.use_species %}
+  - ./services/bie-hub{{ inst.suffix }}.yml
+{% endif %}
+{% if inst.use_regions %}
+  - ./services/regions{{ inst.suffix }}.yml
+{% endif %}
+{% if inst.use_branding %}
+  - ./infrastructure/branding{{ inst.suffix }}.yml
+{% endif %}
+{# The readiness gate goes wherever a front-end of this hub runs, not only where the
+   branding container does: it is a curl poll on the public URL, so it works from any
+   host, and a spread hub's species front-end needs it just as much. #}
+{% if inst.has_branding %}
+  - ./infrastructure/wait-for-branding{{ inst.suffix }}.yml
+{% endif %}
+{% endfor %}
 {% if 'biocache_service' in services_enabled %}
   # Order-independent gate: biocache-service caches the index field list at boot and keeps
   # an empty one forever if the Solr collection is not there yet. Only on the host that
@@ -167,6 +196,10 @@ volumes:
 {% if i18n.enabled and i18n.strategy == 'volume' %}
   {{ i18n.volume.name }}:
 {% endif %}
+{% for inst in (hub_instances | default([])) if not inst.is_portal and inst.use_branding %}
+  la_branding-assets{{ inst.suffix }}:
+    external: true
+{% endfor %}
 {% if use_la_site_certs | default(false) %}
   la-site-certs:
     external: true

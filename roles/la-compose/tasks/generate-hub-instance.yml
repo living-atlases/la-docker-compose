@@ -1,0 +1,266 @@
+---
+# Render one data hub: its config (through the stock ala-install roles), its compose
+# fragments, its nginx vhosts and, when it declares one, its own branding.
+#
+# Called once per element of hub_instances (see setup-hub-facts.yml), always between
+# hub-scope-snapshot.yml and hub-scope-restore.yml, because every bulk load below
+# leaves the hub's variables behind as facts on the rendering host.
+#
+# PARAMETERS
+#   inst   one non-portal element of hub_instances
+#
+# Everything that SHAPES the stack (variable loads, compose fragments, branding
+# staging, e2e targets) runs for every hub on every pass, because docker-compose.yml
+# is one file: a hub missing from this render is a hub whose containers the next
+# `docker compose up` would remove. Only the slow per-hub config work -- the
+# ala-install roles, which render properties and register vhosts over SSH -- honours
+# inst.render_config, which is what `la_hub_only` narrows.
+#
+# The roles are the SAME ones the portal uses, parameterised exactly as ALA
+# parameterises them for a per-hub VM (biocache_hub=<pkg>-hub and friends). What
+# containers add on top is that the config lands under the hub's own host directory
+# and is mounted onto the fixed path the stock image reads, so no custom war and no
+# hand-made symlink are needed.
+
+# ---------------------------------------------------------------- records hub
+- name: "Hub {{ inst.pkg }}: load biocache-hub variables from the hub alias"
+  ansible.builtin.include_tasks: bulk-load-service-vars.yml
+  vars:
+    bulk_service_key: biocache-hub
+    bulk_alias: "{{ inst.aliases.get('biocache-hub') }}"
+    bulk_run_normalize: false
+  when: inst.use_records
+  tags:
+    - biocache-hub
+    - config
+    - bulk-load
+    - docker-compose
+
+- name: "Hub {{ inst.pkg }}: run biocache-hub configuration generation"
+  ansible.builtin.include_role:
+    name: biocache-hub
+    apply:
+      become: true
+  vars:
+    biocache_hub: "{{ inst.biocache_hub }}"
+    biocache_hub_docker_host: "la_biocache-hub{{ inst.suffix }}"
+    # fast_mode rewrites the whole <hostname>.conf per call, so it is only safe while
+    # this hostname belongs to exactly one app. Sharing a domain between apps (a hub at
+    # a path of the portal's domain, say) falls back to assembled fragments with an
+    # appname suffix, which is what vhost_with_appname_conf is for.
+    nginx_vhost_fast_mode: "{{ biocache_hub_hostname not in (nginx_shared_vhost_hostnames | default([])) }}"
+    vhost_with_appname_conf: "{{ biocache_hub_hostname in (nginx_shared_vhost_hostnames | default([])) }}"
+  when:
+    - inst.use_records
+    - inst.render_config
+  tags:
+    - biocache-hub
+    - config
+    - docker-compose
+
+- name: "Hub {{ inst.pkg }}: generate biocache-hub compose fragment"
+  ansible.builtin.template:
+    src: docker-compose/services/biocache-hub.yml.j2
+    dest: "{{ docker_compose_data_dir }}/services/biocache-hub{{ inst.suffix }}.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: inst.use_records
+  tags:
+    - biocache-hub
+    - docker-compose
+
+# ---------------------------------------------------------------- species hub
+- name: "Hub {{ inst.pkg }}: load bie-hub variables from the hub alias"
+  ansible.builtin.include_tasks: bulk-load-service-vars.yml
+  vars:
+    bulk_service_key: bie-hub
+    bulk_alias: "{{ inst.aliases.get('bie-hub') }}"
+    bulk_run_normalize: false
+  when: inst.use_species
+  tags:
+    - bie-hub
+    - config
+    - bulk-load
+    - docker-compose
+
+- name: "Hub {{ inst.pkg }}: run bie-hub configuration generation"
+  ansible.builtin.include_role:
+    name: bie-hub
+    apply:
+      become: true
+  vars:
+    bie_hub: "{{ inst.bie_hub }}"
+    bie_hub_docker_host: "la_bie-hub{{ inst.suffix }}"
+    bie_hub_upstream_host: "la_bie-hub{{ inst.suffix }}"
+    # appname is host-global (gatus check filename, vhost fragment suffix), so each
+    # hub needs its own or the second one silently overwrites the first's check.
+    bie_hub_appname: "{{ inst.bie_hub }}"
+    nginx_vhost_fast_mode: "{{ bie_hub_hostname not in (nginx_shared_vhost_hostnames | default([])) }}"
+    vhost_with_appname_conf: "{{ bie_hub_hostname in (nginx_shared_vhost_hostnames | default([])) }}"
+    nginx_paths_gatus_exclude:
+      - "{{ bie_hub_context_path }}/species"
+      - "{{ bie_hub_context_path }}/externalSite"
+  when:
+    - inst.use_species
+    - inst.render_config
+  tags:
+    - bie-hub
+    - config
+    - docker-compose
+
+- name: "Hub {{ inst.pkg }}: generate bie-hub compose fragment"
+  ansible.builtin.template:
+    src: docker-compose/services/bie-hub.yml.j2
+    dest: "{{ docker_compose_data_dir }}/services/bie-hub{{ inst.suffix }}.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: inst.use_species
+  tags:
+    - bie-hub
+    - docker-compose
+
+# -------------------------------------------------------------------- regions
+- name: "Hub {{ inst.pkg }}: load regions variables from the hub alias"
+  ansible.builtin.include_tasks: bulk-load-service-vars.yml
+  vars:
+    bulk_service_key: regions
+    bulk_alias: "{{ inst.aliases.get('regions') }}"
+    bulk_run_normalize: false
+  when: inst.use_regions
+  tags:
+    - regions
+    - config
+    - bulk-load
+    - docker-compose
+
+- name: "Hub {{ inst.pkg }}: run regions configuration generation"
+  ansible.builtin.include_role:
+    name: regions
+    apply:
+      become: true
+      tags:
+        - docker-compose
+  vars:
+    regions: "{{ inst.regions }}"
+    regions_appname: "{{ inst.regions }}"
+    nginx_upstream_host: "regions{{ inst.suffix }}"
+    regions_upstream_host: "regions{{ inst.suffix }}"
+    nginx_vhost_fast_mode: "{{ regions_hostname not in (nginx_shared_vhost_hostnames | default([])) }}"
+    vhost_with_appname_conf: "{{ regions_hostname in (nginx_shared_vhost_hostnames | default([])) }}"
+  when:
+    - inst.use_regions
+    - inst.render_config
+  tags:
+    - regions
+    - config
+    - nginx_vhost
+    - docker-compose
+
+- name: "Hub {{ inst.pkg }}: generate regions compose fragment"
+  ansible.builtin.template:
+    src: docker-compose/services/regions.yml.j2
+    dest: "{{ docker_compose_data_dir }}/services/regions{{ inst.suffix }}.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: inst.use_regions
+  tags:
+    - regions
+    - docker-compose
+
+# ------------------------------------------------------------------- branding
+- name: "Hub {{ inst.pkg }}: load branding variables from the hub alias"
+  ansible.builtin.include_tasks: bulk-load-service-vars.yml
+  vars:
+    bulk_service_key: branding
+    bulk_alias: "{{ inst.aliases.get('branding') }}"
+    bulk_run_normalize: false
+  when: inst.aliases.get('branding') is defined
+  tags:
+    - branding
+    - config
+    - bulk-load
+    - docker-compose
+
+- name: "Hub {{ inst.pkg }}: stage its branding and render its compose fragments"
+  ansible.builtin.include_tasks: stage-branding-source.yml
+  vars:
+    inst_branding_source: "{{ inst.branding_source }}"
+    inst_branding_enabled: "{{ inst.use_branding }}"
+  when: inst.use_branding
+  tags:
+    - branding
+    - docker-compose
+
+- name: "Hub {{ inst.pkg }}: generate its branding readiness gate"
+  ansible.builtin.template:
+    src: docker-compose/infrastructure/wait-for-branding.yml.j2
+    dest: "{{ docker_compose_data_dir }}/infrastructure/wait-for-branding{{ inst.suffix }}.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  # has_branding, not use_branding: a host carrying only this hub's species still has
+  # to wait for the hub's branding, which may be serving from another host.
+  when: inst.has_branding
+  tags:
+    - branding
+    - docker-compose
+
+- name: "Hub {{ inst.pkg }}: register its branding nginx vhost"
+  ansible.builtin.include_role:
+    name: nginx_vhost
+  vars:
+    appname: "branding{{ inst.suffix }}"
+    hostname: "{{ branding_url }}"
+    context_path: "/"
+    use_gatus: true
+    vhost_required: true
+    nginx_vhost_fast_mode: "{{ branding_url not in (nginx_shared_vhost_hostnames | default([])) }}"
+    vhost_with_appname_conf: "{{ branding_url in (nginx_shared_vhost_hostnames | default([])) }}"
+    nginx_cors_origin_regexp: "{{ branding_nginx_cors_origin_regexp | default(omit) }}"
+    nginx_paths: "{{ [{'path': '/', 'sort_label': '1', 'is_proxy': false, 'alias': '/srv/' + branding_url + '/www/'}] + ([{'path': branding_path | regex_replace('/$', '') + '/', 'sort_label': '2', 'is_proxy': false, 'alias': '/srv/' + branding_url + '/www/'}] if (branding_path is defined and branding_path != '/') else []) }}"
+  when:
+    - inst.use_branding
+    - inst.render_config
+    - branding_url is defined
+  tags:
+    - branding
+    - docker-compose
+
+# ------------------------------------------------------------------ e2e targets
+# Recorded here, while this hub's variables are the ones loaded, and ONLY for the
+# parts this host is authoritative for. generate-e2e-targets.yml joins the slices.
+#
+# The provenance gate is not cosmetic: a hub may be SPREAD across compose hosts, and
+# on a host carrying only its species or regions the records/name/context/branding
+# variables were never bulk-loaded from a hub alias -- they still hold the PORTAL's
+# [all:vars] values, which are non-empty and would be published as the hub's.
+- name: "Hub {{ inst.pkg }}: record its e2e targets"
+  ansible.builtin.set_fact:
+    e2e_targets_hubs: >-
+      {{ (e2e_targets_hubs | default([])) + [({
+           'key': inst.pkg,
+           'services': ({
+             'records': (((biocache_hub_base_url | default('')) ~ (biocache_hub_context_path | default('')))
+                         | regex_replace('/+$', '')) if inst.use_records else '',
+             'species': (((bie_hub_base_url | default('')) ~ (bie_hub_context_path | default('')))
+                         | regex_replace('/+$', '')) if inst.use_species else '',
+             'regions': (((regions_base_url | default('')) ~ (regions_context_path | default('')))
+                         | regex_replace('/+$', '')) if inst.use_regions else ''
+           } | dict2items | selectattr('value', 'match', '^https?://') | list | items2dict)
+         } | combine({
+             'name': orgNameLong | default(inst.pkg),
+             'queryContext': biocache_query_context | default(''),
+             'branding': ((header_and_footer_baseurl | default('')) | regex_replace('/+$', ''))
+           } if inst.use_records else {}))] }}
+  # These tags only ADD to the ones inherited from the dynamic include that pulls this
+  # file in (hubs/config/docker-compose), which is what actually decides whether the file
+  # is entered at all. A --tags e2e-targets run therefore never reaches here;
+  # generate-e2e-targets.yml detects that and skips the write rather than emptying the
+  # manifest's hubs list.
+  tags:
+    - e2e
+    - e2e-targets
+    - docker-compose

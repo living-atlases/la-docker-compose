@@ -1,26 +1,39 @@
   # BIE Hub - Species search frontend
+{# Rendered once per data hub instance (tasks/generate-hub-instance.yml). The portal
+   is instance #0 with an empty suffix, so the default below reproduces the pre-hub
+   file byte for byte. Rule of the whole feature: the hub identity lives in HOST
+   paths; the paths inside the container never carry it, because the stock image
+   reads fixed ones. #}
+{% set inst = inst | default({'pkg': '', 'suffix': '', 'is_portal': true,
+                              'bie_hub': 'ala-bie-hub', 'use_branding': true, 'has_branding': true}) %}
+{% set brand_gate = 'wait-for-branding' ~ (inst.suffix if inst.has_branding | default(true) else '') %}
 services:
-  bie-hub:
+  bie-hub{{ inst.suffix }}:
     image: {% set svc_reg = bie_hub_registry | default(docker_registry | default('')) %}{{ svc_reg }}{% if svc_reg %}/{% endif %}ala-bie-hub:{{ bie_hub_version | default('latest') }}
-    container_name: la_bie-hub
+    container_name: la_bie-hub{{ inst.suffix }}
     profiles: [app-core, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     depends_on:
       # Order-independent: wait until branding actually serves before bie-hub boots and
       # caches the commonui header/footer (else g:applyLayout NPE -> 500). Cross-host safe
       # (branding may live on another host); see infrastructure/wait-for-branding.yml.
-      wait-for-branding:
+      {{ brand_gate }}:
         condition: service_completed_successfully
     volumes:
-      - {{ data_dir }}/ala-bie-hub:/data/ala-bie-hub
+      - {{ data_dir }}/{{ inst.bie_hub }}:/data/ala-bie-hub
       # Explicit bind of the config subdir (also reachable via the parent bind above;
       # kept defensively, same pattern as la-pipelines). The config files are populated
       # on the host by the bie-hub role. The container runs as uid 1000, so config
       # READABILITY is ensured separately by config-dir-ensure (tasks/main.yml) which
       # recurse-chowns /data/ala-bie-hub/config to the container uid — languages.json /
       # charts.json are copied by the role as root:root 0640 otherwise.
-      - {{ data_dir }}/ala-bie-hub/config:/data/ala-bie-hub/config
-      - {{ data_dir }}/ala-bie-hub/logs:/var/log/tomcat9
+      - {{ data_dir }}/{{ inst.bie_hub }}/config:/data/ala-bie-hub/config
+      - {{ data_dir }}/{{ inst.bie_hub }}/logs:/var/log/tomcat9
+{% if inst.suffix %}
+      # Same rename as the records hub: written as <hub>-bie-hub-config.yml, read as
+      # ala-bie-hub-config.yml.
+      - {{ data_dir }}/{{ inst.bie_hub }}/config/{{ inst.bie_hub }}-config.yml:/data/ala-bie-hub/config/ala-bie-hub-config.yml:ro
+{% endif %}
 {% include '_i18n_volumes.yml.j2' %}
     restart: unless-stopped
     expose:

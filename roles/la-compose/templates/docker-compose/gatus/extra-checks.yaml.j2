@@ -10,7 +10,9 @@
 # land on the current ansible_host.
 {% set resolved = {} %}
 {% for key, spec in (gatus_url_sources | default({})).items() %}
-{%   set hosts = groups[spec.group] | default([]) %}
+{# Hub aliases are members of the canonical group too. One of them sorting first
+   would make gatus monitor the HUB's URL and label it the portal's. #}
+{%   set hosts = groups[spec.group] | default([]) | reject('in', hub_alias_hosts | default([])) | list %}
 {%   if hosts | length > 0 %}
 {%     set hv = hostvars[hosts[0]] %}
 {%     set u = hv.get(spec.url_var) if spec.url_var else none %}
@@ -114,14 +116,18 @@ endpoints:
 {# groups['gatus'] holds `<host>.gatus` while disk_hosts holds `<host>.docker_compose`: the
    generator creates one inventory alias per service, so `h in groups['gatus']` was never true
    and the hairpin branch below was dead code. Compare the actual machine instead. #}
-{% set gatus_machine = hostvars[(groups['gatus'] | default([]) | first)].ansible_host if (groups['gatus'] | default([]) | length) > 0 else none %}
+{# `ansible_host` only exists when the inventory sets it: a group whose member is the
+   bare `localhost` (ansiblew --docker-local, molecule) has none, and an unguarded lookup
+   aborted the whole config generation. The host's inventory name is the right fallback --
+   it is what ansible itself would connect to. #}
+{% set gatus_machine = (hostvars[(groups['gatus'] | default([]) | first)].ansible_host | default(groups['gatus'] | first)) if (groups['gatus'] | default([]) | length) > 0 else none %}
 {% for h in disk_hosts %}
   - name: "Disk - {{ h }}"
     group: "Hosts"
-{% if hostvars[h].ansible_host is defined and gatus_machine is defined and hostvars[h].ansible_host == gatus_machine %}
+{% if gatus_machine is not none and (hostvars[h].ansible_host | default(h)) == gatus_machine %}
     url: "http://nginx:{{ hostvars[h].docker_metrics_port | default(8081) }}/disk.json"
 {% else %}
-    url: "http://{{ hostvars[h].docker_metrics_bind | default(hostvars[h].ansible_host) }}:{{ hostvars[h].docker_metrics_port | default(8081) }}/disk.json"
+    url: "http://{{ hostvars[h].docker_metrics_bind | default(hostvars[h].ansible_host | default(h)) }}:{{ hostvars[h].docker_metrics_port | default(8081) }}/disk.json"
 {% endif %}
     interval: {{ gatus_disk_interval | default('5m') }}
     conditions:

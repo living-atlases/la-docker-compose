@@ -1,0 +1,152 @@
+---
+# --- Data hubs -------------------------------------------------------------
+# A data hub is an extra front-end (records + optionally species and regions,
+# with its own branding) that shows a subset of the portal's data, filtered by
+# data_hub_uid. In compose every hub gets its OWN containers inside the portal's
+# stack, sharing its backends. Ansible keeps writing each hub's config to a HOST
+# directory that carries the hub name (/data/<pkg>-hub) and the container mounts
+# it at the fixed path the stock image reads (/data/ala-hub): the hub identity
+# lives in host paths, never in container paths.
+#
+# The list comes from `la_hubs`, which generator-living-atlas emits in
+# [docker_compose:vars]. It cannot be derived from the inventory on its own: the
+# canonical [biocache-hub] group does not tell a portal alias from a hub one, and
+# the [hub-<pkg>] groups are declared EMPTY in the portal inventory on purpose
+# (so the shared local-extras stays parseable), which means their existence says
+# nothing about a hub actually being deployed here.
+# Normalized into its OWN fact rather than back into skip_hubs: an extra-var or an
+# include param outranks set_fact, so re-assigning skip_hubs would silently keep the
+# raw string, and `'lademohub' not in 'lademohub2'` is a substring test that quietly
+# drops the wrong hub.
+- name: Normalize skip_hubs (allow comma-separated string)
+  ansible.builtin.set_fact:
+    hub_skip_list: >-
+      {{ ((skip_hubs | default([])).split(',') | map('trim') | select | list)
+         if ((skip_hubs | default([])) is string) else (skip_hubs | default([])) }}
+  tags:
+    - always
+    - docker-compose
+
+# The ini inventory plugin literal_evals every value, and JSON's lowercase
+# `true` / `null` are not Python literals, so `la_hubs = [{...}]` arrives here as
+# one long STRING and every `h.pkg` below would fail on it. Parse it once.
+- name: Normalize la_hubs (the ini plugin hands it over as text)
+  ansible.builtin.set_fact:
+    hub_declarations: >-
+      {{ ((la_hubs | from_json) if ((la_hubs | trim) | length) > 0 else [])
+         if (la_hubs | default([])) is string else (la_hubs | default([])) }}
+  tags:
+    - always
+    - docker-compose
+
+# Element 0 is the portal itself with an empty suffix, so every consumer loops over
+# a single list and a deployment without hubs renders byte-identical artifacts.
+#
+# skip_hubs removes a hub from the list outright: it means "do not deploy this hub",
+# so losing its compose include (and therefore its containers on the next `up`) is the
+# intent. la_hub_only does NOT, and must not: the hub ansiblew passes it to say "this
+# run is about hub X", and docker-compose.yml is ONE file for the whole stack, so
+# dropping the other hubs from the list would drop their includes and the next
+# `docker compose up` would remove containers nobody asked to remove. It only marks
+# which hub re-renders its app config (render_config), which is the slow part.
+- name: Build the per-instance data hub render list
+  ansible.builtin.set_fact:
+    hub_instances: >-
+      {%- set out = [{
+            'pkg': '',
+            'suffix': '',
+            'is_portal': true,
+            'biocache_hub': biocache_hub | default('ala-hub'),
+            'bie_hub': 'ala-bie-hub',
+            'regions': 'regions',
+            'use_records': 'ala_hub' in services_enabled,
+            'use_species': 'ala_bie' in services_enabled,
+            'use_regions': 'regions' in services_enabled,
+            'has_branding': branding_source is defined and branding_source is not none,
+            'use_branding': branding_source is defined and branding_source is not none,
+            'branding_source': branding_source | default(none),
+            'render_config': true,
+            'aliases': {}
+          }] -%}
+      {%- for h in (hub_declarations | default([])) -%}
+        {%- if h.pkg not in hub_skip_list -%}
+          {%- set al = {} -%}
+          {%- for svc, grp in {'biocache-hub': 'biocache-hub-' ~ h.pkg,
+                               'bie-hub': 'bie-hub-' ~ h.pkg,
+                               'regions': 'regions-' ~ h.pkg,
+                               'branding': 'branding-' ~ h.pkg}.items() -%}
+            {%- set m = (groups[grp] | default([]))
+                        | select('match', '^' ~ ansible_host ~ '(\..+)?$') | list -%}
+            {%- if m | length > 0 -%}{%- set _ = al.update({svc: m[0]}) -%}{%- endif -%}
+          {%- endfor -%}
+          {#- Two branding flags, and the difference matters once a hub is spread:
+              has_branding means the hub HAS a branding of its own, so its front-ends
+              wait on that URL wherever they run; use_branding is alias-filtered and
+              means the branding container, volume and vhost render HERE. Other hosts
+              reach it over its public URL -- the gate is a curl poll, cross-host safe.
+
+              Any resolved alias means part of this hub is deployed HERE. A hub may be
+              SPREAD across compose hosts (records on one, species and regions on
+              another), so the records front-end is not the test for presence; it is
+              just one more per-service flag, use_records. -#}
+          {%- if al | length > 0 -%}
+            {%- set _ = out.append({
+                  'pkg': h.pkg,
+                  'suffix': '-' ~ h.pkg,
+                  'is_portal': false,
+                  'biocache_hub': h.pkg ~ '-hub',
+                  'bie_hub': h.pkg ~ '-bie-hub',
+                  'regions': h.pkg ~ '-regions',
+                  'use_records': 'biocache-hub' in al,
+                  'use_species': (h.use_species | default(false)) and ('bie-hub' in al),
+                  'use_regions': (h.use_regions | default(false)) and ('regions' in al),
+                  'has_branding': (h.branding_source | default(none)) is not none,
+                  'use_branding': ((h.branding_source | default(none)) is not none) and ('branding' in al),
+                  'branding_source': h.branding_source | default(none),
+                  'render_config': (la_hub_only is not defined or la_hub_only == h.pkg),
+                  'aliases': al
+                }) -%}
+          {%- endif -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ out }}
+  tags:
+    - always
+    - docker-compose
+
+# Hostnames claimed by more than one app once the hubs are counted. fast_mode
+# rewrites the whole <hostname>.conf on every nginx_vhost call, so two apps on one
+# hostname would leave only the last one standing; those must fall back to fragment
+# mode with an appname suffix. This is the hostname-level counterpart of
+# nginx_shared_vhost_service_keys above, which only knows about parentService clusters.
+- name: Compute vhost hostnames shared by more than one app (hubs included)
+  ansible.builtin.set_fact:
+    nginx_shared_vhost_hostnames: >-
+      {%- set claims = [] -%}
+      {%- for key, hostvar in {'ala_hub': 'biocache_hub_hostname',
+                               'ala_bie': 'bie_hub_hostname',
+                               'regions': 'regions_hostname',
+                               'branding': 'branding_url'}.items() -%}
+        {%- if key in services_enabled -%}
+          {%- set alias = (service_aliases | default({})).get({'ala_hub': 'biocache-hub',
+                                               'ala_bie': 'bie-hub',
+                                               'regions': 'regions',
+                                               'branding': 'branding'}[key], '') -%}
+          {%- set hv = hostvars[alias] | default({}) -%}
+          {%- if hv.get(hostvar) -%}{%- set _ = claims.append(hv.get(hostvar)) -%}{%- endif -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {%- for inst in hub_instances | rejectattr('is_portal') -%}
+        {%- for svc, hostvar in {'biocache-hub': 'biocache_hub_hostname',
+                                 'bie-hub': 'bie_hub_hostname',
+                                 'regions': 'regions_hostname',
+                                 'branding': 'branding_url'}.items() -%}
+          {%- set hv = hostvars[inst.aliases.get(svc, '')] | default({}) -%}
+          {%- if hv.get(hostvar) -%}{%- set _ = claims.append(hv.get(hostvar)) -%}{%- endif -%}
+        {%- endfor -%}
+      {%- endfor -%}
+      {{ claims | select | reject('equalto', '') | list
+         | select('in', claims | difference(claims | unique)) | unique | list }}
+  tags:
+    - always
+    - docker-compose

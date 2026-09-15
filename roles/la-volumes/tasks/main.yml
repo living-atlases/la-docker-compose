@@ -134,3 +134,22 @@
     - docker-volumes
     - branding
   when: "'branding' in (physical_server_groups | default([]))"
+
+# A data hub that declares a branding_source of its own serves it from its own
+# volume, so two hubs never overwrite each other's assets. A hub without one is
+# absent from this loop: it reuses the portal's branding through its
+# header_and_footer_baseurl.
+- name: "Database volumes: Create per data hub branding external volumes"
+  community.docker.docker_volume:
+    name: "la_branding-assets{{ item.suffix }}"
+    driver: local
+    docker_host: "{{ docker_socket }}"
+    state: present
+  become: true
+  loop: "{{ hub_instances | default([]) | rejectattr('is_portal') | selectattr('use_branding') | list }}"
+  loop_control:
+    label: "la_branding-assets{{ item.suffix }}"
+  tags:
+    - db-init
+    - docker-volumes
+    - branding

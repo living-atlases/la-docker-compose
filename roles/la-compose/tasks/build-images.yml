@@ -40,7 +40,20 @@
     dest: "{{ docker_compose_data_dir }}/docker-bake.hcl"
     mode: '0644'
   when:
-    - "'branding' in services_enabled"
+    - "'branding' in services_enabled or (branding_render_list | default([]) | length > 0)"
+
+# One target per staged branding: the portal's plus one per data hub that declares a
+# branding_source. Falls back to the single 'branding' target when nothing recorded a
+# list, which is what a deployment with no hubs and an older render produces.
+- name: Resolve the branding bake targets
+  ansible.builtin.set_fact:
+    branding_bake_targets: >-
+      {{ (branding_render_list | default([])
+          | map(attribute='suffix')
+          | map('regex_replace', '^(.*)$', 'branding\\1')
+          | map('replace', '-', '_') | list) or ['branding'] }}
+  when:
+    - "'branding' in services_enabled or (branding_render_list | default([]) | length > 0)"
 
 # BuildKit's cache DB lives in docker's data-root (/var/lib/docker/buildkit), but with the
 # containerd snapshotter the layers it points at live in /var/lib/containerd. Anything that empties
@@ -50,7 +63,7 @@
 # disposable, so drop it and build again rather than failing the host out of the play.
 - block:
     - name: Build site-specific branding using docker buildx bake
-      ansible.builtin.command: docker buildx bake -f docker-bake.hcl branding
+      ansible.builtin.command: docker buildx bake -f docker-bake.hcl {{ branding_bake_targets | join(" ") }}
       args:
         chdir: "{{ docker_compose_data_dir }}"
       register: build_branding
@@ -61,13 +74,13 @@
       changed_when: true
 
     - name: Rebuild site-specific branding with an empty build cache
-      ansible.builtin.command: docker buildx bake -f docker-bake.hcl branding
+      ansible.builtin.command: docker buildx bake -f docker-bake.hcl {{ branding_bake_targets | join(" ") }}
       args:
         chdir: "{{ docker_compose_data_dir }}"
       register: build_branding
       changed_when: true
   when:
-    - "'branding' in services_enabled"
+    - "'branding' in services_enabled or (branding_render_list | default([]) | length > 0)"
 
 # Docker Hub fails transiently on its own token endpoint and `docker compose pull` aborts every
 # in-flight layer with it (2026-08-05, build #331: "auth.docker.io/token: 500 Internal Server

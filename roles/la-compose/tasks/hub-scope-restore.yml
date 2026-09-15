@@ -1,0 +1,12 @@
+---
+# Put the portal's variable scope back after the hub loop. See hub-scope-snapshot.yml
+# for why this is not optional.
+- name: "Hubs: restore the portal's variable scope"
+  ansible.builtin.set_fact:
+    "{{ item.key }}": "{{ item.value }}"
+  loop: "{{ portal_scope_snapshot | default({}) | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  tags:
+    - always
+    - docker-compose

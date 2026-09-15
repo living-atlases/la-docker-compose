@@ -34,6 +34,10 @@
 #                       Set false for services that hold no datastore endpoints;
 #                       it keeps the render identical to the hand-written blocks
 #                       this file replaced.
+#   bulk_alias          load this alias instead of looking bulk_service_key up in
+#                       `service_aliases`. Data hubs need it: their aliases live in
+#                       hub_instances[*].aliases precisely so a hub can never end up
+#                       in `service_aliases` and hijack the portal's scope.
 #
 # The caller carries the per-service tags; a dynamic include passes its own tags
 # down to the tasks it includes.
@@ -42,7 +46,7 @@
   ansible.builtin.set_fact:
     "{{ item.key }}": "{{ item.value }}"
   loop: >-
-    {{ hostvars[service_aliases.get(bulk_service_key, '')] | default({})
+    {{ hostvars[bulk_alias | default(service_aliases.get(bulk_service_key, ''), true)] | default({})
        | dict2items
        | selectattr('key', 'match', '^[a-zA-Z_][a-zA-Z0-9_]*$')
        | rejectattr('key', 'match', '^ansible_.*')
@@ -50,19 +54,34 @@
        | list }}
   loop_control:
     label: "{{ item.key }}"
-  when: service_aliases.get(bulk_service_key) is defined
+  when: (bulk_alias | default('', true)) != '' or service_aliases.get(bulk_service_key) is defined
+  # `docker-compose` for the same reason as the re-normalize below: this load is a
+  # prerequisite of the roles that render the compose-time config, and a run limited
+  # to that tag skipped it while running them, so every service was rendered from
+  # whatever happened to be in scope. A data hub is where it shows: its own
+  # biocache_query_context never reached its config, and the hub served the portal's
+  # whole dataset instead of its own subset.
   tags:
     - config
     - bulk-load
+    - docker-compose
 
 # The load re-imports the raw inventory values, so any hostname already rewritten
 # to a container-reachable name (mysql, postgres, la_mongodb, zookeeper…) comes
 # back as localhost and has to be rewritten again.
+#
+# `docker-compose` is in the tag list on purpose: without it a run limited to that
+# tag (scripts/validate-config-gen.sh, and any --tags deploy) executed the bulk load
+# and the role that renders the config, but skipped the rewrite in between, so
+# image-service shipped `jdbc:postgresql://localhost/images` — a database that does
+# not exist from inside the container. Renormalizing must not be independently
+# skippable from the rendering that consumes it.
 - name: "Re-normalize database hostnames after {{ bulk_service_key }} bulk load"
   ansible.builtin.include_tasks: normalize-hostnames.yml
   when:
-    - service_aliases.get(bulk_service_key) is defined
+    - (bulk_alias | default('', true)) != '' or service_aliases.get(bulk_service_key) is defined
     - bulk_run_normalize | default(true) | bool
   tags:
     - config
     - normalize
+    - docker-compose

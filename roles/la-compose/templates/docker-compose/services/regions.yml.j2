@@ -1,23 +1,42 @@
 # Regions - regional data frontend
+{# Rendered once per data hub instance (tasks/generate-hub-instance.yml). The portal
+   is instance #0 with an empty suffix, so the default below reproduces the pre-hub
+   file byte for byte. Rule of the whole feature: the hub identity lives in HOST
+   paths; the paths inside the container never carry it, because the stock image
+   reads fixed ones. #}
+{% set inst = inst | default({'pkg': '', 'suffix': '', 'is_portal': true,
+                              'regions': 'regions', 'use_branding': true, 'has_branding': true}) %}
+{% set brand_gate = 'wait-for-branding' ~ (inst.suffix if inst.has_branding | default(true) else '') %}
 services:
-  regions:
+  regions{{ inst.suffix }}:
     image: {% set svc_reg = regions_registry | default(docker_registry | default('')) %}{{ svc_reg }}{% if svc_reg %}/{% endif %}regions:{{ regions_version | default('latest') }}
-    container_name: {{ regions_docker_host | default('la_regions') }}
+    container_name: {{ regions_docker_host | default('la_regions') }}{{ inst.suffix }}
     profiles: [app-core, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
-{% if 'collectory' in services_enabled or 'ala_bie' in services_enabled %}
+{# The predicate is "does the service named brand_gate exist in this host's project".
+   For a hub, base.yml.j2 always includes one: the suffixed gate when the hub declares a
+   branding, the unsuffixed one otherwise (its `rejectattr('has_branding')` term). For the
+   PORTAL the unsuffixed gate is conditional, so the terms below must stay in step with
+   base.yml.j2 -- they are the pre-hub condition, unchanged. biocache-hub and bie-hub emit
+   depends_on unconditionally and so fail loudly on a missing gate; regions would fail
+   SILENTLY, bringing back the commonui g:applyLayout race. #}
+{% if not (inst.is_portal | default(true)) or 'collectory' in services_enabled or 'ala_bie' in services_enabled %}
     depends_on:
       # Order-independent branding readiness gate (commonui header/footer); cross-host safe.
-      wait-for-branding:
+      {{ brand_gate }}:
         condition: service_completed_successfully
 {% endif %}
     volumes:
       # Role (ala-install/regions) writes config to {{ data_dir }}/regions/config; the image
       # reads /data/regions/config (artifact name = regions). config-dir-ensure recurse-chowns it.
-      - {{ data_dir }}/regions/config:/data/regions/config
+      - {{ data_dir }}/{{ inst.regions }}/config:/data/regions/config
+{% if inst.suffix %}
+      # Written as <hub>-regions-config.properties, read as regions-config.properties.
+      - {{ data_dir }}/{{ inst.regions }}/config/{{ inst.regions }}-config.properties:/data/regions/config/regions-config.properties:ro
+{% endif %}
       # logback.xml writes to /var/log/tomcat9/regions.log; the image has no /var/log/tomcat9
       # (not writable by uid 1000) so bind a host dir (created uid 1000 by config-dir-ensure).
-      - {{ data_dir }}/regions/logs:/var/log/tomcat9
+      - {{ data_dir }}/{{ inst.regions }}/logs:/var/log/tomcat9
 {% include '_i18n_volumes.yml.j2' %}
     restart: unless-stopped
     expose:

@@ -58,6 +58,15 @@
     - docker-compose
     - e2e-targets
 
+# Data hubs: join every compose host's slice into one cluster-wide list. A hub may
+# be SPREAD across hosts (records on host1, species and regions on host3) and the
+# Cypress suite reads ONE manifest.
+- name: "e2e-targets: Merge each data hub's targets across compose hosts"
+  ansible.builtin.include_tasks: merge-hub-e2e-targets.yml
+  tags:
+    - docker-compose
+    - e2e-targets
+
 - name: "e2e-targets: Compose manifest"
   ansible.builtin.set_fact:
     e2e_targets_manifest:
@@ -65,11 +74,42 @@
       root: "{{ (ala_base_url | default(default_logout_redirect_url | default(''))) | regex_replace('/+$', '') }}"
       auth: "{{ (cas_url | default('')) | regex_replace('/+$', '') }}"
       services: "{{ e2e_targets_services }}"
+      # Data hubs, each with its own public URLs, branding base and data_hub_uid query
+      # context. Collected in the hub loop (generate-hub-instance.yml) while each hub's
+      # variables were the loaded ones, then joined across hosts just above; the keys
+      # above stay the PORTAL's, so every existing spec keeps working unchanged.
+      hubs: "{{ e2e_targets_hubs_merged | default([]) }}"
       # ALA upstreams this deployment deliberately still depends on (see
       # roles/la-compose/defaults/main.yml). The effective-config e2e check treats anything
       # else resolving to ALA infrastructure as a failure, so the declaration has to travel
       # with the manifest rather than being hardcoded in the test.
       alaUpstreamFallbacks: "{{ ala_upstream_fallbacks | default([]) }}"
+  tags:
+    - docker-compose
+    - e2e-targets
+
+# generate-hub-instance.yml is pulled in by a DYNAMIC include whose own tags are
+# hubs/config/docker-compose, so a run limited to --tags e2e-targets never enters it and
+# e2e_targets_hubs is never accumulated -- the tags on the emitter task itself cannot
+# change that, since a dynamic include is selected by the include's tags, not its
+# children's. Writing anyway would replace a good manifest with one whose hubs list is
+# empty, which the e2e suite reads as "this deployment has no data hubs". So detect the
+# case and skip the write instead.
+- name: "e2e-targets: Did the hub loop run on this host?"
+  ansible.builtin.set_fact:
+    _e2e_hubs_not_collected: "{{ ((hub_instances | default([]) | rejectattr('is_portal') | list | length) > 0)
+                                 and (e2e_targets_hubs is not defined) }}"
+  tags:
+    - docker-compose
+    - e2e-targets
+
+- name: "e2e-targets: Warn that the manifest is left as it is"
+  ansible.builtin.debug:
+    msg: >-
+      Skipping e2e-targets.json: this host carries data hubs but the hub loop did not run
+      in this play (a --tags e2e-targets run skips it). Re-run with --tags docker-compose
+      to regenerate the manifest with its hubs.
+  when: _e2e_hubs_not_collected
   tags:
     - docker-compose
     - e2e-targets
@@ -82,8 +122,13 @@
     owner: "{{ docker_compose_userid | default(omit) }}"
     group: "{{ docker_compose_usergid | default(omit) }}"
   become: true
-  # Only write when we actually resolved public URLs (portal vars present on this host).
-  when: e2e_targets_services | length > 0
+  # Only write when we actually resolved public URLs (portal vars present on this
+  # host), or when this host carries a data hub -- an inventory that scopes the
+  # portal's *_base_url to a service group instead of [all:vars] would otherwise
+  # leave a hub-bearing host with no manifest at all.
+  when:
+    - not _e2e_hubs_not_collected
+    - (e2e_targets_services | length > 0) or (e2e_targets_hubs_merged | default([]) | length > 0)
   tags:
     - docker-compose
     - e2e-targets

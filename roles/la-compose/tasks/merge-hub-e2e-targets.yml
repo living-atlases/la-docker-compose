@@ -1,0 +1,59 @@
+---
+# Join every compose host's slice of e2e_targets_hubs into one cluster-wide list.
+#
+# Its own file so the multihub molecule scenario can exercise the join on a stub
+# inventory, without standing up the rest of the e2e manifest.
+
+# --- Data hubs, merged cluster-wide ----------------------------------------
+# A hub may be SPREAD across compose hosts (records on host1, species and regions on
+# host3), but the Cypress suite reads ONE e2e-targets.json. Each host accumulated its
+# own slice in e2e_targets_hubs (generate-hub-instance.yml, last task) while that
+# hub's variables were the loaded ones; here they are joined by `key`.
+#
+# From hostvars, NOT from hub_instances: after the split hub_instances is a PER-HOST
+# render list (the same pkg has different use_records/use_species on different hosts)
+# while the manifest needs the cluster-wide view.
+#
+# `services` is deep-merged; the scalars take the first non-empty contribution, which
+# is unambiguous because the emitter only sets them on the host carrying the hub's
+# records alias. `name` falls back to the key so HubTarget.name is always satisfied.
+#
+# Two things this deliberately does not defend against: a run under `--limit` (or a
+# host dropped by an earlier failure) sees fewer slices and writes a partial list --
+# a full run regenerates it correctly; and adding `serial:` to playbooks/site.yml
+# would break the ordering this relies on (default linear strategy: every host has
+# finished generate-compose.yml before any host reaches this task).
+- name: "e2e-targets: Merge each data hub's targets across compose hosts"
+  ansible.builtin.set_fact:
+    e2e_targets_hubs_merged: >-
+      {%- set acc = {} -%}
+      {%- set order = [] -%}
+      {%- for h in groups['docker_compose'] | default([]) -%}
+        {%- for entry in hostvars[h].get('e2e_targets_hubs', []) -%}
+          {%- set k = entry.key -%}
+          {%- if k not in acc -%}
+            {%- set _ = order.append(k) -%}
+            {%- set _ = acc.update({k: {'name': '', 'queryContext': '',
+                                        'branding': '', 'services': {}}}) -%}
+          {%- endif -%}
+          {%- set cur = acc[k] -%}
+          {%- set _ = cur.update({'services': cur.services | combine(entry.services | default({}))}) -%}
+          {%- for f in ['name', 'queryContext', 'branding'] -%}
+            {%- if not cur[f] and (entry.get(f) | default('')) -%}
+              {%- set _ = cur.update({f: entry[f]}) -%}
+            {%- endif -%}
+          {%- endfor -%}
+        {%- endfor -%}
+      {%- endfor -%}
+      {%- set out = [] -%}
+      {%- for k in order -%}
+        {%- set e = acc[k] -%}
+        {%- set _ = out.append({'key': k, 'name': e.name or k,
+                                'queryContext': e.queryContext,
+                                'branding': e.branding,
+                                'services': e.services}) -%}
+      {%- endfor -%}
+      {{ out }}
+  tags:
+    - docker-compose
+    - e2e-targets
