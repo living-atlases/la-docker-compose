@@ -10,11 +10,27 @@ export interface AlaUpstreamFallback {
   reason: string;
 }
 
+/** One data hub: an extra front-end showing a data_hub_uid-filtered subset of the
+ *  portal's records, with its own subdomain and, optionally, its own branding. */
+export interface HubTarget {
+  key: string;
+  name: string;
+  /** The data_hub_uid:… filter this hub is scoped to. */
+  queryContext?: string;
+  /** header_and_footer_baseurl: the hub's own branding, or the portal's when the
+   *  hub declares no branding_source of its own. */
+  branding?: string;
+  services: Record<string, string>;
+}
+
 export interface Targets {
   env: string;
   root: string;
   auth: string;
   services: Record<string, string>;
+  /** Data hubs deployed alongside the portal. Optional: a manifest predating hubs,
+   *  or a deployment without any, must still load. */
+  hubs?: HubTarget[];
   /**
    * ALA-hosted upstreams this deployment deliberately still depends on, declared in the
    * inventory (roles/la-compose/defaults/main.yml: ala_upstream_fallbacks). Optional: an
@@ -79,4 +95,34 @@ export function ownHosts(): string[] {
     }
   });
   return [...hosts];
+}
+
+/** Data hubs declared by the deployment. Empty when there are none, so every hub
+ *  spec can skip cleanly instead of failing. */
+export function hubs(): HubTarget[] {
+  return targets().hubs ?? [];
+}
+
+export function hasHub(key: string): boolean {
+  return hubs().some((h) => h.key === key);
+}
+
+/** Full URL for one service of one hub. Throws on an unknown hub or service so a
+ *  typo in a spec never silently degrades into "nothing to test". */
+export function hubServiceUrl(hubKey: string, key: string, suffix = ""): string {
+  const hub = hubs().find((h) => h.key === hubKey);
+  if (!hub) {
+    throw new Error(
+      `Unknown hub '${hubKey}' in e2e-targets manifest. ` +
+        `Available: ${hubs().map((h) => h.key).join(", ") || "(none)"}`,
+    );
+  }
+  const base = hub.services[key];
+  if (!base) {
+    throw new Error(
+      `Hub '${hubKey}' does not deploy '${key}'. ` +
+        `Available: ${Object.keys(hub.services).join(", ")}`,
+    );
+  }
+  return base + suffix;
 }
