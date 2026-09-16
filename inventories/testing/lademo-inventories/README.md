@@ -89,7 +89,7 @@ ansible-playbook --private-key ~/.ssh/MyKey.pem -u ubuntu -i lademo-inventory.in
 ansible-playbook --private-key ~/.ssh/MyKey.pem -u ubuntu -i lademo-inventory.ini -i lademo-local-extras.ini -i lademo-local-passwords.ini $AI/ansible/namematching-service-by-type.yml --limit localhost
 ansible-playbook --private-key ~/.ssh/MyKey.pem -u ubuntu -i lademo-inventory.ini -i lademo-local-extras.ini -i lademo-local-passwords.ini $AI/ansible/sensitive-data-service-by-type.yml --limit localhost
 ansible-playbook --private-key ~/.ssh/MyKey.pem -u ubuntu -i lademo-inventory.ini -i lademo-local-extras.ini -i lademo-local-passwords.ini $AI/ansible/branding.yml --limit localhost
-ansible-playbook --private-key ~/.ssh/MyKey.pem -u ubuntu -i lademo-inventory.ini -i lademo-local-extras.ini -i lademo-local-passwords.ini $AI/ansible/docker-compose.yml --limit localhost
+ansible-playbook --private-key ~/.ssh/MyKey.pem -u ubuntu -i lademo-inventory.ini -i lademo-local-extras.ini -i lademo-local-passwords.ini $AI/ansible/.yml --limit localhost
 ansible-playbook --private-key ~/.ssh/MyKey.pem -u ubuntu -i lademo-inventory.ini -i lademo-local-extras.ini -i lademo-local-passwords.ini $AI/ansible/gatus.yml --limit localhost
 ansible-playbook --private-key ~/.ssh/MyKey.pem -u ubuntu -i lademo-inventory.ini -i lademo-local-extras.ini -i lademo-local-passwords.ini $AI/ansible/portainer.yml --limit localhost
 ansible-playbook --private-key ~/.ssh/MyKey.pem -u ubuntu -i lademo-inventory.ini -i lademo-local-extras.ini -i lademo-local-passwords.ini $AI/ansible/cassandra-docker.yml --limit localhost

@@ -1,0 +1,193 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""This is an ansible wrapper to help you to exec the different playbooks with your
+inventories.
+
+By default don't exec nothing only show the commands. With --nodryrun you can exec
+the real commands.
+
+Usage:
+   ansiblew --alainstall=<dir_of_ala_install_repo> [options] [ ( branding | ala_hub | ala_bie | regions )... | all ]
+   ansiblew -h | --help
+   ansiblew -v | --version
+
+Options:
+  -n --nodryrun              Exec the ansible-playbook commands
+  -p --properties            Only update properties
+  -l --limit=<hosts>         Limit to some inventories hosts
+  -s --skip=<tags>           Skip tags
+  -t --tags=<tags>           Limit to tags
+  -i --inventory=<vars>      Extra inventory
+  -e --extra=<vars>          Extra variables to pass to ansible-playbook
+  -h --help                  Show help options.
+  -u --user=<user>           Ansible become user [default: ubuntu]
+  -w --newserver             Prepare the server for the first time (install ansible deps like python)
+  -C --check                 Run ansible-playbook in check mode (dry run)
+  -c --continue              Continue even if some ansible cmd fails
+  -d --debug                 Show debug info.
+  -v --version               Show ansiblew version.
+     --ladocker=<dir>        Path to la-docker-compose repo; use its playbooks for container hosts
+     --docker-local          Use *-dev-docker-inventory.ini (all hosts on 127.0.0.1) instead of *-inventory.ini
+----
+ansiblew 0.1.0
+Copyright (C) 2019 living-atlases.gbif.org
+Apache 2.0 License
+"""
+from docopt import docopt
+import sys
+import subprocess
+import os.path
+
+def execCmd(cmd, fail_on_error, nodryrun):
+    import os, sys, pty
+
+    # Run under a real PTY; 'exec' replaces the shell so SIGINT hits ansible directly
+    try:
+        status = pty.spawn(['/bin/sh', '-c', 'exec ' + cmd])
+    except KeyboardInterrupt:
+        sys.exit(130)
+
+    # Map wait status to exit code (Py3.9+), fallback otherwise
+    try:
+        rc = os.waitstatus_to_exitcode(status)
+    except AttributeError:
+        rc = status >> 8
+
+    if rc != 0 and fail_on_error:
+        sys.exit(rc)
+
+if __name__ == '__main__':
+    args = docopt(__doc__)
+
+    nodryrun = args['--nodryrun']
+    debug = args['--debug']
+    properties = args['--properties']
+    skip = args['--skip']
+    user = args['--user']
+    tags = args['--tags']
+    limit = args['--limit']
+    check = args['--check']
+    doall = args['all']
+    newserver = args['--newserver']
+    alainstall = args['--alainstall']
+    cmdPrefix = "echo "
+    extras = ""
+    extraInvs = ""
+    pkg = "lademo"
+    isHub = True
+    hub_pkg = "lademohub"
+    inv_path = "../lademo-inventories/lademo"
+    extra_vars = args['--extra']
+    extra_inv = args['--inventory']
+    fail_on_error = not args['--continue']
+    ladocker = args['--ladocker']
+    docker_local = args['--docker-local']
+
+    # Add here some additional param for ansible like your ssh key, like:
+    # additionalParams = "--private-key ~/.ssh/MyKey.pem"
+    additionalParams = ""
+
+    if debug:
+        print(args)
+
+    if properties:
+        extras = "%s --tags common,properties,setfacts" % (extras)
+    if skip:
+        extras = "%s --skip-tags %s" % (extras, skip)
+    if tags:
+        extras = "%s --tags %s" % (extras, tags)
+    if debug:
+        extras = "%s -vvvv" % (extras)
+    # The docker leg renders every compose artifact from the docker_compose host, so
+    # limiting a hub deploy to hub-<pkg> alone would exclude the only host that runs
+    # la-compose. Widen the limit there and tell la-compose which hub to render with
+    # la_hub_only instead.
+    hubLimit="hub-lademohub"
+    if isHub and ladocker:
+        hubLimit = "%s,docker_compose,docker_compose_hosts" % hubLimit
+    if limit:
+        extras = "%s --limit %s%s" % (extras, limit, (",%s" % hubLimit) if hubLimit else "")
+    else:
+        if isHub:
+            extras = "%s --limit %s" % (extras, hubLimit)
+    if extra_vars:
+        extras = "%s --extra-vars '%s'" % (extras, extra_vars)
+    if check:
+        extras = "%s --check" % (extras)
+    if nodryrun:
+        cmdPrefix = ""
+
+    if debug:
+        print("Extras: %s" % (extras))
+
+    if os.path.isfile("../%s-inventories/%s-toolkit.ini" % (pkg, pkg)):
+        extraInvs = "-i ../%s-inventories/%s-toolkit.ini" % (pkg, pkg)
+    if os.path.isfile("%s-toolkit.ini" % (hub_pkg)):
+        extraInvs = "%s -i %s-toolkit.ini" % (extraInvs, hub_pkg)
+
+    # Add the --inventory extraInv if present
+    if extra_inv:
+        extraInvs = "%s -i %s" % (extraInvs, extra_inv)
+
+    if docker_local:
+        # Both sides in localhost mode, or this hub's aliases name machines the
+        # localhost-mode portal inventory no longer has.
+        baseInventories = "-i ../%s-inventories/%s-dev-docker-inventory.ini -i ./%s-dev-docker-inventory.ini -i %s-local-extras.ini " % (pkg, pkg, hub_pkg, inv_path)
+    else:
+        baseInventories = "-i %s-inventory.ini -i ./%s-inventory.ini -i %s-local-extras.ini " % (inv_path, hub_pkg, inv_path)
+    # for now disabled that extraVars
+    # extraVars = ',ala_install_repo=%s' % alainstall
+    if ladocker:
+        # NEVER set biocache_hub/bie_hub/regions here: extra-vars are global and win
+        # over every group var, so they would rename the PORTAL's own hub while the
+        # docker leg renders it. la-compose takes the hub from the inventory instead.
+        extraVars = ' la_hub_only=%s' % hub_pkg
+    else:
+        extraVars = ' biocache_hub=%s-hub bie_hub=%s-bie-hub regions=%s-regions' % (hub_pkg, hub_pkg, hub_pkg)
+
+    plays = []
+
+    if newserver:
+        plays.append("%s/ansible/newserver.yml" % alainstall)
+
+    # With --ladocker always run the la-docker-compose site.yml (the docker leg)
+    # first, and additionally any ala-install playbook of the services passed as
+    # positional args (the VM leg of a hybrid portal). 'all' with --ladocker keeps
+    # the pure-compose behavior: site.yml alone covers every docker service.
+    if ladocker:
+        plays.append("%s/playbooks/site.yml" % ladocker)
+    if args['branding'] or (doall and not ladocker):
+        plays.append("%s/ansible/branding.yml" % alainstall)
+    if args['ala_hub'] or (doall and not ladocker):
+        plays.append("%s/ansible/biocache-hub-by-type.yml" % alainstall)
+    if args['ala_bie'] or (doall and not ladocker):
+        plays.append("%s/ansible/bie-hub-by-type.yml" % alainstall)
+    if args['regions'] or (doall and not ladocker):
+        plays.append("%s/ansible/regions-by-type.yml" % alainstall)
+    
+
+    inventories = " "
+    inventories = inventories.join(plays)
+
+    # la-docker-compose's site.yml imports roles ('docker', 'la-compose', ...)
+    # that live in the la-docker-compose repo (its ala-install submodule roles
+    # plus its own roles/), not in the standalone ala-install checkout. Mirror
+    # the la-docker-compose Jenkinsfile and point ANSIBLE_ROLES_PATH at them so
+    # the docker leg resolves its roles without the caller having to export
+    # anything (ansiblew stays self-contained on the command line). The
+    # standalone ala-install roles are kept last for the VM playbooks of a
+    # hybrid single run.
+    rolesEnv = ""
+    if ladocker:
+        # Enable SSH pipelining + persistent connections for the docker leg. The docker
+        # leg runs many tiny tasks (nginx_vhost alone is ~1360) and, without this, pays a
+        # full SSH round-trip per task -> multi-hour deploys. We set these as ENV VARS
+        # (not ANSIBLE_CONFIG) on purpose: pointing ANSIBLE_CONFIG at another file would
+        # REPLACE ~/.ansible.cfg entirely and drop its callback_plugins, which is what
+        # writes the deploy results JSON the toolkit parses for its stats. Env vars layer
+        # on top of ~/.ansible.cfg instead. ANSIBLE_ROLES_PATH resolves the docker-leg
+        # roles (submodule ala-install + la-docker-compose roles).
+        rolesEnv = "env ANSIBLE_PIPELINING=True ANSIBLE_SSH_ARGS='-o ControlMaster=auto -o ControlPersist=600s -o PreferredAuthentications=publickey' ANSIBLE_ROLES_PATH=%s/ala-install/ansible/roles:%s/roles:%s/ansible/roles " % (ladocker, ladocker, alainstall)
+
+    playCmd = "%s %sansible-playbook %s -u %s %s %s -i %s-local-passwords.ini %s %s --extra-vars 'target=all%s'" % (cmdPrefix, rolesEnv, additionalParams, user, baseInventories, extraInvs, inv_path, inventories, extras, extraVars)
+    execCmd(playCmd, fail_on_error, nodryrun)
