@@ -10,6 +10,17 @@
 # Regenerable and idempotent (rendered content copy). Runs per host in the docker_compose
 # group; the public URLs are the same on every host, so any host's file is authoritative.
 
+# groups[] is global, so this sees the gatus host's vars from any host in the play. Falls
+# back to play scope for a single-host inventory that sets gatus_url in [all:vars].
+- name: "e2e-targets: Resolve the gatus URL from the host that runs gatus"
+  ansible.builtin.set_fact:
+    _gatus_url_any: "{{ (hostvars[(groups['gatus'] | first)].gatus_url | default(gatus_url | default('')))
+                        if ((groups['gatus'] | default([]) | length) > 0)
+                        else (gatus_url | default('')) }}"
+  tags:
+    - docker-compose
+    - e2e-targets
+
 - name: "e2e-targets: Assemble per-service public URLs from inventory vars"
   ansible.builtin.set_fact:
     # Each value = base_url ~ context_path, trailing slashes stripped so serviceUrl() joins
@@ -30,7 +41,14 @@
       namematching: "{{ (namematching_service_url | default('')) | regex_replace('/+$', '') }}"
       regions: "{{ ((regions_base_url | default('')) ~ (regions_context_path | default(''))) | regex_replace('/+$', '') }}"
       # gatus_url is a bare hostname in the inventory (no scheme) — add https:// when missing.
-      gatus: "{{ (('https://' ~ gatus_url) if (gatus_url is defined and gatus_url and not (gatus_url is match('^https?://'))) else (gatus_url | default(''))) | regex_replace('/+$', '') }}"
+      # Read through groups['gatus'], NOT from play scope. The generator gives every service
+      # its own inventory alias, so `gatus_url` in [gatus:vars] belongs to `<host>.gatus`
+      # while this play runs as `<host>.docker_compose` — a different host object. It was
+      # therefore undefined on EVERY host, including the one that actually runs gatus, and
+      # the key was silently dropped by the absolute-URL filter below. That is what left
+      # verify-deployment.sh unable to resolve GATUS_HOST no matter where it ran. Same
+      # scoping trap as the gatus vhost and the nginx *_upstream_host vars.
+      gatus: "{{ (('https://' ~ _gatus_url_any) if (_gatus_url_any and not (_gatus_url_any is match('^https?://'))) else _gatus_url_any) | regex_replace('/+$', '') }}"
       # Dev mail catcher. Only emitted when docker_mail_development_mode is on (i.e. the
       # `mail`/`full` compose profile actually runs mailhog); otherwise the key is absent and
       # the mail-dependent e2e checks skip themselves via hasService('mailhog'). Same

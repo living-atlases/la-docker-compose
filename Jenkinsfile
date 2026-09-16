@@ -339,6 +339,15 @@ EOF
                     # service would start with none of its /data/<artifact>/config
                     # overrides. Renders the template, ~1s.
                     bash scripts/test-java-opts-env.sh
+
+                    # The Gatus health gate (Layer 1) was hollow for the whole of #385-#389:
+                    # it resolved its target from a manifest that only exists on the deployed
+                    # host, died at argument resolution on the agent, and catchError swallowed
+                    # it. Two independent hollows, so two halves here: shimmed ssh/curl prove
+                    # the gate reaches Gatus and always prints a verdict marker, and the
+                    # committed inventories prove the manifest carries a gatus URL to resolve
+                    # (it carried none on any host, gatus's own included). ~10s, no cluster.
+                    VENV_MOLECULE="$VENV_MOL" bash scripts/test-verify-deployment.sh
                 '''
                 // NOTE: the per-host-artifact guard (Lucene nameindex must not be run_once)
                 // runs in 'Prepare environment', AFTER the ala-install submodule is synced —
