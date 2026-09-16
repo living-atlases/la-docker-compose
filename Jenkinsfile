@@ -956,20 +956,53 @@ EOF
         // Report-only: on failure the stage is marked UNSTABLE (visible) without failing the
         // build, unless E2E_BLOCKING is set. Keeps the fragile multi-host CI green while the
         // checks bed in. Needs `jq` on the agent for the Gatus gate.
+        //
+        // ONE Gatus instance monitors the whole cluster, so its verdicts are the same answer
+        // whichever host is asked. Asking all of them, as this stage used to, bought nothing
+        // and could redden the gate on a host whose nginx simply cannot reach the gatus vhost
+        // (see the alias/server_names scoping bug). So: first host that yields a verdict wins;
+        // a host that cannot reach Gatus at all hands over to the next one.
         stage('Verify Gatus Health') {
             when { expression { params.RUN_E2E && env.DO_REDEPLOY == 'true' && params.AUTO_DEPLOY && !params.ONLY_CLEAN } }
             steps {
                 script {
                     def hosts = env.TARGET_HOSTS.trim().split(/\s+/)
                     def gate = {
+                        def verdict = ''
                         for (h in hosts) {
                             def targetHost = h
-                            echo "Gatus health gate on ${targetHost}..."
-                            sh """
-                                set -eu
-                                bash "${WORKSPACE}/scripts/verify-deployment.sh" --target ${targetHost} --blocking --timeout 300
-                            """
+                            echo "Gatus health gate via ${targetHost}..."
+                            // --blocking so the script reports honestly; whether THAT fails the
+                            // build is decided below by E2E_BLOCKING, not by hiding the result.
+                            // The log is kept because the marker, not the exit status, is the
+                            // verdict — a passing gate must say so out loud (see the script header).
+                            // No pipe into tee: Jenkins runs `sh` with /bin/sh, where
+                            // PIPESTATUS does not exist and the exit code would be tee's.
+                            def rc = sh(returnStatus: true, script: """
+                                set -u
+                                rc=0
+                                bash "${WORKSPACE}/scripts/verify-deployment.sh" \
+                                    --target ${targetHost} --blocking --timeout 300 \
+                                    > "${WORKSPACE}/gatus-gate.log" 2>&1 || rc=\$?
+                                cat "${WORKSPACE}/gatus-gate.log"
+                                exit \$rc
+                            """)
+                            def log = readFile("${WORKSPACE}/gatus-gate.log")
+                            if (log.contains('GATE-PASSED:')) { verdict = 'PASSED'; break }
+                            if (log.contains('GATE-FAILED:')) { verdict = 'FAILED'; break }
+                            echo "Gatus gate could not be evaluated via ${targetHost} (rc=${rc}); trying the next host."
                         }
+                        // A gate that never ran is NOT a pass. This is the whole point: builds
+                        // #385-#389 were green on a stage that exited at argument resolution,
+                        // because catchError swallowed the failure and nothing downstream
+                        // required positive evidence that the checks had actually happened.
+                        if (verdict == '') {
+                            error("GATE-NOT-RUN: the Gatus health gate never produced a verdict on any of [${hosts.join(', ')}] - see the log above. This is a broken gate, not a healthy deployment.")
+                        }
+                        if (verdict == 'FAILED') {
+                            error("GATE-FAILED: Gatus reports unhealthy 'Deep checks' endpoints - see the log above.")
+                        }
+                        echo "Gatus 'Deep checks' verified."
                     }
                     if (params.E2E_BLOCKING) {
                         gate()

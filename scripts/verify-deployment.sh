@@ -16,10 +16,16 @@
 #
 # Endpoints and their URLs are NOT hardcoded here: they come from Gatus (which is itself
 # generated from the inventory). The --direct fallback reads the inventory-generated
-# e2e-targets.json manifest instead.
+# e2e-targets.json manifest instead. With --target, that manifest is read FROM THE TARGET
+# over ssh: it is written by the deploy onto the deployed host, not onto the machine
+# running this script.
 #
 # Exit codes:  0 = all critical healthy   1 = critical endpoint(s) unhealthy   2 = Gatus/targets unreachable
 # Report-only by default (always exits 0, prints WARN); pass --blocking for honest exit codes.
+#
+# Because report-only flattens every outcome to 0, the last line is the verdict, not the
+# exit status. It is always exactly one of GATE-PASSED / GATE-FAILED / GATE-NOT-RUN, and
+# a caller that gates on this script MUST require GATE-PASSED rather than assume it.
 #
 # Usage:
 #   scripts/verify-deployment.sh [--target HOST] [--blocking] [--direct]
@@ -31,12 +37,13 @@ BLOCKING=false
 DIRECT=false
 GATUS_HOST=""
 TARGETS_FILE="${CYPRESS_TARGETS_FILE:-/data/docker-compose/e2e-targets.json}"
+TARGETS_FILE_EXPLICIT=false
 TIMEOUT=300
 GROUP="Deep checks"
 
 [[ "${GATUS_GATE_BLOCKING:-}" == "true" ]] && BLOCKING=true
 
-usage() { sed -n '2,20p' "$0"; exit 0; }
+usage() { sed -n '2,31p' "$0"; exit 0; }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -45,18 +52,59 @@ while [[ $# -gt 0 ]]; do
     --report-only)  BLOCKING=false; shift ;;
     --direct)       DIRECT=true; shift ;;
     --gatus-host)   GATUS_HOST="$2"; shift 2 ;;
-    --targets-file) TARGETS_FILE="$2"; shift 2 ;;
+    --targets-file) TARGETS_FILE="$2"; TARGETS_FILE_EXPLICIT=true; shift 2 ;;
     --timeout)      TIMEOUT="$2"; shift 2 ;;
     -h|--help)      usage ;;
     *) echo "Unknown arg: $1" >&2; exit 64 ;;
   esac
 done
 
-command -v jq >/dev/null || { echo "ERROR: jq is required" >&2; exit 2; }
-
 log()  { printf '%s\n' "$*"; }
 warn() { printf 'WARN: %s\n' "$*" >&2; }
 err()  { printf 'ERROR: %s\n' "$*" >&2; }
+
+# Every exit goes through here, and every exit prints exactly one marker line. The bug
+# this closes (#385..#389) was not that the gate failed -- it was that a gate which never
+# ran and a gate which passed produced logs a reader could not tell apart, so a build
+# stayed green on a check that had exited at argument resolution. Callers assert on the
+# marker, never on the exit status: report-only mode turns every failure into a 0.
+#   GATE-PASSED   the checks ran and were healthy
+#   GATE-FAILED   the checks ran and something is unhealthy  (a real deployment problem)
+#   GATE-NOT-RUN  the checks never ran                       (a problem with the gate)
+finish() {
+  local code="$1" detail="${2:-}"
+  case "$code" in
+    0) log "GATE-PASSED: ${detail:-all critical endpoints healthy}" ;;
+    1) log "GATE-FAILED: ${detail:-critical endpoint(s) unhealthy}" ;;
+    *) log "GATE-NOT-RUN: ${detail:-gate could not be evaluated}" ;;
+  esac
+  if [[ "$BLOCKING" == true ]]; then
+    exit "$code"
+  fi
+  [[ "$code" -ne 0 ]] && warn "report-only mode: exiting 0 despite issues above (pass --blocking to gate)"
+  exit 0
+}
+
+is_remote() { [[ "$TARGET" != "localhost" && "$TARGET" != "127.0.0.1" ]]; }
+
+command -v jq >/dev/null || finish 2 "jq is not installed on this machine"
+
+# The manifest lives on the DEPLOYED host, not on whoever runs this script. --target
+# already routes every probe through ssh, so resolution has to travel the same way:
+# reading a local /data/docker-compose while probing a remote host is how this gate
+# spent four builds dying at argument resolution on a Jenkins agent that has no
+# /data/docker-compose at all. An explicit --targets-file always wins.
+if is_remote && [[ "$TARGETS_FILE_EXPLICIT" == false ]]; then
+  REMOTE_TARGETS="$(mktemp)"
+  trap 'rm -f "$REMOTE_TARGETS"' EXIT
+  if ssh -o BatchMode=yes -o StrictHostKeyChecking=no "$TARGET" \
+        "cat $TARGETS_FILE" > "$REMOTE_TARGETS" 2>/dev/null && [[ -s "$REMOTE_TARGETS" ]]; then
+    log "targets manifest read from ${TARGET}:${TARGETS_FILE}"
+    TARGETS_FILE="$REMOTE_TARGETS"
+  else
+    err "could not read $TARGETS_FILE from $TARGET over ssh"
+  fi
+fi
 
 # Resolve the Gatus FQDN (for the Host header / public URL). Prefer the generated manifest.
 if [[ -z "$GATUS_HOST" ]]; then
@@ -67,8 +115,8 @@ if [[ -z "$GATUS_HOST" ]]; then
   # deployment. Fail and let the caller say which host to check.
   if [[ -z "$GATUS_HOST" ]]; then
     err "Cannot resolve GATUS_HOST: $TARGETS_FILE is missing or has no .services.gatus."
-    err "Pass GATUS_HOST=<fqdn> explicitly, or run the deploy so the targets manifest is generated."
-    exit 2
+    err "Pass --gatus-host <fqdn> explicitly, or run the deploy so the targets manifest is generated."
+    finish 2 "cannot resolve GATUS_HOST from $TARGETS_FILE"
   fi
 fi
 
@@ -97,21 +145,12 @@ http_status() {
   fi
 }
 
-finish() {
-  local code="$1"
-  if [[ "$BLOCKING" == true ]]; then
-    exit "$code"
-  fi
-  [[ "$code" -ne 0 ]] && warn "report-only mode: exiting 0 despite issues above (pass --blocking to gate)"
-  exit 0
-}
-
 # ---------------------------------------------------------------------------
 # --direct: curl representative functional paths per service from the manifest
 # (deterministic, immediate, independent of Gatus). Mirrors the Deep checks.
 # ---------------------------------------------------------------------------
 if [[ "$DIRECT" == true ]]; then
-  [[ -f "$TARGETS_FILE" ]] || { err "targets file not found: $TARGETS_FILE"; finish 2; }
+  [[ -f "$TARGETS_FILE" ]] || { err "targets file not found: $TARGETS_FILE"; finish 2 "targets file not found: $TARGETS_FILE"; }
   log "Direct mode: probing functional endpoints from $TARGETS_FILE (target=$TARGET)"
   declare -A PATHS=(
     [recordsWs]="/occurrences/search?q=*:*&pageSize=0"
@@ -134,10 +173,9 @@ if [[ "$DIRECT" == true ]]; then
       fails=$((fails+1))
     fi
   done
-  [[ "$checked" -eq 0 ]] && { err "no services found in manifest"; finish 2; }
-  if [[ "$fails" -gt 0 ]]; then err "$fails/$checked functional endpoint(s) unhealthy"; finish 1; fi
-  log "All $checked functional endpoint(s) healthy."
-  finish 0
+  [[ "$checked" -eq 0 ]] && { err "no services found in manifest"; finish 2 "no services found in manifest"; }
+  if [[ "$fails" -gt 0 ]]; then err "$fails/$checked functional endpoint(s) unhealthy"; finish 1 "$fails/$checked functional endpoint(s) unhealthy"; fi
+  finish 0 "all $checked functional endpoint(s) healthy"
 fi
 
 # ---------------------------------------------------------------------------
@@ -165,7 +203,7 @@ while :; do
   fi
   if [[ "$SECONDS" -ge "$deadline" ]]; then
     err "timed out waiting for Gatus '$GROUP' (reachable=$([[ -n "$raw" ]] && echo yes || echo no))"
-    finish 2
+    finish 2 "timed out after ${TIMEOUT}s waiting for Gatus '$GROUP' on $GATUS_HOST"
   fi
   sleep 10
 done
@@ -178,8 +216,7 @@ if [[ -n "$unhealthy" ]]; then
   n="$(printf '%s\n' "$unhealthy" | grep -c .)"
   err "$n/$total '$GROUP' endpoint(s) unhealthy:"
   printf '%s\n' "$unhealthy" | sed 's/^/  [FAIL] /' >&2
-  finish 1
+  finish 1 "$n/$total '$GROUP' endpoint(s) unhealthy"
 fi
 
-log "All $total '$GROUP' endpoint(s) healthy."
-finish 0
+finish 0 "all $total '$GROUP' endpoint(s) healthy"

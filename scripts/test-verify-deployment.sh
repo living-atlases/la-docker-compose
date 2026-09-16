@@ -1,0 +1,284 @@
+#!/bin/bash
+#
+# test-verify-deployment.sh
+#
+# scripts/verify-deployment.sh is Layer 1 of the deployment verification, and for the whole
+# of builds #385-#389 it verified nothing. It resolves the Gatus FQDN from
+# /data/docker-compose/e2e-targets.json, which the deploy writes onto the DEPLOYED HOST --
+# but the Jenkins stage runs it on the AGENT, where that path does not exist. So every run
+# died four lines in:
+#
+#     ERROR: Cannot resolve GATUS_HOST: /data/docker-compose/e2e-targets.json is missing
+#     ERROR: script returned exit code 2
+#
+# and `catchError` swallowed it. Green build, gate never ran. Exactly the hollow-check
+# shape that the gatus-honesty-marker-drift note is about.
+#
+# What this pins down, without a cluster:
+#   1. --target <remote> reads the manifest FROM THE TARGET, so resolution succeeds on a
+#      machine with no /data/docker-compose at all. This is the regression itself.
+#   2. The gate gets PAST resolution and actually evaluates Gatus verdicts -- it reports a
+#      red endpoint as GATE-FAILED and a healthy one as GATE-PASSED.
+#   3. Every outcome prints exactly one verdict marker. A gate that cannot run says
+#      GATE-NOT-RUN and can never be mistaken for a pass, which is what the Jenkins stage
+#      now asserts on. Report-only mode flattens the exit status to 0, so the marker is
+#      the only thing a caller can honestly gate on.
+#   4. --direct, which reads the same manifest, is fixed by the same change.
+#
+# Cheap on purpose: `ssh` and `curl` are shimmed onto PATH and answer from fixtures, so
+# there is no network, no Docker, no inventory. Runs in a second.
+#
+# Usage: bash scripts/test-verify-deployment.sh
+#
+# Exits 0 if every assertion holds, 1 otherwise.
+
+set -uo pipefail
+
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT="$REPO_DIR/scripts/verify-deployment.sh"
+
+RED='\033[0;31m'; GREEN='\033[0;32m'; BLUE='\033[0;34m'; NC='\033[0m'
+pass() { echo -e "${GREEN}[PASS]${NC} $*"; }
+fail() { echo -e "${RED}[FAIL]${NC} $*"; FAILURES=$((FAILURES + 1)); }
+info() { echo -e "${BLUE}[INFO]${NC} $*"; }
+FAILURES=0
+
+[[ -f "$SCRIPT" ]] || { fail "not found: $SCRIPT"; exit 1; }
+command -v jq >/dev/null || { fail "jq is required to run this test"; exit 1; }
+
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+SHIM="$TMP/bin"; mkdir -p "$SHIM"
+
+# The manifest as the deploy writes it on the host. Only .services.gatus matters for the
+# Gatus path; the rest is what --direct probes.
+cat > "$TMP/e2e-targets.json" <<'EOF'
+{
+  "services": {
+    "gatus": "https://gatus.example.test",
+    "recordsWs": "https://records-ws.example.test",
+    "species": "https://species.example.test"
+  }
+}
+EOF
+
+# Gatus /api/v1/endpoints/statuses, shaped like the real one. GATUS_STATE picks the answer.
+cat > "$TMP/statuses-healthy.json" <<'EOF'
+[
+  {"name":"records-ws occurrences search","group":"Deep checks","results":[{"success":true}]},
+  {"name":"species search","group":"Deep checks","results":[{"success":true}]},
+  {"name":"records-ws index fields","group":"Data checks","results":[{"success":false}]}
+]
+EOF
+cat > "$TMP/statuses-unhealthy.json" <<'EOF'
+[
+  {"name":"records-ws occurrences search","group":"Deep checks","results":[{"success":false}]},
+  {"name":"species search","group":"Deep checks","results":[{"success":true}]}
+]
+EOF
+
+# --- shims -----------------------------------------------------------------------------
+# ssh: serves `cat <manifest>` from the fixture, and `curl ...` by delegating to the curl
+# shim, so the remote path is exercised exactly as the script drives it.
+cat > "$SHIM/ssh" <<EOF
+#!/bin/bash
+# Drop ssh options and the host; what remains is the remote command.
+while [[ \$# -gt 0 ]]; do
+  case "\$1" in
+    -o) shift 2 ;;
+    -*) shift ;;
+    *)  break ;;
+  esac
+done
+host="\$1"; shift
+printf '%s\n' "\$host" >> "$TMP/ssh-hosts.log"
+remote="\$*"
+case "\$remote" in
+  *"no-manifest"*) exit 1 ;;
+esac
+case "\$remote" in
+  cat*e2e-targets.json*)
+      [[ "\${MANIFEST_ON_HOST:-true}" == "true" ]] || exit 1
+      cat "$TMP/e2e-targets.json" ;;
+  *curl*) eval "\$remote" ;;
+  *) exit 1 ;;
+esac
+EOF
+
+# curl: answers the Gatus status API and the --direct probes from fixtures.
+cat > "$SHIM/curl" <<EOF
+#!/bin/bash
+url=""; want_code=false
+for a in "\$@"; do
+  case "\$a" in
+    '%{http_code}') want_code=true ;;
+    https://*) url="\$a" ;;
+  esac
+done
+if [[ "\$want_code" == true ]]; then
+  printf '%s' "\${DIRECT_STATUS:-200}"
+  exit 0
+fi
+case "\$url" in
+  *"/api/v1/endpoints/statuses")
+      case "\${GATUS_STATE:-healthy}" in
+        unreachable) exit 22 ;;
+        unhealthy)   cat "$TMP/statuses-unhealthy.json" ;;
+        *)           cat "$TMP/statuses-healthy.json" ;;
+      esac ;;
+  *) exit 22 ;;
+esac
+EOF
+chmod +x "$SHIM/ssh" "$SHIM/curl"
+
+# Run the script with the shims in front, and with the real manifest path pointed at a
+# directory that does not exist -- i.e. a Jenkins agent.
+AGENT_MANIFEST="$TMP/nonexistent/e2e-targets.json"
+# run_gate VAR=val ... -- <script args>
+run_gate() {
+    local envs=()
+    while [[ $# -gt 0 && "$1" != "--" ]]; do envs+=("$1"); shift; done
+    shift
+    env PATH="$SHIM:$PATH" CYPRESS_TARGETS_FILE="$AGENT_MANIFEST" \
+        ${envs[@]+"${envs[@]}"} bash "$SCRIPT" "$@" 2>&1
+}
+
+marker_of() { printf '%s\n' "$1" | grep -oE '^GATE-(PASSED|FAILED|NOT-RUN)' | tail -1; }
+
+# --- 1. the regression: remote target resolves on a machine with no manifest -------------
+info "1. --target <remote> on a machine with no /data/docker-compose"
+out="$(run_gate GATUS_STATE=healthy -- --target ci-host-1 --blocking --timeout 5)"; rc=$?
+if [[ "$out" == *"Cannot resolve GATUS_HOST"* ]]; then
+    fail "still dies at argument resolution -- the regression is not fixed"
+    printf '%s\n' "$out" | sed 's/^/      /'
+elif [[ "$out" == *"Verifying Gatus 'Deep checks' via gatus.example.test"* ]]; then
+    pass "resolved GATUS_HOST from the target and reached the Gatus evaluation"
+else
+    fail "never reached the Gatus evaluation"
+    printf '%s\n' "$out" | sed 's/^/      /'
+fi
+if [[ "$(marker_of "$out")" == "GATE-PASSED" && "$rc" -eq 0 ]]; then
+    pass "healthy Deep checks -> GATE-PASSED, exit 0"
+else
+    fail "expected GATE-PASSED/exit 0, got '$(marker_of "$out")'/exit $rc"
+fi
+if grep -qx 'ci-host-1' "$TMP/ssh-hosts.log" 2>/dev/null; then
+    pass "the manifest was read over ssh from the target, not locally"
+else
+    fail "no ssh to the target -- the manifest did not come from the deployed host"
+fi
+
+# --- 2. it evaluates verdicts rather than just resolving ---------------------------------
+info "2. a red Deep-checks endpoint is reported as a failure"
+out="$(run_gate GATUS_STATE=unhealthy -- --target ci-host-1 --blocking --timeout 5)"; rc=$?
+if [[ "$(marker_of "$out")" == "GATE-FAILED" && "$rc" -eq 1 ]]; then
+    pass "unhealthy endpoint -> GATE-FAILED, exit 1"
+else
+    fail "expected GATE-FAILED/exit 1, got '$(marker_of "$out")'/exit $rc"
+fi
+if [[ "$out" == *"records-ws occurrences search"* ]]; then
+    pass "names the endpoint that is red"
+else
+    fail "does not say which endpoint failed"
+fi
+# The Data checks group is red in the healthy fixture on purpose: an empty index is a
+# legitimate install and must never fail this gate.
+out="$(run_gate GATUS_STATE=healthy -- --target ci-host-1 --blocking --timeout 5)"
+if [[ "$(marker_of "$out")" == "GATE-PASSED" ]]; then
+    pass "a red 'Data checks' endpoint does not fail the gate"
+else
+    fail "'Data checks' leaked into the gate -- an empty index would redden a good deploy"
+fi
+
+# --- 3. a gate that cannot run can never look like a pass --------------------------------
+info "3. unrunnable gate -> GATE-NOT-RUN, in blocking AND report-only mode"
+out="$(run_gate MANIFEST_ON_HOST=false -- --target ci-host-1 --blocking --timeout 5)"; rc=$?
+if [[ "$(marker_of "$out")" == "GATE-NOT-RUN" && "$rc" -eq 2 ]]; then
+    pass "no manifest on the host -> GATE-NOT-RUN, exit 2"
+else
+    fail "expected GATE-NOT-RUN/exit 2, got '$(marker_of "$out")'/exit $rc"
+fi
+out="$(run_gate GATUS_STATE=unreachable -- --target ci-host-1 --blocking --timeout 5)"; rc=$?
+if [[ "$(marker_of "$out")" == "GATE-NOT-RUN" && "$rc" -eq 2 ]]; then
+    pass "Gatus unreachable -> GATE-NOT-RUN, exit 2"
+else
+    fail "expected GATE-NOT-RUN/exit 2, got '$(marker_of "$out")'/exit $rc"
+fi
+# Report-only is the mode CI actually runs in, and it flattens the exit status to 0. If the
+# marker did not survive that, the caller would be back to guessing -- which is the bug.
+out="$(run_gate MANIFEST_ON_HOST=false -- --target ci-host-1 --report-only --timeout 5)"; rc=$?
+if [[ "$(marker_of "$out")" == "GATE-NOT-RUN" && "$rc" -eq 0 ]]; then
+    pass "report-only still prints GATE-NOT-RUN despite exiting 0"
+else
+    fail "report-only hides the not-run verdict: marker '$(marker_of "$out")', exit $rc"
+fi
+out="$(run_gate GATUS_STATE=unhealthy -- --target ci-host-1 --report-only --timeout 5)"
+if [[ "$(marker_of "$out")" == "GATE-FAILED" ]]; then
+    pass "report-only still prints GATE-FAILED despite exiting 0"
+else
+    fail "report-only hides the failed verdict: marker '$(marker_of "$out")'"
+fi
+
+# --- 4. exactly one marker per run, always -----------------------------------------------
+info "4. every run ends in exactly one verdict marker"
+for state in healthy unhealthy unreachable; do
+    out="$(run_gate GATUS_STATE="$state" -- --target ci-host-1 --report-only --timeout 5)"
+    n="$(printf '%s\n' "$out" | grep -cE '^GATE-(PASSED|FAILED|NOT-RUN)')"
+    if [[ "$n" -eq 1 ]]; then
+        pass "GATUS_STATE=$state -> 1 marker"
+    else
+        fail "GATUS_STATE=$state -> $n markers (expected exactly 1)"
+    fi
+done
+
+# --- 5. --direct reads the same manifest and was broken the same way ----------------------
+info "5. --direct against a remote target"
+out="$(run_gate DIRECT_STATUS=200 -- --target ci-host-1 --direct --blocking)"; rc=$?
+if [[ "$(marker_of "$out")" == "GATE-PASSED" && "$rc" -eq 0 ]]; then
+    pass "--direct resolves the manifest over ssh and probes the endpoints"
+else
+    fail "--direct still cannot find the manifest: '$(marker_of "$out")'/exit $rc"
+    printf '%s\n' "$out" | sed 's/^/      /'
+fi
+out="$(run_gate DIRECT_STATUS=503 -- --target ci-host-1 --direct --blocking)"; rc=$?
+if [[ "$(marker_of "$out")" == "GATE-FAILED" && "$rc" -eq 1 ]]; then
+    pass "--direct reports a 503 endpoint as GATE-FAILED"
+else
+    fail "--direct expected GATE-FAILED/exit 1, got '$(marker_of "$out")'/exit $rc"
+fi
+
+# --- 6. an explicit --targets-file still wins --------------------------------------------
+info "6. --targets-file overrides the remote read"
+out="$(run_gate GATUS_STATE=healthy -- --target ci-host-1 --targets-file "$TMP/e2e-targets.json" --blocking --timeout 5)"
+if [[ "$(marker_of "$out")" == "GATE-PASSED" && "$out" != *"read from ci-host-1"* ]]; then
+    pass "explicit --targets-file is used as-is, no remote read"
+else
+    fail "explicit --targets-file was overridden by the remote read"
+fi
+
+# --- 7. the Jenkins stage gates on the marker, not the exit status -------------------------
+info "7. the Jenkins stage asserts on the verdict marker"
+JF="$REPO_DIR/Jenkinsfile"
+stage="$(awk '/stage\(.Verify Gatus Health.\)/,/^        stage\(.Probe hub cold start.\)/' "$JF")"
+if [[ -z "$stage" ]]; then
+    fail "could not locate the 'Verify Gatus Health' stage in the Jenkinsfile"
+else
+    if [[ "$stage" == *"GATE-PASSED"* && "$stage" == *"GATE-NOT-RUN"* ]]; then
+        pass "the stage requires positive evidence that the gate ran"
+    else
+        fail "the stage does not check the verdict markers -- it can go green on a gate that never ran"
+    fi
+    if [[ "$stage" == *'${PIPESTATUS'* ]]; then
+        fail "PIPESTATUS is a bashism; Jenkins runs sh steps with /bin/sh"
+    else
+        pass "no PIPESTATUS in the stage's sh step"
+    fi
+fi
+
+echo
+if [[ "$FAILURES" -eq 0 ]]; then
+    echo -e "${GREEN}All checks passed.${NC}"
+    exit 0
+fi
+echo -e "${RED}${FAILURES} check(s) failed.${NC}"
+exit 1
