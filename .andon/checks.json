@@ -1,0 +1,47 @@
+{
+  "_comment": [
+    "scripts/validate-config-gen.sh used to be the rule for templates. It needs ~10 min",
+    "(it runs a full ansiblew render plus `docker compose config`) and the hook kills it",
+    "at 300s, so the rule could never go green -- and its check 3 is red at baseline",
+    "anyway (localhost in two DB URIs, unchanged since before this work). It stays a",
+    "manual check. What replaces it here is strictly more discriminating per second:",
+    "check-jinja-syntax parses every template, test-compose-includes proves every",
+    "compose include has a task that writes it, and the molecule scenarios RENDER the",
+    "real templates with real facts and cross-check that no depends_on names a service",
+    "no include provides, and that the bake targets asked for are targets the bake file",
+    "defines. ~2 min for all of it."
+  ],
+  "rules": [
+    {
+      "match": [
+        "roles/la-compose/templates/**/*.j2",
+        "roles/la-compose/tasks/**/*.yml",
+        "roles/la-compose/defaults/main.yml",
+        "molecule/**/*.yml"
+      ],
+      "run": "python3 scripts/check-jinja-syntax.py && bash scripts/test-compose-includes.sh && VENV_MOLECULE=.venv-molecule .venv-molecule/bin/molecule test -s unit && VENV_MOLECULE=.venv-molecule .venv-molecule/bin/molecule test -s multihub"
+    },
+    {
+      "match": [
+        "scripts/apply-topology.py",
+        "scripts/test-topologies.sh",
+        "scripts/test-hub-baseline.sh",
+        "topologies/**",
+        "playbooks/validate-topology.yml"
+      ],
+      "run": "VENV_MOLECULE=.venv-molecule bash scripts/test-topologies.sh && VENV_MOLECULE=.venv-molecule bash scripts/test-hub-baseline.sh"
+    },
+    {
+      "match": [
+        "scripts/verify-deployment.sh",
+        "scripts/test-verify-deployment.sh"
+      ],
+      "run": "bash scripts/test-verify-deployment.sh"
+    }
+  ],
+  "ignore": [
+    "Jenkinsfile",
+    "inventories/testing/**",
+    "e2e/**"
+  ]
+}
