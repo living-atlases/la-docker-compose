@@ -271,6 +271,20 @@ else
     fail "--direct expected GATE-FAILED/exit 1, got '$(marker_of "$out")'/exit $rc"
 fi
 
+# --- 5b. a manifest already on this disk is not re-fetched over ssh ------------------------
+# `--target <own inventory name>` from ON the deployed host is a legitimate call. Fetching
+# over ssh there would ssh to self for a file lying right there, and re-hollow the gate on
+# any host without root-to-self ssh.
+info "5b. a local manifest wins over an ssh fetch, even with a remote-looking --target"
+: > "$TMP/ssh-hosts.log"
+out="$(env PATH="$SHIM:$PATH" CYPRESS_TARGETS_FILE="$TMP/e2e-targets.json" GATUS_STATE=healthy \
+        bash "$SCRIPT" --target ci-host-1 --blocking --timeout 5 2>&1)"
+if [[ "$(marker_of "$out")" == "GATE-PASSED" && "$out" != *"manifest read from"* ]]; then
+    pass "read the manifest off local disk instead of ssh-ing for it"
+else
+    fail "ssh-fetched a manifest that was already local: '$(marker_of "$out")'"
+fi
+
 # --- 6. an explicit --targets-file still wins --------------------------------------------
 info "6. --targets-file overrides the remote read"
 out="$(run_gate GATUS_STATE=healthy -- --target ci-host-1 --targets-file "$TMP/e2e-targets.json" --blocking --timeout 5)"

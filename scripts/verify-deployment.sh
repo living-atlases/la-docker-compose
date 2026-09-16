@@ -102,8 +102,11 @@ command -v jq >/dev/null || finish 2 "jq is not installed on this machine"
 # already routes every probe through ssh, so resolution has to travel the same way:
 # reading a local /data/docker-compose while probing a remote host is how this gate
 # spent four builds dying at argument resolution on a Jenkins agent that has no
-# /data/docker-compose at all. An explicit --targets-file always wins.
-if is_remote && [[ "$TARGETS_FILE_EXPLICIT" == false ]]; then
+# /data/docker-compose at all. An explicit --targets-file always wins, and so does a
+# manifest that is already on this disk: `--target <own inventory name>` from ON the
+# deployed host is a legitimate way to call this, and ssh-ing to self to fetch a file
+# lying right there would just re-hollow the gate wherever root-to-self ssh is not set up.
+if is_remote && [[ "$TARGETS_FILE_EXPLICIT" == false ]] && [[ ! -f "$TARGETS_FILE" ]]; then
   REMOTE_TARGETS="$(mktemp)"
   trap 'rm -f "$REMOTE_TARGETS"' EXIT
   if ssh -o BatchMode=yes -o StrictHostKeyChecking=no "$TARGET" \
