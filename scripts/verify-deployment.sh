@@ -30,6 +30,7 @@
 # Usage:
 #   scripts/verify-deployment.sh [--target HOST] [--blocking] [--direct]
 #                                [--gatus-host FQDN] [--targets-file PATH] [--timeout SEC]
+#                                [--connect-timeout SEC]
 set -euo pipefail
 
 TARGET="localhost"
@@ -39,11 +40,18 @@ GATUS_HOST=""
 TARGETS_FILE="${CYPRESS_TARGETS_FILE:-/data/docker-compose/e2e-targets.json}"
 TARGETS_FILE_EXPLICIT=false
 TIMEOUT=300
+# How long to keep trying before concluding this target simply has no route to Gatus.
+# Distinct from TIMEOUT on purpose: once Gatus answers, the remaining wait is for its
+# checks to evaluate (~1m interval) and deserves the full budget. Never answering at all
+# is a routing fact, not a warm-up -- verified on the live cluster, where gatus runs on
+# host 3 and hosts 1 and 2 never resolve the vhost no matter how long they are given.
+# Spending 300s per such host is how a caller that tries several of them runs out of day.
+CONNECT_TIMEOUT=45
 GROUP="Deep checks"
 
 [[ "${GATUS_GATE_BLOCKING:-}" == "true" ]] && BLOCKING=true
 
-usage() { sed -n '2,31p' "$0"; exit 0; }
+usage() { sed -n '2,32p' "$0"; exit 0; }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -54,6 +62,7 @@ while [[ $# -gt 0 ]]; do
     --gatus-host)   GATUS_HOST="$2"; shift 2 ;;
     --targets-file) TARGETS_FILE="$2"; TARGETS_FILE_EXPLICIT=true; shift 2 ;;
     --timeout)      TIMEOUT="$2"; shift 2 ;;
+    --connect-timeout) CONNECT_TIMEOUT="$2"; shift 2 ;;
     -h|--help)      usage ;;
     *) echo "Unknown arg: $1" >&2; exit 64 ;;
   esac
@@ -188,9 +197,12 @@ log "Verifying Gatus '$GROUP' via ${GATUS_HOST} (target=$TARGET, timeout=${TIMEO
 JQ_NORM='if type=="array" then . else (.endpoints // []) end'
 
 deadline=$(( SECONDS + TIMEOUT ))
+connect_deadline=$(( SECONDS + CONNECT_TIMEOUT ))
 raw=""
+ever_reachable=false
 while :; do
   if raw="$(gatus_fetch "/api/v1/endpoints/statuses" 2>/dev/null)"; then
+    ever_reachable=true
     # Count Deep-checks endpoints and how many have at least one result yet.
     counts="$(printf '%s' "$raw" | jq -r "[ ($JQ_NORM)[] | select(.group==\"$GROUP\") ] | \"\(length) \([.[]|select((.results|length)>0)]|length)\"" 2>/dev/null || echo "0 0")"
     total="${counts%% *}"; fresh="${counts##* }"
@@ -200,6 +212,11 @@ while :; do
     log "  waiting for Gatus to evaluate '$GROUP' ($fresh/$total ready)..."
   else
     log "  Gatus not reachable yet, retrying..."
+  fi
+  if [[ "$ever_reachable" == false && "$SECONDS" -ge "$connect_deadline" ]]; then
+    err "Gatus never answered via $TARGET in ${CONNECT_TIMEOUT}s -- this target has no route to ${GATUS_HOST}."
+    err "Gatus runs on one machine of the cluster; ask that one, or a host whose nginx serves its vhost."
+    finish 2 "no route to Gatus (${GATUS_HOST}) from $TARGET"
   fi
   if [[ "$SECONDS" -ge "$deadline" ]]; then
     err "timed out waiting for Gatus '$GROUP' (reachable=$([[ -n "$raw" ]] && echo yes || echo no))"

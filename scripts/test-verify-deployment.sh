@@ -205,11 +205,28 @@ if [[ "$(marker_of "$out")" == "GATE-NOT-RUN" && "$rc" -eq 2 ]]; then
 else
     fail "expected GATE-NOT-RUN/exit 2, got '$(marker_of "$out")'/exit $rc"
 fi
-out="$(run_gate GATUS_STATE=unreachable -- --target ci-host-1 --blocking --timeout 5)"; rc=$?
+out="$(run_gate GATUS_STATE=unreachable -- --target ci-host-1 --blocking --timeout 60 --connect-timeout 1)"; rc=$?
 if [[ "$(marker_of "$out")" == "GATE-NOT-RUN" && "$rc" -eq 2 ]]; then
     pass "Gatus unreachable -> GATE-NOT-RUN, exit 2"
 else
     fail "expected GATE-NOT-RUN/exit 2, got '$(marker_of "$out")'/exit $rc"
+fi
+# A target with no route to Gatus must give up on the SHORT connect budget, not burn the
+# whole --timeout. Live probe: gatus runs on host 3, and hosts 1-2 never resolve its vhost
+# however long they are given, so a caller walking the host list would spend 300s per host
+# discovering a routing fact. Says so explicitly, too, rather than "timed out".
+if [[ "$out" == *"no route to Gatus"* ]]; then
+    pass "an unroutable target says so, instead of blaming the timeout"
+else
+    fail "an unroutable target is reported as a generic timeout"
+fi
+start=$SECONDS
+run_gate GATUS_STATE=unreachable -- --target ci-host-1 --report-only --timeout 600 --connect-timeout 2 >/dev/null
+elapsed=$(( SECONDS - start ))
+if [[ "$elapsed" -lt 30 ]]; then
+    pass "gave up after ${elapsed}s on the connect budget, not the 600s timeout"
+else
+    fail "burned ${elapsed}s on an unroutable target -- the connect budget is not bounding it"
 fi
 # Report-only is the mode CI actually runs in, and it flattens the exit status to 0. If the
 # marker did not survive that, the caller would be back to guessing -- which is the bug.
@@ -229,7 +246,7 @@ fi
 # --- 4. exactly one marker per run, always -----------------------------------------------
 info "4. every run ends in exactly one verdict marker"
 for state in healthy unhealthy unreachable; do
-    out="$(run_gate GATUS_STATE="$state" -- --target ci-host-1 --report-only --timeout 5)"
+    out="$(run_gate GATUS_STATE="$state" -- --target ci-host-1 --report-only --timeout 5 --connect-timeout 1)"
     n="$(printf '%s\n' "$out" | grep -cE '^GATE-(PASSED|FAILED|NOT-RUN)')"
     if [[ "$n" -eq 1 ]]; then
         pass "GATUS_STATE=$state -> 1 marker"
