@@ -129,6 +129,11 @@ pipeline {
             description: 'Run the bie-index taxonomy import e2e: stage a tiny fixed checklist DwCA into import.taxonomy.dir, trigger the real import through /api/services/all, promote the offline index to live by crossing the Solr aliases, and assert a species search actually returns taxa. Nothing else in the chain ever populates the bie index, so without this the species suite is green over an empty index (living-atlases/la-toolkit#28). Report-only unless E2E_BLOCKING. Turning it off leaves a deployment with no species data, which is a supported state.'
         )
         booleanParam(
+            name: 'RUN_LISTS_SEED',
+            defaultValue: true,
+            description: 'Run the Cypress species-list mutation spec (6-lists/manage.cy.ts): create one species list through the real Upload UI, unless a list with that name already exists. Nothing else in the chain ever populates a species list, so without this Gatus\'s "lists count" Data check stays red on a supported, data-less deployment. Independent of RUN_AIRFLOW_INGEST/RUN_BIE_IMPORT. Report-only unless E2E_BLOCKING.'
+        )
+        booleanParam(
             name: 'PROBE_HUB_COLD_START',
             defaultValue: false,
             description: 'EXPERIMENT (never fails the build): on a data-less stack, settle whether biocache-hub\'s cold-start 500 on /occurrences/search needs DATA or is just an initialisation defect a restart clears. Restarts biocache-hub once and prints a verdict. Only meaningful with RUN_AIRFLOW_INGEST=false on a CLEAN_MACHINE build — it refuses to run against an index that already holds records. See gh-8.'
@@ -1440,10 +1445,11 @@ ENVEOF
         }
 
         stage('E2E Smoke Tests') {
-            // Run after a redeploy OR after an Airflow ingest against the already-running stack:
-            // the ingest (stage above) seeds the biocache/species suites, so the smoke should
-            // consume that fresh data even when DO_REDEPLOY is false (ingest-only run).
-            when { expression { params.RUN_E2E && (env.DO_REDEPLOY == 'true' || params.RUN_AIRFLOW_INGEST) && params.AUTO_DEPLOY && !params.ONLY_CLEAN } }
+            // Run after a redeploy, after an Airflow ingest, after a bie taxonomy import, or
+            // when a list seed was requested — each of those seeds data this suite (or the
+            // mutation spec it now also runs) consumes, even when DO_REDEPLOY is false
+            // (an ingest/import/seed-only run against an already-running stack).
+            when { expression { params.RUN_E2E && (env.DO_REDEPLOY == 'true' || params.RUN_AIRFLOW_INGEST || params.RUN_BIE_IMPORT || params.RUN_LISTS_SEED) && params.AUTO_DEPLOY && !params.ONLY_CLEAN } }
             steps {
                 script {
                     def hosts = env.TARGET_HOSTS.trim().split(/\s+/)
@@ -1474,7 +1480,10 @@ ENVEOF
                             if [ -f "\$PWFILE" ]; then
                                 export CYPRESS_DOWNLOAD_EMAIL="\$(sed -nE 's/^[[:space:]]*cas_first_admin_email[[:space:]]*=[[:space:]]*([^[:space:]]+).*/\\1/p' "\$PWFILE" | head -1)"
                             fi
-                            if [ "${params.ENABLE_AUTH_TESTS}" = "true" ]; then
+                            # The lists mutation spec (6-lists/manage.cy.ts) logs in via cy.loginTo("lists")
+                            # regardless of ENABLE_AUTH_TESTS, so it needs the same credentials whenever
+                            # RUN_LISTS_SEED is on.
+                            if [ "${params.ENABLE_AUTH_TESTS}" = "true" ] || [ "${params.RUN_LISTS_SEED}" = "true" ]; then
                                 if [ -f "\$PWFILE" ]; then
                                     export CYPRESS_LADEMO_USERNAME="\$(sed -nE 's/^[[:space:]]*cas_first_admin_email[[:space:]]*=[[:space:]]*([^[:space:]]+).*/\\1/p' "\$PWFILE" | head -1)"
                                     export CYPRESS_LADEMO_PASSWORD="\$(sed -nE 's/.*random password:[[:space:]]*([^[:space:]]+).*/\\1/p' "\$PWFILE" | head -1)"
@@ -1488,7 +1497,7 @@ ENVEOF
                             # user can't rm them, so otherwise junit republishes the last good run's stale
                             # results and freezes the same failures at an ever-growing age. Then run fresh, so
                             # junit reflects THIS build (or empty -> honest -> UNSTABLE, not stale-green).
-                            docker run --rm -v "${WORKSPACE}/e2e:/e2e" -w /e2e -e CYPRESS_TARGET_ENV=lademo -e CYPRESS_TARGETS_FILE=/e2e/e2e-targets.json -e CYPRESS_LADEMO_USERNAME -e CYPRESS_LADEMO_PASSWORD -e CYPRESS_DOWNLOAD_EMAIL -e CYPRESS_ENABLE_AUTH_TESTS=${params.ENABLE_AUTH_TESTS} -e CYPRESS_BIE_HAS_DATA=\${BIE_HAS_DATA:-false} cypress/browsers:latest sh -c 'rm -rf /e2e/results; npm ci && npx cypress run'
+                            docker run --rm -v "${WORKSPACE}/e2e:/e2e" -w /e2e -e CYPRESS_TARGET_ENV=lademo -e CYPRESS_TARGETS_FILE=/e2e/e2e-targets.json -e CYPRESS_LADEMO_USERNAME -e CYPRESS_LADEMO_PASSWORD -e CYPRESS_DOWNLOAD_EMAIL -e CYPRESS_ENABLE_AUTH_TESTS=${params.ENABLE_AUTH_TESTS} -e CYPRESS_ENABLE_MUTATION_TESTS=${params.RUN_LISTS_SEED} -e CYPRESS_BIE_HAS_DATA=\${BIE_HAS_DATA:-false} cypress/browsers:latest sh -c 'rm -rf /e2e/results; npm ci && npx cypress run'
                         """
                     }
                     if (params.E2E_BLOCKING) {
@@ -1528,6 +1537,54 @@ ENVEOF
                     }
                     junit allowEmptyResults: true, testResults: 'e2e/results/*.xml'
                     archiveArtifacts artifacts: 'e2e/cypress/screenshots/**, e2e/cypress/videos/**, e2e/logs/**', allowEmptyArchive: true
+                }
+            }
+        }
+
+        // ----- Verify Gatus "Data checks" too, once every seed stage has actually run -----
+        // Deliberately placed AFTER 'E2E Smoke Tests': the lists mutation spec runs inside
+        // that stage (Cypress), and the ingest/bie-import stages run before it -- by the time
+        // this stage runs, everything that can seed "Data checks" data already has.
+        // 'Verify Gatus Health' (above, pre-ingest) stays scoped to "Deep checks" only and is
+        // untouched: gating "Data checks" here too would reintroduce the exact bug that
+        // scoping fixed, for any build that skips one of the three seed params below.
+        stage('Verify Gatus Data Checks') {
+            when { expression { params.RUN_AIRFLOW_INGEST && params.RUN_BIE_IMPORT && params.RUN_LISTS_SEED && params.AUTO_DEPLOY && !params.ONLY_CLEAN } }
+            steps {
+                script {
+                    def hosts = env.TARGET_HOSTS.trim().split(/\s+/)
+                    def gate = {
+                        def verdict = ''
+                        for (h in hosts) {
+                            def targetHost = h
+                            echo "Gatus data-checks gate via ${targetHost}..."
+                            def rc = sh(returnStatus: true, script: """
+                                set -u
+                                rc=0
+                                bash "${WORKSPACE}/scripts/verify-deployment.sh" \
+                                    --target ${targetHost} --blocking --gate-data-checks --timeout 300 \
+                                    > "${WORKSPACE}/gatus-data-gate.log" 2>&1 || rc=\$?
+                                cat "${WORKSPACE}/gatus-data-gate.log"
+                                exit \$rc
+                            """)
+                            def log = readFile("${WORKSPACE}/gatus-data-gate.log")
+                            if (log.contains('GATE-PASSED:')) { verdict = 'PASSED'; break }
+                            if (log.contains('GATE-FAILED:')) { verdict = 'FAILED'; break }
+                            echo "Gatus data-checks gate could not be evaluated via ${targetHost} (rc=${rc}); trying the next host."
+                        }
+                        if (verdict == '') {
+                            error("GATE-NOT-RUN: the Gatus data-checks gate never produced a verdict on any of [${hosts.join(', ')}] - see the log above. This is a broken gate, not a healthy deployment.")
+                        }
+                        if (verdict == 'FAILED') {
+                            error("GATE-FAILED: Gatus reports unhealthy 'Data checks' endpoints after seeding - see the log above.")
+                        }
+                        echo "Gatus 'Deep checks' + 'Data checks' verified."
+                    }
+                    if (params.E2E_BLOCKING) {
+                        gate()
+                    } else {
+                        catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') { gate() }
+                    }
                 }
             }
         }

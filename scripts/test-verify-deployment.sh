@@ -31,6 +31,13 @@
 #      undefined everywhere -- including on the host that runs gatus -- and the
 #      absolute-URL filter dropped the key silently. Checked against the committed
 #      topology inventories, which is where that scoping is visible without a cluster.
+#   6. --gate-data-checks widens the gate to the "Data checks" group too, and BOTH
+#      invariants must hold side by side: WITHOUT the flag a red Data-checks endpoint must
+#      never fail the gate (a data-less portal is a legitimate install); WITH the flag it
+#      must fail exactly like a red Deep-checks endpoint would. Only pass this flag once the
+#      seed stages (Airflow ingest, bie taxonomy import, the lists mutation Cypress spec)
+#      have actually populated the data these checks assert on -- otherwise this flag
+#      reintroduces the bug item 2 above pins down, just gated behind a different flag.
 #
 # Cheap on purpose: `ssh` and `curl` are shimmed onto PATH and answer from fixtures, so
 # there is no network, no Docker, no inventory. Runs in a second.
@@ -83,6 +90,16 @@ cat > "$TMP/statuses-unhealthy.json" <<'EOF'
   {"name":"species search","group":"Deep checks","results":[{"success":true}]}
 ]
 EOF
+# All groups healthy -- what a build looks like once the seed stages (ingest, bie import,
+# the lists mutation spec) have actually run and --gate-data-checks is passed.
+cat > "$TMP/statuses-all-healthy.json" <<'EOF'
+[
+  {"name":"records-ws occurrences search","group":"Deep checks","results":[{"success":true}]},
+  {"name":"species search","group":"Deep checks","results":[{"success":true}]},
+  {"name":"records-ws index fields","group":"Data checks","results":[{"success":true}]},
+  {"name":"lists count","group":"Data checks","results":[{"success":true}]}
+]
+EOF
 
 # --- shims -----------------------------------------------------------------------------
 # ssh: serves `cat <manifest>` from the fixture, and `curl ...` by delegating to the curl
@@ -129,9 +146,10 @@ fi
 case "\$url" in
   *"/api/v1/endpoints/statuses")
       case "\${GATUS_STATE:-healthy}" in
-        unreachable) exit 22 ;;
-        unhealthy)   cat "$TMP/statuses-unhealthy.json" ;;
-        *)           cat "$TMP/statuses-healthy.json" ;;
+        unreachable)  exit 22 ;;
+        unhealthy)    cat "$TMP/statuses-unhealthy.json" ;;
+        all-healthy)  cat "$TMP/statuses-all-healthy.json" ;;
+        *)            cat "$TMP/statuses-healthy.json" ;;
       esac ;;
   *) exit 22 ;;
 esac
@@ -189,12 +207,38 @@ else
     fail "does not say which endpoint failed"
 fi
 # The Data checks group is red in the healthy fixture on purpose: an empty index is a
-# legitimate install and must never fail this gate.
+# legitimate install and must never fail this gate -- BY DEFAULT.
 out="$(run_gate GATUS_STATE=healthy -- --target ci-host-1 --blocking --timeout 5)"
 if [[ "$(marker_of "$out")" == "GATE-PASSED" ]]; then
     pass "a red 'Data checks' endpoint does not fail the gate"
 else
     fail "'Data checks' leaked into the gate -- an empty index would redden a good deploy"
+fi
+
+# --- 2b. --gate-data-checks widens the gate, once someone actually opts in --------------
+info "2b. --gate-data-checks: 'Data checks' only gates when explicitly asked"
+out="$(run_gate GATUS_STATE=healthy -- --target ci-host-1 --gate-data-checks --blocking --timeout 5)"; rc=$?
+if [[ "$(marker_of "$out")" == "GATE-FAILED" && "$rc" -eq 1 ]]; then
+    pass "--gate-data-checks fails the gate on the same red 'Data checks' endpoint"
+else
+    fail "expected GATE-FAILED/exit 1 with --gate-data-checks, got '$(marker_of "$out")'/exit $rc"
+fi
+if [[ "$out" == *"records-ws index fields"* ]]; then
+    pass "names the red Data-checks endpoint"
+else
+    fail "does not say which Data-checks endpoint failed"
+fi
+out="$(run_gate GATUS_STATE=all-healthy -- --target ci-host-1 --gate-data-checks --blocking --timeout 5)"; rc=$?
+if [[ "$(marker_of "$out")" == "GATE-PASSED" && "$rc" -eq 0 ]]; then
+    pass "--gate-data-checks passes once Deep checks AND Data checks are both green"
+else
+    fail "expected GATE-PASSED/exit 0 once both groups are green, got '$(marker_of "$out")'/exit $rc"
+fi
+out="$(run_gate GATUS_STATE=all-healthy -- --target ci-host-1 --blocking --timeout 5)"
+if [[ "$(marker_of "$out")" == "GATE-PASSED" ]]; then
+    pass "without the flag, an all-healthy deploy still passes as before"
+else
+    fail "the default gate regressed on an all-healthy deploy"
 fi
 
 # --- 3. a gate that cannot run can never look like a pass --------------------------------

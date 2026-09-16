@@ -159,17 +159,26 @@ gatus_extra_endpoints:
     conditions: ["[STATUS] < 400", "has([BODY].totalRecords) == true"]
 
   # --- Data checks ---------------------------------------------------------------
-  # SEPARATE GROUP ON PURPOSE. These two go red on a portal that simply has no records
-  # yet, and that is a legitimate install: a docker-compose portal has no dataResources,
-  # runs no e2e suite, and may not even deploy Airflow. verify-deployment.sh gates the
-  # build on "Deep checks" only, so nothing here can report a data-less deployment as a
+  # SEPARATE GROUP ON PURPOSE. These go red on a portal that simply has no records yet,
+  # and that is a legitimate install: a docker-compose portal has no dataResources, runs
+  # no e2e suite, and may not even deploy Airflow. verify-deployment.sh gates the build on
+  # "Deep checks" only BY DEFAULT, so nothing here can report a data-less deployment as a
   # failed one. They stay visible on the dashboard because they do describe something an
-  # end user would notice — just not something a deploy can fix.
+  # end user would notice — just not something a deploy can fix on its own.
   #
-  # What closes them is data plus a restart, which is what scripts/refresh-biocache-fields.sh
-  # does after an ingest. See wait-for-solr-collection.yml.j2 for why the restart is
-  # unavoidable: biocache-service caches its field list at boot from /admin/luke, which
-  # reports nothing for an index with no documents.
+  # What closes them is data plus, for the records-ws pair, a restart: scripts/
+  # refresh-biocache-fields.sh does that after an ingest. See wait-for-solr-collection.yml.j2
+  # for why the restart is unavoidable: biocache-service caches its field list at boot from
+  # /admin/luke, which reports nothing for an index with no documents. The other checks close
+  # once their own seed stage runs: Airflow Ingest E2E (records/collections), BIE Taxonomy
+  # Import E2E (species-ws taxon count), and the Cypress species-list mutation spec under
+  # CYPRESS_ENABLE_MUTATION_TESTS (lists count).
+  #
+  # Once ALL of those seed stages have run, `scripts/verify-deployment.sh --gate-data-checks`
+  # gates the build on this group too — see the Jenkinsfile's "Verify Gatus Data Checks"
+  # stage, which only runs when RUN_AIRFLOW_INGEST && RUN_BIE_IMPORT && RUN_LISTS_SEED are
+  # all true. A build that skips any of those legitimately leaves this group red and stays
+  # ungated, exactly as before.
 
   # len() guards the hollow-green case: with an empty field list biocache answers 200
   # with `[]` (two bytes), which a status-only condition happily accepts.

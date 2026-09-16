@@ -64,6 +64,21 @@ export function bieHasData(): boolean {
   return String(Cypress.env("BIE_HAS_DATA")) === "true";
 }
 
+/**
+ * True when the gated species-list mutation spec is enabled (CYPRESS_ENABLE_MUTATION_TESTS=true).
+ *
+ * Off by default: the spec creates a real species list through the actual upload UI, which
+ * would otherwise happen on every smoke run. The CI sets this only when it wants to seed the
+ * list Gatus's "lists count" Data check asserts on (see [[e2e-list-seed]] / the Jenkinsfile's
+ * RUN_LISTS_SEED param).
+ *
+ * Stringified for the same reason as authTestsEnabled(): Cypress coerces CYPRESS_-prefixed
+ * env vars to a real boolean, so a bare `!== "true"` never matches.
+ */
+export function mutationTestsEnabled(): boolean {
+  return String(Cypress.env("ENABLE_MUTATION_TESTS")) === "true";
+}
+
 /** Skip the enclosing spec if the service isn't present in this inventory's manifest. */
 export function skipIfMissing(key: string, ctx: Mocha.Context): void {
   if (!hasService(key)) {

@@ -7,12 +7,19 @@
 # so this works against any inventory. Complements the Ansible container-health gate
 # (wait-for-health.sh) and the Cypress smoke suite (Layer 2).
 #
-# DATA-DEPENDENT CHECKS ARE DELIBERATELY OUT OF SCOPE. Gatus also carries a "Data checks"
-# group (records-ws index fields, records search page) which is red on any portal that has
-# no records yet. That is a legitimate install — a docker-compose portal has no
-# dataResources, runs no e2e suite, and may not deploy Airflow at all — so an empty index
-# must never be reported here as a failed deployment. What asserts those, and only after
-# an ingest has actually run, is scripts/refresh-biocache-fields.sh.
+# DATA-DEPENDENT CHECKS ARE OUT OF SCOPE BY DEFAULT. Gatus also carries a "Data checks"
+# group (records-ws index fields, records search page, species-ws taxon count, collections
+# dataResource count, lists count) which is red on any portal that has no data yet. That is
+# a legitimate install — a docker-compose portal has no dataResources, runs no e2e suite, and
+# may not deploy Airflow at all — so an empty index must never be reported here as a failed
+# deployment BY DEFAULT.
+#
+# Pass --gate-data-checks to widen the gate to "Data checks" too. Only do this once the
+# matching seed stages have actually run (Airflow Ingest E2E, BIE Taxonomy Import E2E, and
+# the Cypress species-list mutation spec under CYPRESS_ENABLE_MUTATION_TESTS) — otherwise
+# this flag reintroduces the exact bug it exists to close on top of, by reddening a
+# legitimately data-less deploy. See scripts/refresh-biocache-fields.sh for what else closes
+# "records-ws index fields" after an ingest.
 #
 # Endpoints and their URLs are NOT hardcoded here: they come from Gatus (which is itself
 # generated from the inventory). The --direct fallback reads the inventory-generated
@@ -28,7 +35,7 @@
 # a caller that gates on this script MUST require GATE-PASSED rather than assume it.
 #
 # Usage:
-#   scripts/verify-deployment.sh [--target HOST] [--blocking] [--direct]
+#   scripts/verify-deployment.sh [--target HOST] [--blocking] [--direct] [--gate-data-checks]
 #                                [--gatus-host FQDN] [--targets-file PATH] [--timeout SEC]
 #                                [--connect-timeout SEC]
 set -euo pipefail
@@ -36,6 +43,7 @@ set -euo pipefail
 TARGET="localhost"
 BLOCKING=false
 DIRECT=false
+GATE_DATA_CHECKS=false
 GATUS_HOST=""
 TARGETS_FILE="${CYPRESS_TARGETS_FILE:-/data/docker-compose/e2e-targets.json}"
 TARGETS_FILE_EXPLICIT=false
@@ -47,11 +55,10 @@ TIMEOUT=300
 # host 3 and hosts 1 and 2 never resolve the vhost no matter how long they are given.
 # Spending 300s per such host is how a caller that tries several of them runs out of day.
 CONNECT_TIMEOUT=45
-GROUP="Deep checks"
 
 [[ "${GATUS_GATE_BLOCKING:-}" == "true" ]] && BLOCKING=true
 
-usage() { sed -n '2,32p' "$0"; exit 0; }
+usage() { sed -n '2,33p' "$0"; exit 0; }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -59,6 +66,7 @@ while [[ $# -gt 0 ]]; do
     --blocking)     BLOCKING=true; shift ;;
     --report-only)  BLOCKING=false; shift ;;
     --direct)       DIRECT=true; shift ;;
+    --gate-data-checks) GATE_DATA_CHECKS=true; shift ;;
     --gatus-host)   GATUS_HOST="$2"; shift 2 ;;
     --targets-file) TARGETS_FILE="$2"; TARGETS_FILE_EXPLICIT=true; shift 2 ;;
     --timeout)      TIMEOUT="$2"; shift 2 ;;
@@ -67,6 +75,15 @@ while [[ $# -gt 0 ]]; do
     *) echo "Unknown arg: $1" >&2; exit 64 ;;
   esac
 done
+
+# GROUPS_JSON drives the jq filters below; GROUP_LABEL is only for log/error text.
+if [[ "$GATE_DATA_CHECKS" == true ]]; then
+  GROUPS_JSON='["Deep checks","Data checks"]'
+  GROUP_LABEL="Deep checks + Data checks"
+else
+  GROUPS_JSON='["Deep checks"]'
+  GROUP_LABEL="Deep checks"
+fi
 
 log()  { printf '%s\n' "$*"; }
 warn() { printf 'WARN: %s\n' "$*" >&2; }
@@ -194,10 +211,11 @@ fi
 # Default: read Gatus verdicts for the "Deep checks" group, polling for freshness
 # (deep checks run on a ~1m interval; right after deploy Gatus may not have run yet).
 # ---------------------------------------------------------------------------
-log "Verifying Gatus '$GROUP' via ${GATUS_HOST} (target=$TARGET, timeout=${TIMEOUT}s)"
+log "Verifying Gatus '$GROUP_LABEL' via ${GATUS_HOST} (target=$TARGET, timeout=${TIMEOUT}s)"
 
 # Normalize the API to a bare array (older Gatus returns [...], newer may wrap in .endpoints).
 JQ_NORM='if type=="array" then . else (.endpoints // []) end'
+IN_GROUPS='.group as $g | ($groups | index($g)) != null'
 
 deadline=$(( SECONDS + TIMEOUT ))
 connect_deadline=$(( SECONDS + CONNECT_TIMEOUT ))
@@ -206,13 +224,13 @@ ever_reachable=false
 while :; do
   if raw="$(gatus_fetch "/api/v1/endpoints/statuses" 2>/dev/null)"; then
     ever_reachable=true
-    # Count Deep-checks endpoints and how many have at least one result yet.
-    counts="$(printf '%s' "$raw" | jq -r "[ ($JQ_NORM)[] | select(.group==\"$GROUP\") ] | \"\(length) \([.[]|select((.results|length)>0)]|length)\"" 2>/dev/null || echo "0 0")"
+    # Count gated endpoints and how many have at least one result yet.
+    counts="$(printf '%s' "$raw" | jq -r --argjson groups "$GROUPS_JSON" "[ ($JQ_NORM)[] | select($IN_GROUPS) ] | \"\(length) \([.[]|select((.results|length)>0)]|length)\"" 2>/dev/null || echo "0 0")"
     total="${counts%% *}"; fresh="${counts##* }"
     if [[ "$total" -gt 0 && "$fresh" -eq "$total" ]]; then
       break
     fi
-    log "  waiting for Gatus to evaluate '$GROUP' ($fresh/$total ready)..."
+    log "  waiting for Gatus to evaluate '$GROUP_LABEL' ($fresh/$total ready)..."
   else
     log "  Gatus not reachable yet, retrying..."
   fi
@@ -222,21 +240,21 @@ while :; do
     finish 2 "no route to Gatus (${GATUS_HOST}) from $TARGET"
   fi
   if [[ "$SECONDS" -ge "$deadline" ]]; then
-    err "timed out waiting for Gatus '$GROUP' (reachable=$([[ -n "$raw" ]] && echo yes || echo no))"
-    finish 2 "timed out after ${TIMEOUT}s waiting for Gatus '$GROUP' on $GATUS_HOST"
+    err "timed out waiting for Gatus '$GROUP_LABEL' (reachable=$([[ -n "$raw" ]] && echo yes || echo no))"
+    finish 2 "timed out after ${TIMEOUT}s waiting for Gatus '$GROUP_LABEL' on $GATUS_HOST"
   fi
   sleep 10
 done
 
 # Evaluate: latest result per endpoint must be success.
-unhealthy="$(printf '%s' "$raw" | jq -r "($JQ_NORM)[] | select(.group==\"$GROUP\") | select((.results[-1].success)==false) | .name")"
-total="$(printf '%s' "$raw" | jq -r "[ ($JQ_NORM)[] | select(.group==\"$GROUP\") ] | length")"
+unhealthy="$(printf '%s' "$raw" | jq -r --argjson groups "$GROUPS_JSON" "($JQ_NORM)[] | select($IN_GROUPS) | select((.results[-1].success)==false) | .name")"
+total="$(printf '%s' "$raw" | jq -r --argjson groups "$GROUPS_JSON" "[ ($JQ_NORM)[] | select($IN_GROUPS) ] | length")"
 
 if [[ -n "$unhealthy" ]]; then
   n="$(printf '%s\n' "$unhealthy" | grep -c .)"
-  err "$n/$total '$GROUP' endpoint(s) unhealthy:"
+  err "$n/$total '$GROUP_LABEL' endpoint(s) unhealthy:"
   printf '%s\n' "$unhealthy" | sed 's/^/  [FAIL] /' >&2
-  finish 1 "$n/$total '$GROUP' endpoint(s) unhealthy"
+  finish 1 "$n/$total '$GROUP_LABEL' endpoint(s) unhealthy"
 fi
 
-finish 0 "all $total '$GROUP' endpoint(s) healthy"
+finish 0 "all $total '$GROUP_LABEL' endpoint(s) healthy"
