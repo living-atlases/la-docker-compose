@@ -5,7 +5,11 @@ services:
   clamav:
     container_name: {{ clamav_docker_host | default('la_clamav') }}
     profiles: [dbs, app-core, full]
-    image: clamav/clamav:{{ clamav_image_tag | default('stable') }}
+    # Pinned, like the rest of the third-party images: `stable` is a moving tag, and a
+    # moving tag is what let tiredofit/db-backup swap itself for a shell-less stub and
+    # burn the health gate's whole budget (#388). `stable` resolves to 1.5.4 today, so
+    # this changes nothing now -- it just stops upstream choosing for us later.
+    image: clamav/clamav:{{ clamav_image_tag | default('1.5.4') }}
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     volumes:
       # Persist the virus signature DB so freshclam doesn't re-download (~300MB) on every restart.
