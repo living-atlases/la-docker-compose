@@ -3,7 +3,12 @@ services:
   gatus:
     container_name: la_gatus_service
     profiles: [monitoring, full]
-    image: twinproduction/gatus:latest
+    # Pinned, not :latest -- :latest is a build of gatus master, so the dashboard
+    # could change (or break) under us on any upstream commit, the way
+    # tiredofit/db-backup:latest did on 2026-09-09. v5.36.0 is what upstream tags
+    # `stable`; it parses this deployment's config (138 endpoints) and opens a
+    # data.db written by a master build without migrating anything.
+    image: twinproduction/gatus:{{ gatus_version | default('v5.36.0') }}
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     volumes:
       - ../gatus/config:/config

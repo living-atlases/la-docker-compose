@@ -4,7 +4,10 @@ services:
   mailhog:
     container_name: la_mailhog
     profiles: [mail, full]
-    image: mailhog/mailhog:latest
+    # v1.0.1 (2020) is both the last release and what :latest points at -- same
+    # digest today. The pin costs nothing and means a future re-push of :latest
+    # to a retirement stub (mailhog is unmaintained) cannot reach a deploy.
+    image: mailhog/mailhog:{{ mailhog_version | default('v1.0.1') }}
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     restart: unless-stopped
     expose:

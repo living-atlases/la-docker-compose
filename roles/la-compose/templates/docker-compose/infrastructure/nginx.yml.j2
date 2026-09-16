@@ -28,7 +28,13 @@ services:
 {% set la_site_certs_out = '/out' %}
 {% endif %}
   certs-init:
-    image: livingatlases/l-a-site-certs:latest
+    # Deliberately :latest, unlike every other image here. This is our own image and
+    # its whole payload is the l-a.site wildcard cert, rebaked roughly every 90 days
+    # (tags 20260121, 20260408, 20260501, 20260701, 20260901...). A dated pin would
+    # freeze the bundle and hand us cert-expiry reds in gatus a quarter later, which
+    # is the opposite of what pinning is for. The var exists so a deployment that
+    # wants a known bundle can ask for one; leave the default alone.
+    image: livingatlases/l-a-site-certs:{{ la_site_certs_version | default('latest') }}
     pull_policy: always
     container_name: la_certs-init
     profiles: [infra, core-auth, app-core, full]
@@ -46,7 +52,10 @@ services:
   # Checks: file existence, PEM format, expiration, and cert/key match
   # before nginx starts to avoid runtime SSL errors
   cert-validator:
-    image: alpine/openssl:latest
+    # Pinned: cert-validator.sh runs openssl(1) from this image, and a silent upstream
+    # re-push of :latest would change it under a deploy. 3.5.8 is the same digest
+    # :latest resolves to today.
+    image: alpine/openssl:{{ alpine_openssl_version | default('3.5.8') }}
     container_name: la_cert-validator
     profiles: [infra, core-auth, app-core, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}

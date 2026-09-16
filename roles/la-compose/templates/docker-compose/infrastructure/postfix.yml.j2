@@ -3,7 +3,11 @@ services:
     container_name: la_postfix
     profiles: [mail, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
-    image: boky/postfix
+    # Tagged, not bare (== :latest): 5.1.0 is the current release and the same digest
+    # :latest resolves to today, Debian trixie -- which is what the `nc` healthcheck
+    # below depends on. The alpine variant is a different image; do not swap the tag
+    # for `5.1.0-alpine` without rechecking that healthcheck.
+    image: boky/postfix:{{ postfix_version | default('5.1.0') }}
     restart: unless-stopped
     ports:
       - "25"
