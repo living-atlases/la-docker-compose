@@ -1,0 +1,23 @@
+---
+# The bake targets `docker buildx bake` is asked to build: the portal's branding plus
+# one per data hub that staged a branding of its own.
+#
+# Its own file so molecule can assert the one property that matters -- that every name
+# here is a target docker-bake.hcl.j2 actually defines. They are two expressions in two
+# languages that have to agree, and when they did not the build died with
+# "failed to find target branding1" (#387) after the hosts had already been wiped.
+#
+# Built with an explicit concat rather than regex_replace: a '\1' backreference inside a
+# block scalar reaches the command module still escaped and shlex then eats the
+# backslash, which is exactly how that build produced the literal "branding1".
+- name: Resolve the branding bake targets
+  ansible.builtin.set_fact:
+    branding_bake_targets: >-
+      {%- set out = [] -%}
+      {%- for b in (branding_render_list | default([])) -%}
+        {%- set _ = out.append('branding' ~ (b.suffix | replace('-', '_'))) -%}
+      {%- endfor -%}
+      {{ out or ['branding'] }}
+  tags:
+    - branding
+    - docker-compose

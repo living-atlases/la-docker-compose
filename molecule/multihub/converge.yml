@@ -370,6 +370,55 @@
              | map('regex_search', '^\s+- (\./.*\.yml)$', '\1')
              | reject('none') | map('first') | list }}
 
+    # The bake target names are computed twice, in two languages: once in Ansible for
+    # the `docker buildx bake <targets>` command line, once in Jinja inside
+    # docker-bake.hcl.j2. Build #387 died on "failed to find target branding1" -- after
+    # the three hosts had already been wiped -- because they disagreed. Assert they
+    # cannot.
+    - name: "[TC16] Two brandings staged: the portal's and a hub's"
+      ansible.builtin.include_tasks: ../../roles/la-compose/tasks/branding-bake-targets.yml
+      vars:
+        branding_render_list: &tc16_list
+          - {suffix: '', source: ../lademo-branding, is_git: false,
+             build_source: local, git_ref: HEAD, version: latest}
+          - {suffix: '-lademohub', source: 'https://github.com/living-atlases/base-branding',
+             is_git: true, build_source: git, git_ref: main, version: latest}
+
+    - name: "[TC16] Render the bake file from the same list"
+      ansible.builtin.template:
+        src: ../../roles/la-compose/templates/docker-bake.hcl.j2
+        dest: "{{ tc13_dir.path }}/docker-bake.hcl"
+        mode: "0644"
+      vars:
+        branding_render_list: *tc16_list
+        docker_compose_data_dir: /data/docker-compose
+
+    - name: "[TC16] Every target asked for is a target the file defines"
+      ansible.builtin.assert:
+        that:
+          - branding_bake_targets == ['branding', 'branding_lademohub']
+          - branding_bake_targets | difference(tc16_defined) | length == 0
+        fail_msg: >-
+          bake would fail: asked for {{ branding_bake_targets }}, file defines
+          {{ tc16_defined }}
+        success_msg: "{{ branding_bake_targets | join(' ') }}"
+      vars:
+        tc16_defined: >-
+          {{ lookup('file', tc13_dir.path ~ '/docker-bake.hcl').splitlines()
+             | map('regex_search', '^target "([^"]+)"', '\1')
+             | reject('none') | map('first') | list }}
+
+    # And the shape a deployment with no hubs takes: one target, named exactly as before.
+    - name: "[TC16] No staged branding falls back to the single portal target"
+      ansible.builtin.include_tasks: ../../roles/la-compose/tasks/branding-bake-targets.yml
+      vars:
+        branding_render_list: []
+
+    - name: "[TC16] assert the fallback"
+      ansible.builtin.assert:
+        that: branding_bake_targets == ['branding']
+        fail_msg: "fallback drifted: {{ branding_bake_targets }}"
+
     - name: "[TC13-14] Clean up"
       ansible.builtin.file:
         path: "{{ tc13_dir.path }}"

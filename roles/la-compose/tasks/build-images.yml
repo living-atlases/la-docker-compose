@@ -46,12 +46,7 @@
 # branding_source. Falls back to the single 'branding' target when nothing recorded a
 # list, which is what a deployment with no hubs and an older render produces.
 - name: Resolve the branding bake targets
-  ansible.builtin.set_fact:
-    branding_bake_targets: >-
-      {{ (branding_render_list | default([])
-          | map(attribute='suffix')
-          | map('regex_replace', '^(.*)$', 'branding\\1')
-          | map('replace', '-', '_') | list) or ['branding'] }}
+  ansible.builtin.include_tasks: branding-bake-targets.yml
   when:
     - "'branding' in services_enabled or (branding_render_list | default([]) | length > 0)"
 
