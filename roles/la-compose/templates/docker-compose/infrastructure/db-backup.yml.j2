@@ -2,8 +2,13 @@
 services:
   db-backup:
     container_name: la_db-backup
-    # Sucessor: nfrastack/db-backup or ghcr.io/nfrastack/container-db-backup:latest
-    image: tiredofit/db-backup:latest
+    # tiredofit/db-backup is retired. On 2026-09-09 its `latest` tag was replaced by a
+    # single static binary that prints "this image has moved" and nothing else: no shell,
+    # no backup, no way for ANY healthcheck to pass. Builds #386+ burned the whole
+    # converge budget on the two hosts carrying it. Successor, same DBxx_ env contract:
+    # nfrastack/db-backup (verified 5.0.2 parses the variables below unchanged).
+    # PINNED on purpose -- `latest` is what let an upstream retirement redden CI.
+    image: nfrastack/db-backup:{{ db_backup_version | default('5.0.2') }}
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     volumes:
       - ../db-backups:/backup
@@ -16,7 +21,9 @@ services:
       - TIMEZONE={{ server_tz | default('UTC') }}
       - CONTAINER_NAME=db-backup
       - CONTAINER_ENABLE_MONITORING=FALSE
-      - DB01_RESOURCE_OPTIMIZED=TRUE
+      # DB01_RESOURCE_OPTIMIZED was dropped: 5.x warns [DEPRECATED] and ignores it.
+      # Every other variable below was verified to still be honoured by 5.0.2
+      # (3 jobs configured, concurrency=1 respected, backup path still /backup).
       - BACKUP_JOB_CONCURRENCY=1
       - DEFAULT_CHECKSUM=NONE
       - DEFAULT_COMPRESSION=ZSTD
@@ -42,9 +49,14 @@ services:
       - DB03_USER={{ postgres_user | default('postgres') }}
       - DB03_PASS=${POSTGRES_PASSWORD}
     healthcheck:
-      test: ["CMD", "test", "-d", "/backup"]
+      # The image's own healthcheck. It must be a binary the image actually ships: this
+      # is a distroless image with no shell and no coreutils, so the previous
+      # `["CMD", "test", "-d", "/backup"]` could not even be exec'd
+      # (`exec: "test": executable file not found in $PATH`) and the container was
+      # unhealthy forever, which the health gate correctly refuses to converge past.
+      test: ["CMD", "/app/dbb", "version"]
       interval: 60s
       timeout: 10s
       retries: 3
-      start_period: 30s
+      start_period: 60s
     restart: unless-stopped

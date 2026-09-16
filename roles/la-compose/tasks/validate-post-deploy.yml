@@ -53,6 +53,38 @@
       when:
         - running_services | int < expected_services | int
 
+    # Runs BEFORE the health gate on purpose. A healthcheck whose command the image does
+    # not ship can never report healthy, and wait-for-health.sh has no ignore list, so the
+    # host burns its entire converge budget (~107 min) and fails with a generic timeout.
+    # That is what tiredofit/db-backup:latest did from build #386 on, after upstream
+    # replaced the tag with a shell-less retirement stub. Asking each image directly costs
+    # ~30s and names the service and the missing binary.
+    - name: Verify every healthcheck command exists in its image
+      block:
+        - name: Copy validate-healthcheck-commands.sh to target
+          ansible.builtin.copy:
+            src: "{{ role_path }}/../../scripts/validate-healthcheck-commands.sh"
+            dest: "{{ docker_compose_data_dir }}/validate-healthcheck-commands.sh"
+            mode: "0755"
+            owner: "{{ docker_compose_userid }}"
+            group: "{{ docker_compose_usergid }}"
+          become: true
+
+        - name: Probe the healthcheck binaries
+          ansible.builtin.command:
+            cmd: >-
+              {{ docker_compose_data_dir }}/validate-healthcheck-commands.sh
+              --compose-dir {{ docker_compose_data_dir }}
+          register: healthcheck_commands_result
+          become: true
+          changed_when: false
+          # Images are already pulled by this point, so anything still missing from the
+          # local cache is reported SKIP rather than pulled again.
+
+        - name: Show the healthcheck command probe
+          ansible.builtin.debug:
+            msg: "{{ healthcheck_commands_result.stdout_lines }}"
+
     - name: Run health check script with timeout
       block:
         - name: Copy wait-for-health.sh script to target
