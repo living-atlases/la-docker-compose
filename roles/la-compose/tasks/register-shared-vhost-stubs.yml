@@ -1,0 +1,44 @@
+---
+# Cross-host shared-vhost stub proxying (hub.l-a.site-style: ONE hostname split
+# by PATH across DIFFERENT physical hosts, unlike spatial.*/auth.* which share
+# a hostname on ONE host). nginx_remote_shared_members (generate-compose.yml,
+# right after docker_extra_hosts_dict is built) lists, per shared hostname,
+# every member THIS host does not own. Without this, this host's copy of that
+# shared hostname would only serve the path(s) it renders locally and 404 on
+# every sibling's path.
+#
+# Proxies straight to the sibling's BACKEND CONTAINER (its published port on
+# its private IP, see nginx_shared_ports_needed and the conditional `ports:`
+# block in biocache-hub.yml.j2/bie-hub.yml.j2/regions.yml.j2), not to the
+# sibling's nginx — so this is a plain HTTP proxy_pass with no TLS/SNI
+# question, and touches nothing in ala-install (only the nginx_vhost role's
+# already-existing, unmodified `static_upstream`/`proxy_hostname` nginx_paths
+# fields are used).
+#
+# Called ONCE per host, after every local service (portal instance-0 AND
+# every hub instance, both rendered earlier in generate-compose.yml) has
+# already registered its own real nginx_vhost calls for the hostnames it
+# owns, so a stub never races a real registration for the same fragment set
+# (nginx_vhost's fragments are path-keyed, so a stub's path — by construction
+# never a path this host owns — can never collide with a real one).
+- name: "Build stub nginx_paths per shared hostname this host must proxy for"
+  ansible.builtin.include_tasks: build-shared-vhost-stub-paths.yml
+
+- name: "Register cross-host proxy stubs for shared vhost hostnames"
+  ansible.builtin.include_role:
+    name: nginx_vhost
+  vars:
+    appname: "{{ item.key }}-remote"
+    hostname: "{{ item.key }}"
+    context_path: "/"
+    vhost_required: true
+    nginx_vhost_fast_mode: false
+    vhost_with_appname_conf: true
+    nginx_paths: "{{ item.value }}"
+  loop: "{{ (nginx_remote_stub_paths | default({})) | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when: (nginx_remote_shared_members | default([])) | length > 0
+  tags:
+    - docker-compose
+    - nginx_vhost

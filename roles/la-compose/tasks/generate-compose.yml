@@ -62,6 +62,64 @@
     - always
     - docker-compose
 
+# Cross-host shared-vhost members (hub.l-a.site-style: ONE hostname split by
+# PATH across DIFFERENT physical hosts, unlike spatial.*/auth.* which share a
+# hostname on ONE host — see nginx_shared_vhost_service_keys above). For every
+# hostname in nginx_shared_vhost_topology (setup-hub-facts.yml) claimed by
+# members on more than one physical host:
+#   - nginx_shared_ports_needed: "<service_key>:<pkg>" for every LOCAL member
+#     of such a hostname, so its own service template (biocache-hub.yml.j2
+#     etc.) knows to publish its container port for siblings to reach.
+#   - nginx_remote_shared_members: the members THIS host does NOT own, with
+#     their owner resolved to a private IP via docker_extra_hosts_dict (must
+#     run after it is built, above) and a fixed cross-host port per service
+#     type. register-shared-vhost-stubs.yml turns these into proxy stubs.
+# branding is excluded from BOTH lists on purpose: it is static files (nginx
+# alias), not a backend container, so there is no port to publish and nothing
+# to proxy to — see the plan's "branding is out of scope" note. Ownership is
+# decided by comparing each member's owner_alias's underlying physical
+# hostname (ansible_host) to THIS host's own ansible_host, the same idiom
+# hub_instances above already uses to resolve "is part of this hub HERE".
+- name: Resolve cross-host shared-vhost membership (local ports to publish, remote members to proxy)
+  ansible.builtin.set_fact:
+    nginx_shared_ports_needed: >-
+      {%- set needed = [] -%}
+      {%- for hostname, members in (nginx_shared_vhost_topology | default({})).items() -%}
+        {%- set owner_hosts = members | map(attribute='owner_alias')
+              | map('extract', hostvars, 'ansible_host') | select('defined') | unique | list -%}
+        {%- if owner_hosts | length > 1 -%}
+          {%- for m in members -%}
+            {%- if (hostvars[m.owner_alias].ansible_host | default(m.owner_alias)) == ansible_host
+                   and m.service_key != 'branding' -%}
+              {%- set _ = needed.append(m.service_key ~ ':' ~ m.pkg) -%}
+            {%- endif -%}
+          {%- endfor -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ needed | unique | list }}
+    nginx_remote_shared_members: >-
+      {%- set remote = [] -%}
+      {%- set port_by_service = {'biocache-hub': 18180, 'bie-hub': 18280, 'regions': 18380} -%}
+      {%- for hostname, members in (nginx_shared_vhost_topology | default({})).items() -%}
+        {%- set owner_hosts = members | map(attribute='owner_alias')
+              | map('extract', hostvars, 'ansible_host') | select('defined') | unique | list -%}
+        {%- if owner_hosts | length > 1 -%}
+          {%- for m in members -%}
+            {%- if (hostvars[m.owner_alias].ansible_host | default(m.owner_alias)) != ansible_host
+                   and m.service_key != 'branding' -%}
+              {%- set owner_host = hostvars[m.owner_alias].ansible_host | default(m.owner_alias) -%}
+              {%- set _ = remote.append({'hostname': hostname, 'service_key': m.service_key, 'pkg': m.pkg,
+                                          'path': m.path, 'owner_private_ip': docker_extra_hosts_dict.get(owner_host, ''),
+                                          'container_port': port_by_service.get(m.service_key, 8080)}) -%}
+            {%- endif -%}
+          {%- endfor -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ remote }}
+  tags:
+    - always
+    - docker-compose
+
 # ============================================================================
 # Cross-host datastore reachability (VM model, NO swarm)
 # ----------------------------------------------------------------------------
@@ -3735,6 +3793,22 @@
   when: use_la_site_certs | bool
   tags:
     - nginx-validation
+
+# ============================================================================
+# Cross-host shared-vhost stub proxying
+# ============================================================================
+# Runs after every local service (portal instance-0 above, and every hub
+# instance via the loop earlier in this file) has registered its own real
+# nginx_vhost calls, so a stub can never race a real registration for the
+# same hostname. See register-shared-vhost-stubs.yml and the "Resolve
+# cross-host shared-vhost membership" task near the top of this file.
+- name: "Register cross-host proxy stubs for any shared vhost hostname"
+  ansible.builtin.include_tasks: register-shared-vhost-stubs.yml
+  when: (nginx_remote_shared_members | default([])) | length > 0
+  tags:
+    - always
+    - docker-compose
+    - nginx_vhost
 
 # ============================================================================
 # Final Validation - Check for ala-install references

@@ -1,0 +1,22 @@
+---
+# Build stub nginx_paths per shared hostname this host must proxy for. Split out
+# of register-shared-vhost-stubs.yml (which includes this before its nginx_vhost
+# loop) so molecule/multihub/converge.yml's TC17 can include the SAME file the
+# real render uses, instead of a copy that could silently drift from it.
+- name: "Build stub nginx_paths per shared hostname this host must proxy for"
+  ansible.builtin.set_fact:
+    nginx_remote_stub_paths: >-
+      {%- set out = {} -%}
+      {%- for m in (nginx_remote_shared_members | default([])) -%}
+        {%- set entry = {
+              'path': m.path, 'is_proxy': true, 'static_upstream': true,
+              'proxy_hostname': m.hostname,
+              'proxy_pass': 'http://' ~ m.owner_private_ip ~ ':' ~ (m.container_port | string) ~ m.path
+            } -%}
+        {%- set _ = out.update({m.hostname: (out.get(m.hostname, []) + [entry])}) -%}
+      {%- endfor -%}
+      {{ out }}
+  when: (nginx_remote_shared_members | default([])) | length > 0
+  tags:
+    - always
+    - docker-compose

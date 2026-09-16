@@ -423,3 +423,39 @@
       ansible.builtin.file:
         path: "{{ tc13_dir.path }}"
         state: absent
+
+    # ------------------------------------------------------------------ TC17
+    # Cross-host path-split vhost stubs (roles/la-compose/tasks/
+    # register-shared-vhost-stubs.yml), fed by nginx_remote_shared_members
+    # (the shape generate-compose.yml's own resolution produces — see its
+    # "Resolve cross-host shared-vhost membership" task). Two members of the
+    # SAME shared hostname, owned by two different remote hosts: asserts the
+    # stub nginx_paths this host would build to proxy the paths it does not
+    # own — static_upstream, a plain http:// proxy_pass straight at the
+    # owner's published container port, and proxy_hostname carrying the
+    # shared hostname (the Host header the backend needs to see).
+    - name: "[TC17] Fabricate a two-member cross-host shared-vhost split"
+      ansible.builtin.set_fact:
+        nginx_remote_shared_members:
+          - {hostname: portal-shared.l-a.site, service_key: bie-hub, pkg: '',
+             path: /species, owner_private_ip: 10.77.0.2, container_port: 18280}
+          - {hostname: portal-shared.l-a.site, service_key: regions, pkg: '',
+             path: /regions, owner_private_ip: 10.77.0.2, container_port: 18380}
+
+    - name: "[TC17] Build the stub nginx_paths (the SAME file the real render includes)"
+      ansible.builtin.include_tasks: ../../roles/la-compose/tasks/build-shared-vhost-stub-paths.yml
+
+    - name: "[TC17] The stub carries one path entry per remote member, correctly shaped"
+      ansible.builtin.assert:
+        that:
+          - nginx_remote_stub_paths.keys() | list == ['portal-shared.l-a.site']
+          - tc17_paths | length == 2
+          - tc17_paths | map(attribute='static_upstream') | unique | list == [true]
+          - tc17_paths | map(attribute='is_proxy') | unique | list == [true]
+          - tc17_paths | map(attribute='proxy_hostname') | unique | list == ['portal-shared.l-a.site']
+          - "'http://10.77.0.2:18280/species' in (tc17_paths | map(attribute='proxy_pass') | list)"
+          - "'http://10.77.0.2:18380/regions' in (tc17_paths | map(attribute='proxy_pass') | list)"
+        fail_msg: "stub nginx_paths drifted: {{ tc17_paths }}"
+        success_msg: "{{ tc17_paths | map(attribute='proxy_pass') | list }}"
+      vars:
+        tc17_paths: "{{ nginx_remote_stub_paths['portal-shared.l-a.site'] }}"

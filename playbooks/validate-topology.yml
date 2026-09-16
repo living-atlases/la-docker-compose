@@ -102,22 +102,61 @@
               {%- set _ = seen.update({a: (seen.get(a, []) + [h])}) -%}
             {%- endfor -%}
           {%- endfor -%}
-          {%- set dups = [] -%}
+          {%- set dups = {} -%}
           {%- for a, hs in seen.items() -%}
             {%- if hs | length > 1 -%}
+              {%- set _ = dups.update({a: hs}) -%}
+            {%- endif -%}
+          {%- endfor -%}
+          {{ dups }}
+
+    # A duplicate is legitimate, not a placement bug, exactly when the generic
+    # cross-host stub-proxy mechanism (roles/la-compose's
+    # nginx_shared_vhost_topology + register-shared-vhost-stubs.yml) actually
+    # covers it: every host not owning a given path proxies to the one that
+    # does, so the external proxy is free to route the hostname to ANY one of
+    # its owners. nginx_shared_vhost_topology is a global, host-independent
+    # walk (service_aliases / groups[], not per-host filtered — see its own
+    # comment in setup-hub-facts.yml), so any one host's copy is authoritative
+    # for the whole cluster. A duplicate that ISN'T in this set (e.g. an
+    # accidental spatial/cas co-location bug — those parentService clusters
+    # are explicitly out of scope for this mechanism) still fails loudly.
+    - name: "2. Determine which duplicates the cross-host stub-proxy mechanism actually handles"
+      ansible.builtin.set_fact:
+        topo_handled_splits: >-
+          {%- set handled = [] -%}
+          {%- set topo = hostvars[groups['docker_compose'][0]].get('nginx_shared_vhost_topology', {}) -%}
+          {%- for hostname, members in topo.items() -%}
+            {%- set owner_hosts = members | map(attribute='owner_alias')
+                  | map('extract', hostvars, 'ansible_host') | select('defined') | unique | list -%}
+            {%- if owner_hosts | length > 1 -%}
+              {%- set _ = handled.append(hostname) -%}
+            {%- endif -%}
+          {%- endfor -%}
+          {{ handled }}
+
+    - name: "2. Detect UNHANDLED duplicate public vhosts"
+      ansible.builtin.set_fact:
+        topo_unhandled_dup_aliases: >-
+          {%- set dups = [] -%}
+          {%- for a, hs in topo_dup_aliases.items() -%}
+            {%- if a not in topo_handled_splits -%}
               {%- set _ = dups.append(a ~ ' on ' ~ (hs | join('+'))) -%}
             {%- endif -%}
           {%- endfor -%}
           {{ dups }}
 
-    - name: "2. Assert each public vhost is served from exactly one host"
+    - name: "2. Assert each public vhost is served from exactly one host (or is a handled cross-host split)"
       ansible.builtin.assert:
-        that: topo_dup_aliases | length == 0
+        that: topo_unhandled_dup_aliases | length == 0
         fail_msg: >-
-          Public vhost alias(es) served from MORE THAN ONE physical host (the
-          external proxy can only route a subdomain to one VM):
-          {{ topo_dup_aliases }}
-        success_msg: "no duplicated public vhosts"
+          Public vhost alias(es) served from MORE THAN ONE physical host, with
+          no cross-host stub proxy covering the split (the external proxy can
+          only route a subdomain to one VM, and nothing proxies the paths it
+          doesn't own): {{ topo_unhandled_dup_aliases }}
+        success_msg: >-
+          no unhandled duplicate public vhosts
+          ({{ topo_dup_aliases.keys() | list }} covered by the stub-proxy mechanism)
 
     - name: "3. Detect non-datastore services enabled on more than one host"
       ansible.builtin.set_fact:

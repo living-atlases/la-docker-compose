@@ -119,26 +119,39 @@ def service_hostname_keys(pv):
     return out
 
 
-def alias_union(pv):
+def alias_union(pv, rename=None):
     """The PORTAL's public vhost aliases across hosts, from the base aliases dict.
+
+    From the base .yo-rc's LA_nginx_docker_internal_aliases_by_host snapshot, NOT
+    recomputed from every enabled service's LA_<svc>_url: that snapshot is the
+    curated set of names that actually get an nginx vhost (it deliberately excludes
+    datastores and other internal-only hostnames that also happen to carry a
+    LA_<svc>_url). rename ({old_alias: new_alias}, from a placement's
+    "shared_hostname" override) substitutes an alias that a service was moved
+    away from with the one it now shares, so the alias SET stays in step with the
+    LOCAL, already-patched copy of pv compute_variant builds — without it, a
+    renamed service's old alias would be orphaned (alias_owners would find no
+    owner and die).
 
     Data hub vhosts are excluded and resolved separately (hub_vhosts): they are owned
     by an LA_hubs entry, not by a top-level LA_<svc>_url, so alias_owners could never
     find their owner and would die.
     """
     hubs = set(hub_vhosts(pv))
+    rename = rename or {}
     aliases = []
     for host_aliases in (pv.get("LA_nginx_docker_internal_aliases_by_host") or {}).values():
         for a in host_aliases:
+            a = rename.get(a, a)
             if a not in aliases and a not in hubs:
                 aliases.append(a)
     return aliases
 
 
-def alias_owners(pv, services):
+def alias_owners(pv, services, rename=None):
     """alias -> [services] via LA_<svc>_url == alias."""
     owners = {}
-    for alias in alias_union(pv):
+    for alias in alias_union(pv, rename):
         svcs = [s for s in services if str(pv.get("LA_%s_url" % s, "")).strip() == alias]
         owners[alias] = svcs
     return owners
@@ -158,14 +171,22 @@ def hub_entries(pv):
 
 
 def hub_vhosts(pv):
-    """{alias: (hub index, frontend)} for every data hub public vhost."""
+    """{alias: [(hub index, frontend), ...]} for every data hub public vhost.
+
+    A list, not a single tuple: a hub may point MORE THAN ONE front-end at the
+    same alias (e.g. LA_ala_hub_url == LA_ala_bie_url == LA_regions_url ==
+    "hub.l-a.site", a hostname split by PATH across hosts). A plain dict
+    assignment here would silently keep only the last front-end processed and
+    drop the others from every alias-derived computation below — the exact bug
+    a hub with this shape hit (issue: cross-host path-split vhost support).
+    """
     out = {}
     for i, _pkg, placed in hub_entries(pv):
         hub = pv["LA_hubs"][i]
         for fe in placed:
             alias = str(hub.get("LA_%s_url" % fe, "") or "").strip()
             if alias:
-                out[alias] = (i, fe)
+                out.setdefault(alias, []).append((i, fe))
     return out
 
 
@@ -246,45 +267,95 @@ def compute_variant(pv, placement):
     names = [n for n, _ in hosts]
     ip_of = dict(hosts)
 
-    svc_keys = service_hostname_keys(pv)
-    owners = alias_owners(pv, list(svc_slot))
+    # Optional cross-host PATH split: placement["shared_hostname"] =
+    # {"<hostname>": {"<service>": "<path>", ...}} points the listed portal
+    # services' public vhost at one shared hostname (each on its own path)
+    # instead of each service's own individual one. Applied to a LOCAL copy of
+    # pv, and BEFORE any alias-derived computation below, so alias_owners /
+    # alias_union / alias_host all see the shared hostname from the start —
+    # the base .yo-rc itself (shared by every topology variant) is never
+    # touched, so this is opt-in per placement only.
+    shared_hostname = placement.get("shared_hostname") or {}
+    url_path_overrides = OrderedDict()
+    rename = {}
+    if shared_hostname:
+        pv = dict(pv)
+        for hostname, svc_paths in shared_hostname.items():
+            for svc, path in svc_paths.items():
+                old_alias = str(pv.get("LA_%s_url" % svc, "") or "").strip()
+                if old_alias and old_alias != hostname:
+                    rename[old_alias] = hostname
+                for key, value in (
+                    ("LA_%s_url" % svc, hostname),
+                    ("LA_%s_path" % svc, path),
+                ):
+                    pv[key] = value
+                    url_path_overrides[key] = value
+                subdomain_key = "LA_%s_uses_subdomain" % svc
+                if subdomain_key in pv:
+                    pv[subdomain_key] = False
+                    url_path_overrides[subdomain_key] = False
 
-    # Public vhost alias -> owning host name.
+    # Aliases explicitly opted into a cross-host PATH split (one hostname served
+    # by more than one physical host, each owning different paths under it —
+    # see roles/la-compose's nginx_shared_vhost_topology / cross-host stub
+    # proxying, which is what actually serves the paths a given host does not
+    # own). Anything NOT listed here stays a hard error below: an UNDECLARED
+    # duplicate is almost always a real placement bug (services that are
+    # supposed to share a domain must be co-located), and this predicate is the
+    # only thing standing between that and the external proxy silently routing
+    # a whole hostname's traffic to just one of its owners.
+    splits = set(placement.get("shared_vhost_splits") or []) | set(shared_hostname)
+
+    svc_keys = service_hostname_keys(pv)
+    owners = alias_owners(pv, list(svc_slot), rename)
+
+    # Public vhost alias -> owning host name(s). Normally exactly one; a
+    # declared split may legitimately resolve to more than one.
     alias_host = {}
     for alias, svcs in owners.items():
         if not svcs:
             die("cannot determine owning service of vhost '%s' (no LA_<svc>_url matches)" % alias)
         slots = {svc_slot[s] for s in svcs}
-        if len(slots) > 1:
+        if len(slots) > 1 and alias not in splits:
             die(
                 "services sharing vhost '%s' (%s) are placed on different hosts — "
-                "shared-domain services must be co-located" % (alias, ", ".join(svcs))
+                "shared-domain services must be co-located (or declare '%s' under "
+                "placement.shared_vhost_splits if the split is intentional)" % (alias, ", ".join(svcs), alias)
             )
-        alias_host[alias] = names[slots.pop()]
+        alias_host[alias] = sorted({names[s] for s in slots})
 
     # Data hubs: each front-end gets its own slot, so a hub may be SPREAD across
     # hosts. Its vhosts then join alias_host like any other, which is what puts them
-    # in the per-host alias list and in every OTHER host's extra_hosts.
+    # in the per-host alias list and in every OTHER host's extra_hosts. Several
+    # front-ends of the SAME hub (or a hub and the portal) may target the same
+    # alias too — same split rule applies.
     slot_index = {slot: i for i, slot in enumerate(placement.get("hosts") or [])}
     hub_slots = resolve_hub_placement(pv, placement, slot_index, svc_slot)
-    for alias, (i, fe) in hub_vhosts(pv).items():
-        if alias in alias_host:
+    for alias, members in hub_vhosts(pv).items():
+        owner_hosts = {names[hub_slots[i][fe]] for i, fe in members}
+        combined = set(alias_host.get(alias, [])) | owner_hosts
+        if len(combined) > 1 and alias not in splits:
             die(
-                "data hub vhost '%s' is also a portal vhost — an external proxy can "
-                "only route one subdomain to one VM" % alias
+                "vhost '%s' is claimed by more than one host (%s) — an external proxy "
+                "can only route a subdomain to one VM unless it is deliberately split "
+                "(declare '%s' under placement.shared_vhost_splits if so)"
+                % (alias, ", ".join(sorted(combined)), alias)
             )
-        alias_host[alias] = names[hub_slots[i][fe]]
+        alias_host[alias] = sorted(combined)
 
     aliases_by_host = OrderedDict((n, []) for n in names)
-    for alias in list(alias_union(pv)) + list(hub_vhosts(pv)):
-        aliases_by_host[alias_host[alias]].append(alias)
+    for alias in list(alias_union(pv, rename)) + list(hub_vhosts(pv)):
+        for h in alias_host[alias]:
+            if alias not in aliases_by_host[h]:
+                aliases_by_host[h].append(alias)
     for n in names:
         aliases_by_host[n] = sorted(aliases_by_host[n])
 
     # External extra_hosts entries (name is neither a cluster host nor a
     # managed vhost alias, e.g. datos.gbif.es) are preserved on every host.
     bnames = {n for n, _ in base_hosts(pv)}
-    managed = set(alias_union(pv)) | set(hub_vhosts(pv))
+    managed = set(alias_union(pv, rename)) | set(hub_vhosts(pv))
     external = []
     for entries in (pv.get("LA_docker_extra_hosts_by_host") or {}).values():
         for e in entries:
@@ -294,7 +365,16 @@ def compute_variant(pv, placement):
 
     extra_by_host = OrderedDict()
     for n in names:
-        entries = ["%s:%s" % (alias, ip_of[alias_host[alias]]) for alias in alias_host if alias_host[alias] != n]
+        # A split alias has no single owning IP, so no per-alias entry is added for
+        # it — the peer cluster-hostname entries below already give every host a
+        # way to reach every sibling; that is what the cross-host stub proxy
+        # (la-compose) actually resolves through, not a hostname:IP entry keyed by
+        # the public vhost alias itself.
+        entries = [
+            "%s:%s" % (alias, ip_of[owners_[0]])
+            for alias, owners_ in alias_host.items()
+            if len(owners_) == 1 and owners_[0] != n
+        ]
         entries += ["%s:%s" % (peer, ip_of[peer]) for peer in names if peer != n]
         entries += external
         extra_by_host[n] = sorted(set(entries))
@@ -303,6 +383,7 @@ def compute_variant(pv, placement):
     out["LA_hostnames"] = ", ".join(names)
     out["LA_server_ips"] = ",".join(ip_of[n] for n in names)
     out["LA_docker_compose_hostname"] = ", ".join(names)
+    out.update(url_path_overrides)
     for svc, slot in svc_slot.items():
         out[svc_keys[svc]] = names[slot]
     if "solrcloud" in svc_slot:
@@ -349,8 +430,14 @@ def cmd_proxy_map(args):
     ip_of = dict(hosts)
     print("# public vhost -> VM (for the external front proxy)")
     for alias in sorted(alias_host):
-        h = alias_host[alias]
-        print("%-40s %s (%s)" % (alias, h, ip_of[h]))
+        hs = alias_host[alias]
+        if len(hs) == 1:
+            print("%-40s %s (%s)" % (alias, hs[0], ip_of[hs[0]]))
+        else:
+            where = ", ".join("%s (%s)" % (h, ip_of[h]) for h in hs)
+            print("%-40s SPLIT across: %s — front proxy must route this hostname to "
+                  "ANY one of them; each hairpin-proxies the paths it does not own"
+                  % (alias, where))
     if "branding" in svc_slot:
         n = hosts[svc_slot["branding"]][0]
         print("%-40s %s (%s)  # root domain (branding/home)" % ("<root domain>", n, ip_of[n]))

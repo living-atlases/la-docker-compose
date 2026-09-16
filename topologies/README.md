@@ -20,7 +20,38 @@ always pass it), `3host-alt` (same 3 hosts, deliberately shuffled split),
 `2host` (auth+apps / datastores, heavy services skipped), `hub-split`
 (control portal layout, but a data hub spread across two hosts where the
 portal runs no front-end), `1host`
-(all-in-one, aggressive skips).
+(all-in-one, aggressive skips), `shared-hostname-2host` / `shared-hostname-3host`
+(portal's `ala_hub`/`ala_bie`/`regions` front-ends point at ONE shared
+hostname on different paths, each placed on a different host — the
+Austria/Tanzania-style layout from `ala-install#256`; exercises the
+cross-host stub-proxy split described below).
+
+### Cross-host path-split vhosts (`shared_hostname` / `shared_vhost_splits`)
+
+A placement may point more than one service (or a data hub's front-ends) at
+the SAME public hostname on different paths, and place the owners on
+different hosts — e.g. `portal-shared.l-a.site/records` on host1,
+`/species` and `/regions` on host2. Declare it with:
+
+```json
+"shared_hostname": {
+  "<hostname>": {"<service>": "<path>", ...}
+},
+"shared_vhost_splits": ["<hostname>"]
+```
+
+`shared_hostname` rewrites each listed service's `LA_<svc>_url`/`_path`
+(and turns off `_uses_subdomain`) before alias computation; `shared_vhost_splits`
+opts the hostname out of `apply-topology.py`'s normal "one alias, one host"
+`die()` (also auto-added for every `shared_hostname` key). At runtime, each
+host that owns part of a split hostname proxies the paths it doesn't own to
+the sibling that does, over a plain-HTTP container-to-container hop
+(`roles/la-compose/tasks/register-shared-vhost-stubs.yml`, fed by the
+`nginx_shared_vhost_topology` fact in `setup-hub-facts.yml`) — no
+`ala-install` changes, no TLS/SNI. `validate-topology.yml` check #2 only
+allows a duplicate alias through when this stub-proxy mechanism actually
+covers it (i.e. it appears in `nginx_shared_vhost_topology` with owners on
+more than one host); an undeclared duplicate elsewhere still fails.
 
 ### Known blind spot: one host per service
 

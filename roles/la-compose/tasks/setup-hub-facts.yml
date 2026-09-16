@@ -150,3 +150,92 @@
   tags:
     - always
     - docker-compose
+
+# Full per-shared-hostname membership (who claims it, from where, on what path):
+# the data this project's own cross-host stub-proxy mechanism needs (see
+# generate-compose.yml's "Resolve cross-host shared-vhost membership" task and
+# roles/la-compose/tasks/register-shared-vhost-stubs.yml). service_key is
+# normalized to the template-facing name ('biocache-hub'/'bie-hub'/'regions'/
+# 'branding') for BOTH the portal and the hub loop, since that is what the
+# shared docker-compose service templates (biocache-hub.yml.j2 etc.) key off.
+# Deliberately a SEPARATE fact from nginx_shared_vhost_hostnames above (same
+# source loops, not touching that fact or its existing consumers) so this one
+# can be proven byte-inert against every existing fixture on its own.
+- name: Compute full membership of every shared vhost hostname
+  ansible.builtin.set_fact:
+    nginx_shared_vhost_topology: >-
+      {%- set members = [] -%}
+      {#- Portal loop: walk the inventory groups DIRECTLY (groups[svc_key],
+          rejecting hub_alias_hosts to keep only the portal's OWN placement --
+          same predicate setup-facts.yml's physical_server_groups and
+          validate-topology.yml's orphan check already use), NOT
+          service_aliases. service_aliases only ever contains aliases resolved
+          ON THIS HOST (see its own construction further down this file / its
+          per-host nature), so a portal service placed on a SIBLING host would
+          never show up here -- exactly the same host-scoping bug the hub loop
+          below was already rewritten to avoid. groups[] is global and
+          host-independent, which is what makes this cross-host-aware.
+
+          skip_services filtering has to be redone here explicitly (by GROUP
+          name and by docker_services_desc KEY, matching setup-facts.yml's own
+          "Apply skip_services to services_enabled" task): services_enabled
+          already has it applied, but services_enabled is host-scoped for the
+          reason above, so it can't be reused as a skip check either -- a
+          skipped service must stay out of every host's topology, not just
+          drop off the skipping host's own list, or a sibling would still
+          stub-proxy to a container that was never deployed. skip_services is
+          a plain extra-var/inventory value, identical on every host, so
+          testing it directly here is host-independent by construction. -#}
+      {%- set svc_desc_key = {'biocache-hub': 'ala_hub', 'bie-hub': 'ala_bie',
+                               'regions': 'regions', 'branding': 'branding'} -%}
+      {%- for svc_key, hostvar, pathvar in [('biocache-hub', 'biocache_hub_hostname', 'biocache_hub_context_path'),
+                                             ('bie-hub', 'bie_hub_hostname', 'bie_hub_context_path'),
+                                             ('regions', 'regions_hostname', 'regions_context_path'),
+                                             ('branding', 'branding_url', 'branding_path')] -%}
+        {%- if svc_key not in (skip_services | default([]))
+               and svc_desc_key[svc_key] not in (skip_services | default([])) -%}
+          {%- set candidates = (groups[svc_key] | default([])) | reject('in', hub_alias_hosts | default([])) | list -%}
+          {%- if candidates | length > 0 -%}
+            {%- set alias = candidates[0] -%}
+            {%- set hv = hostvars[alias] | default({}) -%}
+            {%- if hv.get(hostvar) -%}
+              {%- set _ = members.append({'hostname': hv.get(hostvar), 'service_key': svc_key, 'pkg': '',
+                                           'owner_alias': alias, 'path': hv.get(pathvar, '/')}) -%}
+            {%- endif -%}
+          {%- endif -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {#- Hub loop: walk hub_declarations (the RAW hub list) against the inventory
+          groups DIRECTLY -- the same group-naming convention hub_instances above
+          uses ('<svc>-<pkg>'), but WITHOUT its `select('match', '^' ~ ansible_host
+          ...)` filter. hub_instances.aliases only ever contains THIS host's OWN
+          placements (see hub_instances' own construction above and its comment
+          "part of this hub is deployed HERE"), so looping it cannot answer "where
+          does a SIBLING host's front-end of this hub live" -- exactly what a
+          cross-host stub needs to know. -#}
+      {%- for h in (hub_declarations | default([])) -%}
+        {%- if h.pkg not in (hub_skip_list | default([])) -%}
+          {%- for svc_key, hostvar, pathvar in [('biocache-hub', 'biocache_hub_hostname', 'biocache_hub_context_path'),
+                                                 ('bie-hub', 'bie_hub_hostname', 'bie_hub_context_path'),
+                                                 ('regions', 'regions_hostname', 'regions_context_path'),
+                                                 ('branding', 'branding_url', 'branding_path')] -%}
+            {%- set candidates = groups[svc_key ~ '-' ~ h.pkg] | default([]) -%}
+            {%- if candidates | length > 0 -%}
+              {%- set alias = candidates[0] -%}
+              {%- set hv = hostvars[alias] | default({}) -%}
+              {%- if hv.get(hostvar) -%}
+                {%- set _ = members.append({'hostname': hv.get(hostvar), 'service_key': svc_key, 'pkg': h.pkg,
+                                             'owner_alias': alias, 'path': hv.get(pathvar, '/')}) -%}
+              {%- endif -%}
+            {%- endif -%}
+          {%- endfor -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {%- set topo = {} -%}
+      {%- for m in members -%}
+        {%- set _ = topo.update({m.hostname: (topo.get(m.hostname, []) + [m])}) -%}
+      {%- endfor -%}
+      {{ topo }}
+  tags:
+    - always
+    - docker-compose

@@ -41,6 +41,16 @@ services:
     restart: unless-stopped
     expose:
       - {{ regions_port | default('8080') }}
+{% if ('regions:' ~ inst.pkg) in (nginx_shared_ports_needed | default([])) %}
+    # This front-end is a local member of a hostname ALSO claimed by a sibling
+    # on another physical host (hub.l-a.site-style path split, see
+    # generate-compose.yml's "Resolve cross-host shared-vhost membership").
+    # Publish on the private IP so that sibling's stub proxy (see
+    # register-shared-vhost-stubs.yml) can reach this container directly,
+    # without going through this host's nginx.
+    ports:
+      - "{{ host_private_ip }}:18380:{{ regions_port | default('8080') }}"
+{% endif %}
     environment:
       TZ: {{ server_tz | default('UTC') }}
       JAVA_OPTS: ${REGIONS_JAVA_OPTS}
