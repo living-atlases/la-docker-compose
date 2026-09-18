@@ -48,7 +48,8 @@ describe("Species list - manage (mutation)", () => {
     // alone, instead of piling up a new one per build.
     cy.request(serviceUrl("lists", "/ws/speciesList?max=1000")).then((resp) => {
       const already = (resp.body?.lists ?? []).some(
-        (l: { listName?: string }) => l.listName === TEST_LIST_NAME,
+        (l: { listName?: string; isPrivate?: boolean }) =>
+          l.listName === TEST_LIST_NAME && !l.isPrivate,
       );
       if (already) {
         cy.log(`"${TEST_LIST_NAME}" already exists; not creating a duplicate.`);
@@ -75,6 +76,9 @@ describe("Species list - manage (mutation)", () => {
       cy.get("#listTypeId").find("option").eq(1).then(($opt) => {
         cy.get("#listTypeId").select($opt.val() as string);
       });
+      // New lists default to private, and the anonymous /ws/speciesList that Gatus polls
+      // omits private ones: a private seed leaves "lists count" red (build #395).
+      cy.get("#isPrivate").uncheck();
       cy.get("#uploadButton").click();
 
       cy.get(".subject-subtitle").should("contain", TEST_LIST_NAME);
@@ -86,6 +90,8 @@ describe("Species list - manage (mutation)", () => {
   });
 
   it("lists webservice now reports at least one list", () => {
+    // Anonymous on purpose (no cookies): this is what Gatus sees, and it hides private lists.
+    cy.clearCookies();
     cy.request(serviceUrl("lists", "/ws/speciesList")).then((resp) => {
       expect(resp.body?.listCount, "listCount after seeding").to.be.greaterThan(0);
     });
