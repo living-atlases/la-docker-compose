@@ -15,6 +15,16 @@ services:
   #        ERROR au.org.ala.biocache.dao.SolrIndexDAOImpl (SolrIndexDAOImpl.java:386)
   #        query failed-1 - SOLRQuery: qt=/admin/luke&tr=luke.xsl&fl=&numTerms=1
   #                                  : Collection not found: biocache
+  #      Unlike case 2 below, this one is NOT cosmetic: SearchDAOImpl.init() throws that
+  #      SolrException synchronously during Spring context startup, which surfaces as a
+  #      FATAL UnsatisfiedDependencyException that kills the whole app -- no `[]` fallback,
+  #      no retry, and no container restart (the JVM never exits, so Docker's restart
+  #      policy never triggers). Hit for real on builds #391-393 (2026-09-18): Solr took
+  #      ~8 min to create biocache-seed/bie-a/bie-b and the biocache alias on a cold,
+  #      CLEAN_MACHINE start, longer than this gate's old 120-try (6 min) budget, so
+  #      biocache-service booted into the gap and died permanently. See
+  #      wait_for_solr_collection_limit in roles/la-compose/defaults/main.yml (raised to
+  #      300 tries / 15 min over that incident).
   #
   #   2. The collection exists and is EMPTY. luke succeeds and reports nothing, because
   #      it only lists fields actually present in the index segments — the schema alone
@@ -64,7 +74,7 @@ services:
         # EMPTY_LIMIT instead of burning the full budget. A portal with no data - no
         # dataResources, no ingest, no Airflow - is a legitimate install, not a failure,
         # and it must not pay six minutes on every deploy to be told so.
-        LIMIT=120        # collection not answering yet (~6 min)
+        LIMIT={{ wait_for_solr_collection_limit | default(300) }}        # collection not answering yet (~{{ (wait_for_solr_collection_limit | default(300) | int) * 3 // 60 }} min, see roles/la-compose/defaults/main.yml)
         EMPTY_LIMIT=10   # collection answers and is empty (~30 s)
         giveup() {
           echo "wait-for-solr-collection: '$${SOLR_COLLECTION}' has no documents ($$1)."
