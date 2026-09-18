@@ -1590,6 +1590,13 @@
     # reads nginx_upstream_host (inherited by the nested include).
     nginx_upstream_host: "alerts"
     alerts_upstream_host: "alerts"
+    # alerts 5.x owns its schema through Liquibase. The role's default dbCreate=update lets
+    # Hibernate create the tables too, and it does so on a boot that then dies (CAS not up
+    # yet -> pac4j bean fails after the datasource is built). Every later boot then hits
+    # changeset 18-create-download-token-table (no tableExists precondition) against a table
+    # Hibernate already made, exits 0 and restart-loops forever, which aborts the health gate
+    # (builds #391-394). Pre-5 images have no Liquibase and still need update.
+    dataSource_dbCreate: "{{ 'update' if (alerts_version | default('latest') | string) is match('^[0-4][.]') else 'none' }}"
   when:
     - "'alerts' in services_enabled"
     - "service_aliases.get('alerts-service') is defined"

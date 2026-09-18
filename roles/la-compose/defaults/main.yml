@@ -472,20 +472,13 @@ health_gate_budget: >-
      + 120 }}
 
 # How many 3s polls infrastructure/wait-for-solr-collection.yml.j2 spends on "not queryable
-# yet" (the 'biocache' alias/collection does not exist AT ALL) before giving up and letting
-# biocache-service start anyway. Raised from 120 (6 min) after builds #391-393 (2026-09-18):
-# on that cold start Solr took ~8 min to create biocache-seed/bie-a/bie-b and alias
-# biocache->biocache-seed, so the gate gave up at 6 min and biocache-service booted into the
-# window where the alias still did not exist. That is NOT the benign "empty collection"
-# case the gate is designed to tolerate (Collection not found is a distinct code path from
-# an empty index) -- SearchDAOImpl.init() throws a FATAL, unrecoverable
-# UnsatisfiedDependencyException in that case, permanently killing the Spring context with no
-# retry and no container restart (the JVM does not exit, so Docker's restart policy never
-# triggers), unlike the graceful "[] forever" outcome the gate's own comments describe.
-# 300 (15 min) gives ~2x headroom over the observed worst case without slowing down the
-# common "collection exists and is empty" path, which is bounded separately and unaffected
-# (see EMPTY_LIMIT in the same script).
-wait_for_solr_collection_limit: 300
+# yet" (the 'biocache' alias does not exist at all) before giving up and starting
+# biocache-service anyway. Kept at 120 (6 min): init-solr creates the collections AFTER
+# `compose up`, so on a clean machine this gate can never see them and a longer budget only
+# adds dead time (300 was tried on builds #391-394 and changed nothing). A biocache-service
+# started into that gap dies with "Collection not found" and is revived by the health gate's
+# converge-by-retry restart, which is why that gate must be allowed to run to completion.
+wait_for_solr_collection_limit: 120
 
 # ============================================
 # SSL / Certificates
