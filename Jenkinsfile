@@ -345,12 +345,6 @@ EOF
                     # Pure shell, ~1s.
                     bash scripts/test-hub-inventory-args.sh
 
-                    # nginx_vhost dies with "'dict object' has no attribute 'files'" on a vhost
-                    # whose paths are all skipped (the stub paths of a hostname shared across
-                    # hosts), before the task's `when` is looked at (#398, all 3 hosts).
-                    # Evaluates the role's real loop against fixtures, ~2s.
-                    bash scripts/test-nginx-vhost-stale-fragments.sh
-
                     # `JAVA_OPTS: ${<SERVICE>_JAVA_OPTS}` REPLACES the image's own ENV
                     # rather than adding to it, so a -D missing from .env is simply not
                     # passed. Since la-docker-images#3 that includes spring.config, and a
@@ -424,6 +418,13 @@ EOF
                     # la-pipelines reject its config and every stage fail at startup (#365).
                     echo "Checking the rendered la-pipelines config (ala-install synced)..."
                     bash scripts/test-pipelines-config-render.sh
+                    # Same again: it evaluates the loop of the ala-install nginx_vhost role, which
+                    # dies with "'dict object' has no attribute 'files'" on a vhost whose paths
+                    # are all skipped (the stub paths of a hostname shared across hosts), before
+                    # the task's `when` is looked at (#398, all 3 hosts). In Unit tests it ran
+                    # against the previous build's role and false-failed #399. ~2s.
+                    echo "Checking the nginx_vhost stale-fragment loop (ala-install synced)..."
+                    bash scripts/test-nginx-vhost-stale-fragments.sh
                     # Disable sparse checkout in case it was left active from a prior build
                     git -C ala-install config core.sparseCheckout false 2>/dev/null || true
                     git -C ala-install read-tree -mu HEAD 2>/dev/null || true
