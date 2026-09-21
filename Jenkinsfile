@@ -345,6 +345,12 @@ EOF
                     # Pure shell, ~1s.
                     bash scripts/test-hub-inventory-args.sh
 
+                    # nginx_vhost dies with "'dict object' has no attribute 'files'" on a vhost
+                    # whose paths are all skipped (the stub paths of a hostname shared across
+                    # hosts), before the task's `when` is looked at (#398, all 3 hosts).
+                    # Evaluates the role's real loop against fixtures, ~2s.
+                    bash scripts/test-nginx-vhost-stale-fragments.sh
+
                     # `JAVA_OPTS: ${<SERVICE>_JAVA_OPTS}` REPLACES the image's own ENV
                     # rather than adding to it, so a -D missing from .env is simply not
                     # passed. Since la-docker-images#3 that includes spring.config, and a
