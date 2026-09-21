@@ -338,6 +338,13 @@ EOF
                     # Pure text, runs in ~1s.
                     bash scripts/test-compose-includes.sh
 
+                    # The CI calls ansible-playbook itself (not ansiblew), so it has to hand
+                    # over the data-hub inventories: the portal inventory declares each
+                    # hub's groups empty, and with only that one la-compose finds no alias
+                    # and drops the hub -- #397 was green with `hubs: []` and no containers.
+                    # Pure shell, ~1s.
+                    bash scripts/test-hub-inventory-args.sh
+
                     # `JAVA_OPTS: ${<SERVICE>_JAVA_OPTS}` REPLACES the image's own ENV
                     # rather than adding to it, so a -D missing from .env is simply not
                     # passed. Since la-docker-images#3 that includes spring.config, and a
@@ -828,6 +835,15 @@ EOF
                         inventoryArg += " -i ${INVENTORY_DIR}/lademo-local-passwords.ini"
                         echo "Found lademo-local-passwords.ini"
                     }
+                    // Data hubs: the portal inventory declares their groups empty and only
+                    // <pkg>-inventories/<pkg>-inventory.ini fills them, so without these la-compose
+                    // resolves no alias and drops the hub (build #397: green, hubs: []).
+                    def hubInventoryArg = sh(returnStdout: true,
+                        script: "bash '${WORKSPACE}/scripts/hub-inventory-args.sh' '${INVENTORY_PARENT_DIR}' '${INVENTORY_DIR}'").trim()
+                    if (hubInventoryArg) {
+                        inventoryArg += " " + hubInventoryArg
+                        echo "Data hub inventories: ${hubInventoryArg}"
+                    }
 
                     // Temporary flag: skip immature services (e.g. SDS) without touching inventories.
                     // Merged with the active topology's skip_services (reduced variants trim
@@ -1138,6 +1154,15 @@ EOF
                     }
                     if (fileExists("${INVENTORY_DIR}/lademo-local-passwords.ini")) {
                         inventoryArg += " -i ${INVENTORY_DIR}/lademo-local-passwords.ini"
+                    }
+                    // Data hubs: the portal inventory declares their groups empty and only
+                    // <pkg>-inventories/<pkg>-inventory.ini fills them, so without these la-compose
+                    // resolves no alias and drops the hub (build #397: green, hubs: []).
+                    def hubInventoryArg = sh(returnStdout: true,
+                        script: "bash '${WORKSPACE}/scripts/hub-inventory-args.sh' '${INVENTORY_PARENT_DIR}' '${INVENTORY_DIR}'").trim()
+                    if (hubInventoryArg) {
+                        inventoryArg += " " + hubInventoryArg
+                        echo "Data hub inventories: ${hubInventoryArg}"
                     }
                     // Same skip list (params + active topology): a different set would
                     // legitimately add/remove services and invalidate the
