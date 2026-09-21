@@ -28,16 +28,19 @@
   ansible.builtin.include_role:
     name: nginx_vhost
   vars:
-    appname: "{{ item.key }}-remote"
-    hostname: "{{ item.key }}"
+    appname: "{{ stub.key }}-remote"
+    hostname: "{{ stub.key }}"
     context_path: "/"
     vhost_required: true
     nginx_vhost_fast_mode: false
     vhost_with_appname_conf: true
-    nginx_paths: "{{ item.value }}"
+    nginx_paths: "{{ stub.value }}"
   loop: "{{ (nginx_remote_stub_paths | default({})) | dict2items }}"
+  # Not `item`: these vars are templated lazily inside nginx_vhost's own
+  # `with_items` tasks, where `item` is a path dict, not this loop's entry.
   loop_control:
-    label: "{{ item.key }}"
+    loop_var: stub
+    label: "{{ stub.key }}"
   when: (nginx_remote_shared_members | default([])) | length > 0
   tags:
     - docker-compose
