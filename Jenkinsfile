@@ -344,7 +344,7 @@ EOF
                     # and drops the hub -- #397 was green with `hubs: []` and no containers.
                     # Pure shell, ~1s.
                     bash scripts/test-hub-inventory-args.sh
-bash scripts/test-nginx-vhost-loop-var.sh
+                    bash scripts/test-nginx-vhost-loop-var.sh
 
                     # `JAVA_OPTS: ${<SERVICE>_JAVA_OPTS}` REPLACES the image's own ENV
                     # rather than adding to it, so a -D missing from .env is simply not
