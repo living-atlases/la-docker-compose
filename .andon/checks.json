@@ -37,6 +37,34 @@
         "scripts/test-verify-deployment.sh"
       ],
       "run": "bash scripts/test-verify-deployment.sh"
+    },
+    {
+      "match": [
+        "ala-install/ansible/roles/bie-hub/templates/bie-hub-config.yml.j2",
+        "scripts/test-bie-hub-container-paths.sh"
+      ],
+      "run": "bash scripts/test-bie-hub-container-paths.sh"
+    },
+    {
+      "match": [
+        "ala-install/ansible/roles/nginx_vhost/tasks/main.yml",
+        "scripts/test-nginx-vhost-stale-fragments.sh"
+      ],
+      "run": "bash scripts/test-nginx-vhost-stale-fragments.sh"
+    },
+    {
+      "match": [
+        "roles/la-compose/tasks/register-shared-vhost-stubs.yml",
+        "scripts/test-nginx-vhost-loop-var.sh"
+      ],
+      "run": "bash scripts/test-nginx-vhost-loop-var.sh"
+    },
+    {
+      "match": [
+        "scripts/hub-inventory-args.sh",
+        "scripts/test-hub-inventory-args.sh"
+      ],
+      "run": "bash scripts/test-hub-inventory-args.sh"
     }
   ],
   "ignore": [
