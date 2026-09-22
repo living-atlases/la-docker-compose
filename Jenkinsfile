@@ -990,7 +990,7 @@ EOF
                     if (params.E2E_BLOCKING) {
                         run()
                     } else {
-                        catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') { run() }
+                        catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') { run() }
                     }
                 }
             }
@@ -1011,47 +1011,51 @@ EOF
             steps {
                 script {
                     def hosts = env.TARGET_HOSTS.trim().split(/\s+/)
-                    def gate = {
-                        def verdict = ''
-                        for (h in hosts) {
-                            def targetHost = h
-                            echo "Gatus health gate via ${targetHost}..."
-                            // --blocking so the script reports honestly; whether THAT fails the
-                            // build is decided below by E2E_BLOCKING, not by hiding the result.
-                            // The log is kept because the marker, not the exit status, is the
-                            // verdict — a passing gate must say so out loud (see the script header).
-                            // No pipe into tee: Jenkins runs `sh` with /bin/sh, where
-                            // PIPESTATUS does not exist and the exit code would be tee's.
-                            def rc = sh(returnStatus: true, script: """
-                                set -u
-                                rc=0
-                                bash "${WORKSPACE}/scripts/verify-deployment.sh" \
-                                    --target ${targetHost} --blocking --timeout 300 \
-                                    > "${WORKSPACE}/gatus-gate.log" 2>&1 || rc=\$?
-                                cat "${WORKSPACE}/gatus-gate.log"
-                                exit \$rc
-                            """)
-                            def log = readFile("${WORKSPACE}/gatus-gate.log")
-                            if (log.contains('GATE-PASSED:')) { verdict = 'PASSED'; break }
-                            if (log.contains('GATE-FAILED:')) { verdict = 'FAILED'; break }
-                            echo "Gatus gate could not be evaluated via ${targetHost} (rc=${rc}); trying the next host."
-                        }
-                        // A gate that never ran is NOT a pass. This is the whole point: builds
-                        // #385-#389 were green on a stage that exited at argument resolution,
-                        // because catchError swallowed the failure and nothing downstream
-                        // required positive evidence that the checks had actually happened.
-                        if (verdict == '') {
-                            error("GATE-NOT-RUN: the Gatus health gate never produced a verdict on any of [${hosts.join(', ')}] - see the log above. This is a broken gate, not a healthy deployment.")
-                        }
-                        if (verdict == 'FAILED') {
-                            error("GATE-FAILED: Gatus reports unhealthy 'Deep checks' endpoints - see the log above.")
-                        }
-                        echo "Gatus 'Deep checks' verified."
+                    def verdict = ''
+                    for (h in hosts) {
+                        def targetHost = h
+                        echo "Gatus health gate via ${targetHost}..."
+                        // --blocking so the script reports honestly; whether THAT fails the
+                        // build is decided below by E2E_BLOCKING, not by hiding the result.
+                        // The log is kept because the marker, not the exit status, is the
+                        // verdict — a passing gate must say so out loud (see the script header).
+                        // No pipe into tee: Jenkins runs `sh` with /bin/sh, where
+                        // PIPESTATUS does not exist and the exit code would be tee's.
+                        def rc = sh(returnStatus: true, script: """
+                            set -u
+                            rc=0
+                            bash "${WORKSPACE}/scripts/verify-deployment.sh" \
+                                --target ${targetHost} --blocking --timeout 300 \
+                                > "${WORKSPACE}/gatus-gate.log" 2>&1 || rc=\$?
+                            cat "${WORKSPACE}/gatus-gate.log"
+                            exit \$rc
+                        """)
+                        def log = readFile("${WORKSPACE}/gatus-gate.log")
+                        if (log.contains('GATE-PASSED:')) { verdict = 'PASSED'; break }
+                        if (log.contains('GATE-FAILED:')) { verdict = 'FAILED'; break }
+                        echo "Gatus gate could not be evaluated via ${targetHost} (rc=${rc}); trying the next host."
                     }
-                    if (params.E2E_BLOCKING) {
-                        gate()
+                    // A gate that never ran is NOT a pass, and it is NEVER report-only: builds
+                    // #385-#389 were green on a stage that exited at argument resolution, and
+                    // build #403 was green with Gatus itself crash-looping (TASK-42) -- in both
+                    // cases the gate produced no verdict at all, yet the error() below used to
+                    // run INSIDE the same catchError that E2E_BLOCKING=false wraps around a mere
+                    // GATE-FAILED, so it was swallowed into buildResult 'SUCCESS' along with it.
+                    // A broken gate is not a flaky check: it always fails the build, regardless
+                    // of E2E_BLOCKING. Only a gate that ran and found something unhealthy
+                    // (GATE-FAILED) is subject to that policy knob.
+                    if (verdict == '') {
+                        error("GATE-NOT-RUN: the Gatus health gate never produced a verdict on any of [${hosts.join(', ')}] - see the log above. This is a broken gate, not a healthy deployment.")
+                    }
+                    if (verdict == 'FAILED') {
+                        def msg = "GATE-FAILED: Gatus reports unhealthy 'Deep checks' endpoints - see the log above."
+                        if (params.E2E_BLOCKING) {
+                            error(msg)
+                        } else {
+                            unstable(msg)
+                        }
                     } else {
-                        catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') { gate() }
+                        echo "Gatus 'Deep checks' verified."
                     }
                 }
             }
@@ -1342,7 +1346,7 @@ EOF
                     if (params.E2E_BLOCKING) {
                         run()
                     } else {
-                        catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') { run() }
+                        catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') { run() }
                     }
                 }
             }
@@ -1380,7 +1384,7 @@ EOF
                     if (params.E2E_BLOCKING) {
                         run()
                     } else {
-                        catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') { run() }
+                        catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') { run() }
                     }
                 }
             }
@@ -1477,7 +1481,7 @@ ENVEOF
                     if (params.E2E_BLOCKING) {
                         run()
                     } else {
-                        catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') { run() }
+                        catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') { run() }
                     }
                 }
             }
@@ -1542,7 +1546,7 @@ ENVEOF
                     if (params.E2E_BLOCKING) {
                         body()
                     } else {
-                        catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') { body() }
+                        catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') { body() }
                     }
                 }
             }
@@ -1592,37 +1596,40 @@ ENVEOF
             steps {
                 script {
                     def hosts = env.TARGET_HOSTS.trim().split(/\s+/)
-                    def gate = {
-                        def verdict = ''
-                        for (h in hosts) {
-                            def targetHost = h
-                            echo "Gatus data-checks gate via ${targetHost}..."
-                            def rc = sh(returnStatus: true, script: """
-                                set -u
-                                rc=0
-                                bash "${WORKSPACE}/scripts/verify-deployment.sh" \
-                                    --target ${targetHost} --blocking --gate-data-checks --timeout 300 \
-                                    > "${WORKSPACE}/gatus-data-gate.log" 2>&1 || rc=\$?
-                                cat "${WORKSPACE}/gatus-data-gate.log"
-                                exit \$rc
-                            """)
-                            def log = readFile("${WORKSPACE}/gatus-data-gate.log")
-                            if (log.contains('GATE-PASSED:')) { verdict = 'PASSED'; break }
-                            if (log.contains('GATE-FAILED:')) { verdict = 'FAILED'; break }
-                            echo "Gatus data-checks gate could not be evaluated via ${targetHost} (rc=${rc}); trying the next host."
-                        }
-                        if (verdict == '') {
-                            error("GATE-NOT-RUN: the Gatus data-checks gate never produced a verdict on any of [${hosts.join(', ')}] - see the log above. This is a broken gate, not a healthy deployment.")
-                        }
-                        if (verdict == 'FAILED') {
-                            error("GATE-FAILED: Gatus reports unhealthy 'Data checks' endpoints after seeding - see the log above.")
-                        }
-                        echo "Gatus 'Deep checks' + 'Data checks' verified."
+                    def verdict = ''
+                    for (h in hosts) {
+                        def targetHost = h
+                        echo "Gatus data-checks gate via ${targetHost}..."
+                        def rc = sh(returnStatus: true, script: """
+                            set -u
+                            rc=0
+                            bash "${WORKSPACE}/scripts/verify-deployment.sh" \
+                                --target ${targetHost} --blocking --gate-data-checks --timeout 300 \
+                                > "${WORKSPACE}/gatus-data-gate.log" 2>&1 || rc=\$?
+                            cat "${WORKSPACE}/gatus-data-gate.log"
+                            exit \$rc
+                        """)
+                        def log = readFile("${WORKSPACE}/gatus-data-gate.log")
+                        if (log.contains('GATE-PASSED:')) { verdict = 'PASSED'; break }
+                        if (log.contains('GATE-FAILED:')) { verdict = 'FAILED'; break }
+                        echo "Gatus data-checks gate could not be evaluated via ${targetHost} (rc=${rc}); trying the next host."
                     }
-                    if (params.E2E_BLOCKING) {
-                        gate()
+                    // Same policy as 'Verify Gatus Health' above: a gate that never produced a
+                    // verdict is a broken gate, not report-only material, so it always fails the
+                    // build. Only a verdict of FAILED (the gate ran and found something
+                    // unhealthy) is subject to E2E_BLOCKING.
+                    if (verdict == '') {
+                        error("GATE-NOT-RUN: the Gatus data-checks gate never produced a verdict on any of [${hosts.join(', ')}] - see the log above. This is a broken gate, not a healthy deployment.")
+                    }
+                    if (verdict == 'FAILED') {
+                        def msg = "GATE-FAILED: Gatus reports unhealthy 'Data checks' endpoints after seeding - see the log above."
+                        if (params.E2E_BLOCKING) {
+                            error(msg)
+                        } else {
+                            unstable(msg)
+                        }
                     } else {
-                        catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') { gate() }
+                        echo "Gatus 'Deep checks' + 'Data checks' verified."
                     }
                 }
             }
