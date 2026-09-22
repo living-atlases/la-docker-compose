@@ -3610,6 +3610,48 @@
   tags:
     - docker-compose
 
+# Recreate nginx if ITS OWN definition drifted -- same mechanism as the
+# use_la_site_certs=false branch below (config-hash drift, rm -sf, let the main `up`
+# recreate it), but nginx's definition can drift for reasons that have nothing to do
+# with local certs: a newly added hub adds a branding volume mount that an existing
+# nginx container never picks up under --no-recreate. main.yml's post-up check only
+# WARNS about that drift; nothing applies it. The task below is scoped to
+# `not use_la_site_certs` (it also validates locally-provided cert files), so on this
+# branch (use_la_site_certs=true -- every l-a.site-hosted deployment, including this
+# CI) nginx staleness was never auto-repaired: a stale nginx then 404s on files a
+# fresh one would serve (build #403: a hub's banner.html/footer.html, mounted from a
+# volume nginx never remounted, TASK-41). Scoped to nginx alone -- stateless, no
+# uptime to protect, same reasoning as the sibling task's own comment.
+- name: "nginx: recreate if its own definition drifted (use_la_site_certs branch)"
+  ansible.builtin.shell: |
+    cd "{{ docker_compose_data_dir }}"
+    drift=""
+    while read -r svc want; do
+      case "$svc" in nginx) ;; *) continue ;; esac
+      cid=$(docker compose ps -aq "$svc" 2>/dev/null | head -1)
+      [ -n "$cid" ] || continue
+      have=$(docker inspect -f '{{ '{{' }} index .Config.Labels "com.docker.compose.config-hash" {{ '}}' }}' "$cid" 2>/dev/null)
+      if [ -n "$have" ] && [ "$have" != "$want" ]; then
+        drift="$drift $svc"
+      fi
+    done < <(docker compose config --hash '*' 2>/dev/null)
+    if [ -n "$drift" ]; then
+      echo "Recreating services whose definition changed:$drift"
+      docker compose rm -sf $drift
+    fi
+  args:
+    executable: /bin/bash
+  environment:
+    DOCKER_HOST: "{{ docker_socket }}"
+  become: true
+  changed_when: "'Recreating services' in nginx_drift_recreate.stdout"
+  register: nginx_drift_recreate
+  when:
+    - use_la_site_certs | bool
+    - auto_deploy | default(true) | bool
+  tags:
+    - nginx-validation
+
 # Site-provided certificates live on THIS host (the docker host), and that is where
 # nginx/cert-validator bind-mount them from — see ssl_certs_host_mount in nginx.yml.j2.
 # Check them here, before starting nginx: cert-validator is a one-shot that nginx waits on
