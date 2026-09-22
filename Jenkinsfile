@@ -426,6 +426,12 @@ EOF
                     # against the previous build's role and false-failed #399. ~2s.
                     echo "Checking the nginx_vhost stale-fragment loop (ala-install synced)..."
                     bash scripts/test-nginx-vhost-stale-fragments.sh
+                    # Evaluates the ala-install bie-hub role's languageCodesUrl/blacklist
+                    # expressions directly: without an override they must keep the previous
+                    # host-path behaviour (portal/VM unaffected), and a hub's override must
+                    # land on the container mount, not its own host dir (#402, all 3 hosts).
+                    echo "Checking bie-hub's container-path overrides (ala-install synced)..."
+                    bash scripts/test-bie-hub-container-paths.sh
                     # Disable sparse checkout in case it was left active from a prior build
                     git -C ala-install config core.sparseCheckout false 2>/dev/null || true
                     git -C ala-install read-tree -mu HEAD 2>/dev/null || true
