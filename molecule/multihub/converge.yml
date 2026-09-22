@@ -459,3 +459,84 @@
         success_msg: "{{ tc17_paths | map(attribute='proxy_pass') | list }}"
       vars:
         tc17_paths: "{{ nginx_remote_stub_paths['portal-shared.l-a.site'] }}"
+
+    # ------------------------------------------------------------------ TC18
+    # Gatus duplicate-endpoint crash (TASK-42): a shared-vhost stub proxies to a path a
+    # SIBLING host owns, and that sibling already registers its own gatus check for the
+    # exact same hostname+path (gatus/templates/http.j2 keys the endpoint on those, not
+    # on appname). If the stub's own nginx_vhost call also monitored it, gatus would see
+    # two endpoints with the same name+group and crash-loop
+    # ("... name and group combination must be unique"). register-shared-vhost-stubs.yml
+    # fixes this with `use_gatus: false` on that include_role call — but that only works
+    # because role/include_role params outrank a `set_fact` fact in Ansible's variable
+    # precedence, which generate-compose.yml relies on for every OTHER nginx_vhost call
+    # (its "Set use_gatus fact" task sets it globally once, and real vhost registrations
+    # never pass use_gatus themselves). Proven here with a real include_role — not
+    # include_tasks, whose task-level vars sit BELOW a fact in precedence and would prove
+    # nothing — against the fixture role in molecule/multihub/roles/tc18_gatus_stub,
+    # which mirrors nginx_vhost's own gatus task exactly.
+    - name: "[TC18] Set the global use_gatus fact the same way generate-compose.yml does"
+      ansible.builtin.set_fact:
+        use_gatus: true
+
+    - name: "[TC18] Marker paths for the override and no-override cases"
+      ansible.builtin.set_fact:
+        tc18_override_marker: "/tmp/tc18-gatus-override-{{ 999999999 | random }}.marker"
+        tc18_inherited_marker: "/tmp/tc18-gatus-inherited-{{ 999999999 | random }}.marker"
+
+    - name: "[TC18] Stub call: use_gatus:false passed as an include_role param"
+      ansible.builtin.include_role:
+        name: tc18_gatus_stub
+      vars:
+        use_gatus: false
+        tc18_marker_path: "{{ tc18_override_marker }}"
+
+    - name: "[TC18] Real-owner call: no use_gatus override, inherits the global fact"
+      ansible.builtin.include_role:
+        name: tc18_gatus_stub
+      vars:
+        tc18_marker_path: "{{ tc18_inherited_marker }}"
+
+    - name: "[TC18] Stat both markers"
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - "{{ tc18_override_marker }}"
+        - "{{ tc18_inherited_marker }}"
+      register: tc18_stat
+
+    - name: "[TC18] The stub's explicit false wins over the global fact; the real owner still gets monitored"
+      ansible.builtin.assert:
+        that:
+          - not tc18_stat.results[0].stat.exists
+          - tc18_stat.results[1].stat.exists
+        fail_msg: "use_gatus precedence drifted: override exists={{ tc18_stat.results[0].stat.exists }}, inherited exists={{ tc18_stat.results[1].stat.exists }}"
+
+    - name: "[TC18] Clean up markers"
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ tc18_override_marker }}"
+        - "{{ tc18_inherited_marker }}"
+
+    # ------------------------------------------------------------------ TC19
+    # Static guard on the actual fix: TC18 proves the Ansible mechanism works, but
+    # nothing stops someone from later "cleaning up" register-shared-vhost-stubs.yml
+    # and dropping the `use_gatus: false` that makes it apply. Content-check the real
+    # file rather than re-run it, since running the real nginx_vhost role needs root,
+    # a live nginx and a gatus group this scenario does not have.
+    - name: "[TC19] Read register-shared-vhost-stubs.yml"
+      ansible.builtin.set_fact:
+        tc19_stub_task_source: "{{ lookup('file', playbook_dir + '/../../roles/la-compose/tasks/register-shared-vhost-stubs.yml') }}"
+
+    - name: "[TC19] The stub's nginx_vhost call opts out of gatus monitoring, and stale checks are cleaned up"
+      ansible.builtin.assert:
+        that:
+          - "'use_gatus: false' in tc19_stub_task_source"
+          - "'-remote-http.yaml' in tc19_stub_task_source"
+          - "'state: absent' in tc19_stub_task_source"
+        fail_msg: >-
+          register-shared-vhost-stubs.yml no longer opts its stub out of gatus
+          monitoring (TASK-42 regression: the real owner's check and the stub's
+          would collide again under the same hostname+path, crash-looping gatus).

@@ -24,6 +24,17 @@
 - name: "Build stub nginx_paths per shared hostname this host must proxy for"
   ansible.builtin.include_tasks: build-shared-vhost-stub-paths.yml
 
+# The real owner of each proxied path already registers its own gatus check for that
+# exact hostname+path (nginx_vhost's gatus template keys its endpoint on hostname+path,
+# not on appname — see gatus/templates/http.j2). A stub is never that owner, only a
+# proxy_pass to it, so monitoring it here would probe the identical URL a second time
+# under a different appname and violate gatus's name+group uniqueness constraint
+# ("invalid endpoint ...: name and group combination must be unique", crash-looping
+# gatus). use_gatus:false overrides the global `use_gatus` fact (generate-compose.yml,
+# "Set use_gatus fact") for this include_role call only: role/include_role params
+# outrank set_fact in Ansible's variable precedence, so this is not the same mistake
+# the airflow vhost comment above warns about (a Jinja self-reference on the SAME var
+# name, which recurses; a literal `false` does not).
 - name: "Register cross-host proxy stubs for shared vhost hostnames"
   ansible.builtin.include_role:
     name: nginx_vhost
@@ -35,6 +46,7 @@
     nginx_vhost_fast_mode: false
     vhost_with_appname_conf: true
     nginx_paths: "{{ stub.value }}"
+    use_gatus: false
   loop: "{{ (nginx_remote_stub_paths | default({})) | dict2items }}"
   # Not `item`: these vars are templated lazily inside nginx_vhost's own
   # `with_items` tasks, where `item` is a path dict, not this loop's entry.
@@ -45,3 +57,26 @@
   tags:
     - docker-compose
     - nginx_vhost
+
+# Migration cleanup: earlier runs (before use_gatus:false above) wrote a gatus check
+# for this stub, delegated to the gatus host. A redeploy that does not wipe /data (i.e.
+# anything short of CLEAN_MACHINE) would otherwise leave that stale file behind forever
+# -- gatus globs every *-http.yaml in its config dir, so the duplicate keeps crashing it
+# even after this fix stops writing new copies. Same delegate_to/dest as nginx_vhost's
+# own gatus task, so it targets exactly the file that task used to create.
+- name: "Remove stale gatus check for shared-vhost stubs (superseded by the real owner's check)"
+  ansible.builtin.file:
+    path: "{{ hostvars[groups['gatus'][0]]['gatus_config_dir'] | default(gatus_config_dir) }}/{{ stub.key }}-remote-http.yaml"
+    state: absent
+  delegate_to: "{{ groups['gatus'][0] }}"
+  loop: "{{ (nginx_remote_stub_paths | default({})) | dict2items }}"
+  loop_control:
+    loop_var: stub
+    label: "{{ stub.key }}"
+  when:
+    - (nginx_remote_shared_members | default([])) | length > 0
+    - groups['gatus'] is defined and groups['gatus'] | length > 0
+  tags:
+    - docker-compose
+    - nginx_vhost
+    - gatus

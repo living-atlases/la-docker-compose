@@ -1,0 +1,15 @@
+---
+# Fixture role for TC18 (molecule/multihub/converge.yml): stands in for nginx_vhost's
+# own "add gatus monitor of nginx_paths" task (ala-install/ansible/roles/nginx_vhost/
+# tasks/main.yml), which is gated on the exact same `when` condition below. Reproducing
+# it via a real include_role — not include_tasks — matters: only role/include_role
+# params outrank a `set_fact` fact in Ansible's variable precedence, so this is the
+# only way to prove that passing use_gatus:false to an include_role call overrides the
+# global `use_gatus` fact generate-compose.yml sets (the mechanism register-shared-
+# vhost-stubs.yml's fix relies on).
+- name: Write marker if use_gatus is truthy
+  ansible.builtin.copy:
+    dest: "{{ tc18_marker_path }}"
+    content: "monitored\n"
+    mode: '0644'
+  when: use_gatus is defined and use_gatus
