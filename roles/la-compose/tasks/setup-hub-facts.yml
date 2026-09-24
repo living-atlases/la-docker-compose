@@ -145,8 +145,15 @@
           {%- if hv.get(hostvar) -%}{%- set _ = claims.append(hv.get(hostvar)) -%}{%- endif -%}
         {%- endfor -%}
       {%- endfor -%}
-      {{ claims | select | reject('equalto', '') | list
-         | select('in', claims | difference(claims | unique)) | unique | list }}
+      {#- A hostname claimed more than once. Not `claims | difference(claims | unique)`:
+          difference is a set operation, so that is always empty and no hostname was ever
+          treated as shared (every app then rewrote the whole <hostname>.conf in fast mode
+          and the last one erased the others' locations). -#}
+      {%- set shared = [] -%}
+      {%- for h in claims | select | reject('equalto', '') | unique -%}
+        {%- if (claims | select('equalto', h) | list | length) > 1 -%}{%- set _ = shared.append(h) -%}{%- endif -%}
+      {%- endfor -%}
+      {{ shared }}
   tags:
     - always
     - docker-compose

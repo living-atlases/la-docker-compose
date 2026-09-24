@@ -44,7 +44,10 @@
     context_path: "/"
     vhost_required: true
     nginx_vhost_fast_mode: false
-    vhost_with_appname_conf: true
+    # Into the SAME <hostname>.conf as the local apps (path-keyed fragments, see
+    # above). A separate <hostname>-<appname>.conf is a second server block for the
+    # same server_name, and nginx ignores it or, worse, the local one.
+    vhost_with_appname_conf: false
     nginx_paths: "{{ stub.value }}"
     use_gatus: false
   loop: "{{ (nginx_remote_stub_paths | default({})) | dict2items }}"
@@ -53,6 +56,25 @@
   loop_control:
     loop_var: stub
     label: "{{ stub.key }}"
+  when: (nginx_remote_shared_members | default([])) | length > 0
+  tags:
+    - docker-compose
+    - nginx_vhost
+
+# Migration cleanup: earlier runs assembled the stub into its own
+# <hostname>-<hostname>-remote.conf, a second server block for the same server_name
+# that made nginx ignore the local one (hub.l-a.site/records 404). Remove it.
+- name: "Remove the superseded per-stub vhost files"
+  ansible.builtin.file:
+    path: "{{ nginx_conf_dir }}/{{ vdir }}/{{ stub.key }}-{{ stub.key }}-remote.conf"
+    state: absent
+  become: true
+  loop: "{{ (nginx_remote_stub_paths | default({})) | dict2items | product(['sites-enabled', 'sites-available']) | list }}"
+  loop_control:
+    label: "{{ vdir }}/{{ stub.key }}"
+  vars:
+    stub: "{{ item.0 }}"
+    vdir: "{{ item.1 }}"
   when: (nginx_remote_shared_members | default([])) | length > 0
   tags:
     - docker-compose

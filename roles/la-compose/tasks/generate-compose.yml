@@ -1178,7 +1178,8 @@
   vars:
     biocache_hub_docker_host: la_biocache-hub
     nginx_vhost_fast_mode: "{{ biocache_hub_hostname not in (nginx_shared_vhost_hostnames | default([])) }}"
-    vhost_with_appname_conf: "{{ biocache_hub_hostname in (nginx_shared_vhost_hostnames | default([])) }}"
+    # One <hostname>.conf per hostname, even when shared (see generate-hub-instance.yml).
+    vhost_with_appname_conf: false
   # The alias guard 16 other service blocks already carry. Without it this block
   # renders the PORTAL's records config wherever 'ala_hub' is enabled, including a
   # host that only carries a data hub's records front-end.

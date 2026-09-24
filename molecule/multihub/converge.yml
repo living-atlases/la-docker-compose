@@ -540,3 +540,41 @@
           register-shared-vhost-stubs.yml no longer opts its stub out of gatus
           monitoring (TASK-42 regression: the real owner's check and the stub's
           would collide again under the same hostname+path, crash-looping gatus).
+
+    # ------------------------------------------------------------------ TC20
+    # nginx_shared_vhost_hostnames must list a hostname claimed by more than one app.
+    # It used to be `claims | difference(claims | unique)`, a set difference that is
+    # always empty: every app on a shared hostname then rendered in fast mode, each
+    # rewriting the whole <hostname>.conf, and the last one (the branding) erased the
+    # hub's /records (hub.l-a.site/records 404 on the LA demo).
+    - name: "[TC20] Give lademohub's records and regions the same hostname"
+      ansible.builtin.set_fact:
+        "{{ item.var }}": "{{ item.value }}"
+      delegate_to: "{{ item.host }}"
+      delegate_facts: true
+      loop:
+        - {host: localhost.ala_hub_lademohub, var: biocache_hub_hostname, value: shared-hub.l-a.site}
+        - {host: localhost.regions_lademohub, var: regions_hostname, value: shared-hub.l-a.site}
+        - {host: localhost.ala_hub_lademohub2, var: biocache_hub_hostname, value: own-hub.l-a.site}
+
+    - name: "[TC20] Recompute hub facts"
+      ansible.builtin.include_tasks: ../../roles/la-compose/tasks/setup-hub-facts.yml
+      vars:
+        skip_hubs: []
+
+    - name: "[TC20] Only the hostname claimed twice is shared"
+      ansible.builtin.assert:
+        that:
+          - nginx_shared_vhost_hostnames == ['shared-hub.l-a.site']
+        fail_msg: "nginx_shared_vhost_hostnames: {{ nginx_shared_vhost_hostnames }}"
+
+    - name: "[TC20] Shared hostnames assemble into one <hostname>.conf (no per-app server blocks)"
+      ansible.builtin.assert:
+        that:
+          - "'vhost_with_appname_conf: true' not in lookup('file', playbook_dir + '/../../roles/la-compose/tasks/' + item)"
+          - "'in (nginx_shared_vhost_hostnames' not in (lookup('file', playbook_dir + '/../../roles/la-compose/tasks/' + item) | regex_findall('vhost_with_appname_conf:.*') | join(' '))"
+        fail_msg: "{{ item }} renders a shared hostname into its own <hostname>-<appname>.conf again"
+      loop:
+        - generate-hub-instance.yml
+        - generate-compose.yml
+        - register-shared-vhost-stubs.yml
