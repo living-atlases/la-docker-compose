@@ -19,6 +19,30 @@ services:
     environment:
       TZ: {{ server_tz | default('UTC') }}
       JAVA_OPTS: ${SPATIAL_SERVICE_JAVA_OPTS}
+{% if spatial_service_exploded | default(true) | bool %}
+    # Run the war exploded, as ala-install's Tomcat does. spatial-service (<= 3.1.0) finds its
+    # task specs by listing the classpath dir /processes/ with java.io.File, which is empty inside
+    # an executable war (`java -jar app.war`): /tasks/capabilities is {} and LayerCreation /
+    # FieldCreation / analyses fail with "failed to find spec". The image has no unzip, so the war
+    # is unpacked with the Groovy it bundles (~3 s, fresh on every start, no stale copies).
+    # The image's entrypoint (/__cacert_entrypoint.sh) is kept; only the command changes.
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        war=/opt/atlas/spatial-service/app.war
+        app=/tmp/spatial-service-app
+        rm -rf "$$app"
+        java -cp "$$war" -Dloader.path=WEB-INF/lib,WEB-INF/lib-provided -Dloader.main=groovy.ui.GroovyMain \
+          org.springframework.boot.loader.PropertiesLauncher -e '
+            def z = new java.util.zip.ZipFile(args[0]); def d = new File(args[1])
+            z.entries().each { e -> def f = new File(d, e.name)
+              if (e.directory) f.mkdirs() else { f.parentFile.mkdirs(); f.withOutputStream { o -> o << z.getInputStream(e) } } }' \
+          "$$war" "$$app"
+        echo "spatial-service: running exploded war from $$app"
+        exec java $$JAVA_OPTS -cp "$$app" org.springframework.boot.loader.WarLauncher
+{% endif %}
     networks:
       default: {}
       {{ docker_network | default('internal') }}:
