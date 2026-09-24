@@ -847,6 +847,42 @@
   when: "'spatial-service' in physical_server_groups"
   tags: [db-init]
 
+# "The database exists" is not "the schema was loaded": if spatial-service (Hibernate dbCreate: update)
+# reaches an empty layersdb first, or a first load fails halfway, the database exists with a partial
+# schema (no layers_id_seq, no search functions, objects without id...) and a first-run-only load would
+# never repair it: layer creation and /intersect then fail. So check for the upstream schema itself,
+# and stop (never drop or rebuild on our own) when it is missing.
+- name: "DB Init: Check that layersdb has the upstream schema (search functions, objects.id)"
+  ansible.builtin.command: >
+    docker exec -u postgres la_postgres psql -tA -d {{ layers_db_name | default('layersdb') }} -c
+    "SELECT (EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'search_objects_by_geometry_intersect')
+         AND EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_schema = 'public' AND table_name = 'objects' AND column_name = 'id'))::int"
+  register: layersdb_schema
+  become: true
+  changed_when: false
+  when:
+    - "'spatial-service' in physical_server_groups"
+    - (layersdb_exists.stdout | default('') | trim) == "1"
+  tags: [db-init]
+
+- name: "DB Init: Stop if layersdb exists without the upstream schema"
+  # Never repaired or dropped automatically (that could destroy layers by mistake): stop and let
+  # the operator decide. layersdb_skip_schema_check: true lets the deploy continue anyway.
+  ansible.builtin.fail:
+    msg: >-
+      layersdb exists but lacks the upstream spatial-database schema (the search functions and
+      objects.id are missing): probably spatial-service created its tables before the schema was
+      loaded, or a first load failed. Layer creation and /intersect will fail. Back it up, then
+      either drop layersdb (if it holds nothing you need) and redeploy so the schema is loaded, or
+      repair it from layersdb.sql. Set layersdb_skip_schema_check: true to deploy anyway.
+  when:
+    - "'spatial-service' in physical_server_groups"
+    - (layersdb_exists.stdout | default('') | trim) == "1"
+    - (layersdb_schema.stdout | default('1') | trim) == "0"
+    - not (layersdb_skip_schema_check | default(false) | bool)
+  tags: [db-init]
+
 - name: "DB Init: Create layersdb database owned by layers + enable PostGIS"
   ansible.builtin.command: >
     docker exec -u postgres la_postgres psql -v ON_ERROR_STOP=1 -c
