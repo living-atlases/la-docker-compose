@@ -89,7 +89,7 @@ services:
       # ala-install writes server.contextPath (Grails 3 key) into the hub config, which
       # Spring Boot 2 images ignore; nginx (and the shared-vhost stubs) proxy the full
       # path, so a hub mounted under a path (e.g. hub.l-a.site/records) must serve there.
-      JAVA_OPTS: ${BIOCACHE_HUB_JAVA_OPTS}{% if biocache_hub_context_path | default('') not in ['', '/'] %} -Dserver.servlet.context-path={{ biocache_hub_context_path }}{% endif %}
+      JAVA_OPTS: ${BIOCACHE_HUB_JAVA_OPTS}{{ (' -Dserver.servlet.context-path=' ~ biocache_hub_context_path) if (biocache_hub_context_path | default('')) not in ['', '/'] else '' }}
       # Bundled application.yml references ${security.jwt.enabled} via SpEL,
       # but the upstream ala-hub-config.properties template never declares it.
       # Spring relaxed binding maps this env to the missing property.

@@ -53,7 +53,7 @@ services:
       # ala-install writes server.contextPath (Grails 3 key) into the hub config, which
       # Spring Boot 2 images ignore; nginx (and the shared-vhost stubs) proxy the full
       # path, so a hub mounted under a path (e.g. hub.l-a.site/records) must serve there.
-      JAVA_OPTS: ${BIE_HUB_JAVA_OPTS}{% if bie_hub_context_path | default('') not in ['', '/'] %} -Dserver.servlet.context-path={{ bie_hub_context_path }}{% endif %}
+      JAVA_OPTS: ${BIE_HUB_JAVA_OPTS}{{ (' -Dserver.servlet.context-path=' ~ bie_hub_context_path) if (bie_hub_context_path | default('')) not in ['', '/'] else '' }}
     networks:
       default: {}
       {{ docker_network | default('internal') }}:

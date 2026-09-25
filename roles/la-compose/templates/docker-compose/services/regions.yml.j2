@@ -55,7 +55,7 @@ services:
       TZ: {{ server_tz | default('UTC') }}
       # The regions image does not pick up its context path from its config; nginx (and the shared-vhost stubs) proxy the full
       # path, so a hub mounted under a path (e.g. hub.l-a.site/records) must serve there.
-      JAVA_OPTS: ${REGIONS_JAVA_OPTS}{% if regions_context_path | default('') not in ['', '/'] %} -Dserver.servlet.context-path={{ regions_context_path }}{% endif %}
+      JAVA_OPTS: ${REGIONS_JAVA_OPTS}{{ (' -Dserver.servlet.context-path=' ~ regions_context_path) if (regions_context_path | default('')) not in ['', '/'] else '' }}
     networks:
       default: {}
       {{ docker_network | default('internal') }}:

@@ -9,10 +9,11 @@ set -eu
 cd "$(dirname "$0")/.."
 
 python3 - <<'PY'
-import re, sys, jinja2
+import re, sys, jinja2, yaml
 
 env = jinja2.Environment(loader=jinja2.FileSystemLoader(["roles/la-compose/templates", "roles/la-compose/templates/docker-compose/services", "roles/la-compose/templates/docker-compose"]),
-                         undefined=jinja2.ChainableUndefined, extensions=["jinja2.ext.do"])
+                         undefined=jinja2.ChainableUndefined, extensions=["jinja2.ext.do"],
+                         trim_blocks=True)  # as ansible.builtin.template renders
 env.filters["regex_replace"] = lambda s, p, r="": re.sub(p, r, str(s))
 env.filters["bool"] = lambda v: str(v).lower() in ("1", "true", "yes", "on")
 env.filters["to_json"] = env.filters["tojson"]
@@ -27,6 +28,10 @@ for svc, var, path, probe in cases:
     for ctx, want_opt, want_probe in (("", None, "8080" + probe), ("/", None, "8080" + probe),
                                       (path, "-Dserver.servlet.context-path=" + path, "8080" + path + probe)):
         out = t.render(**{var: ctx})
+        try:
+            yaml.safe_load(out)
+        except yaml.YAMLError as e:
+            fail.append("%s: rendered fragment is not valid YAML: %s" % ("%s %s=%r" % (svc, var, ctx), e)); continue
         java = [l for l in out.splitlines() if "JAVA_OPTS:" in l]
         health = [l for l in out.splitlines() if "curl" in l]
         label = "%s %s=%r" % (svc, var, ctx)
