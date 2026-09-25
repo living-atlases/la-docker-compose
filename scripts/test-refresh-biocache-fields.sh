@@ -26,7 +26,7 @@ case "\$1" in
   inspect) name="\${@: -1}"
            case "\$name" in la_biocache-service|la_biocache-hub|la_biocache-hub-testhub) echo true ;; *) exit 1 ;; esac ;;
   compose) echo "\$3" >> "\$state/restarted" ;;   # compose restart <service>
-  restart) echo "\$2" >> "\$state/restarted-docker" ;;
+  restart) echo "\${2#la_}" >> "\$state/restarted" ;;   # plain docker restart <container>
 esac
 EOF
 
@@ -46,7 +46,7 @@ EOF
 chmod +x "$tmp/bin/docker" "$tmp/bin/curl"
 
 fail=0
-out=$(PATH="$tmp/bin:$PATH" TARGETS_FILE="$tmp/targets.json" POLL_INTERVAL=0 TIMEOUT=5 bash "$script" 2>&1) || {
+out=$(PATH="$tmp/bin:$PATH" TARGETS_FILE="$tmp/targets.json" COMPOSE_DIR="$tmp" POLL_INTERVAL=1 TIMEOUT=3 bash "$script" 2>&1) || {
   echo "[FAIL] script exited non-zero:"; echo "$out"; fail=1; }
 
 restarted=$(sort "$tmp/state/restarted" 2>/dev/null | tr '\n' ' ')
@@ -58,7 +58,7 @@ grep -q "no la_biocache-hub-nohere on this host" <<<"$out" || {
 
 # Second run: everything already serves 200, so nothing is restarted again.
 : > "$tmp/state/restarted.before"; cp "$tmp/state/restarted" "$tmp/state/restarted.before"
-PATH="$tmp/bin:$PATH" TARGETS_FILE="$tmp/targets.json" POLL_INTERVAL=0 TIMEOUT=5 bash "$script" >/dev/null 2>&1
+PATH="$tmp/bin:$PATH" TARGETS_FILE="$tmp/targets.json" COMPOSE_DIR="$tmp" POLL_INTERVAL=1 TIMEOUT=3 bash "$script" >/dev/null 2>&1
 cmp -s "$tmp/state/restarted" "$tmp/state/restarted.before" || {
   echo "[FAIL] a hub already serving 200 was restarted again"; fail=1; }
 
