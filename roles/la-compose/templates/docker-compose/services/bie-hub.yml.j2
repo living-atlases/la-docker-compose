@@ -50,7 +50,10 @@ services:
 {% endif %}
     environment:
       TZ: {{ server_tz | default('UTC') }}
-      JAVA_OPTS: ${BIE_HUB_JAVA_OPTS}
+      # ala-install writes server.contextPath (Grails 3 key) into the hub config, which
+      # Spring Boot 2 images ignore; nginx (and the shared-vhost stubs) proxy the full
+      # path, so a hub mounted under a path (e.g. hub.l-a.site/records) must serve there.
+      JAVA_OPTS: ${BIE_HUB_JAVA_OPTS}{% if bie_hub_context_path | default('') not in ['', '/'] %} -Dserver.servlet.context-path={{ bie_hub_context_path }}{% endif %}
     networks:
       default: {}
       {{ docker_network | default('internal') }}:
@@ -60,7 +63,7 @@ services:
       # null y toda página da 500 (NPE <g:applyLayout> ala.gsp:17). Con / el hub sale
       # `unhealthy` (no un falso `healthy`) y el converge de wait-for-health.sh lo reinicia
       # -> re-fetch con branding up -> 200. Verificado: restart con branding up -> 200.
-      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:8080/ || exit 1"]
+      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:8080{{ bie_hub_context_path | default('') | regex_replace('/+$', '') }}/ || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5

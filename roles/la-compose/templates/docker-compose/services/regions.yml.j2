@@ -53,14 +53,16 @@ services:
 {% endif %}
     environment:
       TZ: {{ server_tz | default('UTC') }}
-      JAVA_OPTS: ${REGIONS_JAVA_OPTS}
+      # The regions image does not pick up its context path from its config; nginx (and the shared-vhost stubs) proxy the full
+      # path, so a hub mounted under a path (e.g. hub.l-a.site/records) must serve there.
+      JAVA_OPTS: ${REGIONS_JAVA_OPTS}{% if regions_context_path | default('') not in ['', '/'] %} -Dserver.servlet.context-path={{ regions_context_path }}{% endif %}
     networks:
       default: {}
       {{ docker_network | default('internal') }}:
     healthcheck:
-      # Spring Boot WAR (WarLauncher) serves the regions UI at the embedded context root (no
-      # server context-path). Accept 2xx/3xx/4xx (server up) and fail on refused/5xx.
-      test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' http://localhost:{{ regions_port | default('8080') }}/ | grep -qvE '^(000|5)'"]
+      # Spring Boot WAR (WarLauncher) serves the regions UI at regions_context_path (root on
+      # the portal, e.g. /regions on a data hub). Accept 2xx/3xx/4xx (server up) and fail on refused/5xx.
+      test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' http://localhost:{{ regions_port | default('8080') }}{{ regions_context_path | default('') | regex_replace('/+$', '') }}/ | grep -qvE '^(000|5)'"]
       interval: 30s
       timeout: 10s
       retries: 5

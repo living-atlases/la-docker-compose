@@ -61,6 +61,15 @@
     },
     {
       "match": [
+        "roles/la-compose/templates/docker-compose/services/biocache-hub.yml.j2",
+        "roles/la-compose/templates/docker-compose/services/bie-hub.yml.j2",
+        "roles/la-compose/templates/docker-compose/services/regions.yml.j2",
+        "scripts/test-hub-context-path.sh"
+      ],
+      "run": "bash scripts/test-hub-context-path.sh"
+    },
+    {
+      "match": [
         "scripts/hub-inventory-args.sh",
         "scripts/test-hub-inventory-args.sh"
       ],

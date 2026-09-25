@@ -345,6 +345,8 @@ EOF
                     # Pure shell, ~1s.
                     bash scripts/test-hub-inventory-args.sh
                     bash scripts/test-nginx-vhost-loop-var.sh
+                    # Data hubs under a path (hub.l-a.site/records) must serve and probe there.
+                    bash scripts/test-hub-context-path.sh
 
                     # `JAVA_OPTS: ${<SERVICE>_JAVA_OPTS}` REPLACES the image's own ENV
                     # rather than adding to it, so a -D missing from .env is simply not

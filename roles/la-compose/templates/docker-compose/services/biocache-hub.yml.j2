@@ -86,7 +86,10 @@ services:
 {% endif %}
     environment:
       TZ: {{ server_tz | default('UTC') }}
-      JAVA_OPTS: ${BIOCACHE_HUB_JAVA_OPTS}
+      # ala-install writes server.contextPath (Grails 3 key) into the hub config, which
+      # Spring Boot 2 images ignore; nginx (and the shared-vhost stubs) proxy the full
+      # path, so a hub mounted under a path (e.g. hub.l-a.site/records) must serve there.
+      JAVA_OPTS: ${BIOCACHE_HUB_JAVA_OPTS}{% if biocache_hub_context_path | default('') not in ['', '/'] %} -Dserver.servlet.context-path={{ biocache_hub_context_path }}{% endif %}
       # Bundled application.yml references ${security.jwt.enabled} via SpEL,
       # but the upstream ala-hub-config.properties template never declares it.
       # Spring relaxed binding maps this env to the missing property.
@@ -95,7 +98,7 @@ services:
       default: {}
       {{ docker_network | default('internal') }}:
     healthcheck:
-      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:8080/actuator/health || exit 1"]
+      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:8080{{ biocache_hub_context_path | default('') | regex_replace('/+$', '') }}/actuator/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
