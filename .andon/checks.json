@@ -70,6 +70,13 @@
     },
     {
       "match": [
+        "scripts/refresh-biocache-fields.sh",
+        "scripts/test-refresh-biocache-fields.sh"
+      ],
+      "run": "bash scripts/test-refresh-biocache-fields.sh"
+    },
+    {
+      "match": [
         "scripts/hub-inventory-args.sh",
         "scripts/test-hub-inventory-args.sh"
       ],

@@ -122,7 +122,6 @@ wait_until() {  # wait_until <description> <command...>
 }
 
 fields_served()      { [[ "$(field_count)" -gt 0 ]]; }
-hub_search_ok()      { [[ "$(curl -sk -o /dev/null -w '%{http_code}' --max-time 30 "${RECORDS}/occurrences/search?q=*:*" 2>/dev/null)" == "200" ]]; }
 
 restart_container() {
   local name="$1" svc="$2"
@@ -174,29 +173,55 @@ fi
 # rather than on step 1 having run here. That gate is caution, not causation: it keeps a
 # portal with no data from being restarted on every run for a condition a restart may not
 # fix there. See the header for what has been ruled out as the mechanism.
-if have_container "$HUB_CONTAINER"; then
-  if [[ -z "$RECORDS" ]]; then
-    warn "no records URL resolved; skipping the hub half"
+#
+# Data hubs run their own biocache-hub (la_biocache-hub-<key>, compose service
+# biocache-hub-<key>) and hit the same NPE: #411 had the testhub search page 500ing while
+# the portal's had been restarted back to 200. Each hub is checked on its own records URL.
+hub_search_ok() {  # hub_search_ok <records-url>
+  [[ "$(curl -sk -o /dev/null -w '%{http_code}' --max-time 30 "$1/occurrences/search?q=*:*" 2>/dev/null)" == "200" ]]
+}
+
+refresh_hub() {  # refresh_hub <container> <compose-service> <records-url>
+  local name="$1" svc="$2" url="$3"
+  if ! have_container "$name"; then
+    log "no ${name} on this host — skipping it"
+    return 0
+  fi
+  if [[ -z "$url" ]]; then
+    warn "no records URL resolved for ${name}; skipping it"
   elif ! fields_served; then
-    log "records-ws is not serving fields (yet); leaving ${HUB_CONTAINER} alone rather than"
+    log "records-ws is not serving fields (yet); leaving ${name} alone rather than"
     log "restarting it blind on a deployment that has no data"
-  elif hub_search_ok; then
-    log "hub search page already returns 200 — nothing to do"
+  elif hub_search_ok "$url"; then
+    log "${name} search page already returns 200 — nothing to do"
   else
-    log "records-ws serves fields but the hub search page does not return 200 — restarting the hub (known-good remedy; see header)"
-    restart_container "$HUB_CONTAINER" biocache-hub
-    if wait_until "the hub search page to return 200" hub_search_ok; then
-      echo; log "hub search page returns 200"
+    log "records-ws serves fields but ${url}/occurrences/search does not return 200 — restarting ${name} (known-good remedy; see header)"
+    restart_container "$name" "$svc"
+    if wait_until "${name}'s search page to return 200" hub_search_ok "$url"; then
+      echo; log "${name} search page returns 200"
     else
-      err "the hub search page still does not return 200 after a restart."
-      err "check the hub log: a recurring <alatag:message> NPE means the restart remedy no"
+      err "${name}'s search page still does not return 200 after a restart."
+      err "check its log: a recurring <alatag:message> NPE means the restart remedy no"
       err "longer works and the underlying hub bug needs the reproduction it still lacks;"
       err "anything else is a different hub failure."
       rc=1
     fi
   fi
-else
-  log "no ${HUB_CONTAINER} on this host — skipping the hub half"
+}
+
+refresh_hub "$HUB_CONTAINER" biocache-hub "$RECORDS"
+
+# key<TAB>records-url per data hub that has a records front-end.
+if [[ -f "$TARGETS_FILE" ]]; then
+  while IFS=$'\t' read -r key url; do
+    [[ -n "$key" ]] || continue
+    refresh_hub "${HUB_CONTAINER}-${key}" "biocache-hub-${key}" "$url"
+  done < <(python3 -c '
+import json, sys
+for h in json.load(open(sys.argv[1])).get("hubs", []):
+    url = (h.get("services") or {}).get("records", "")
+    if h.get("key") and url:
+        print("%s\t%s" % (h["key"], url.rstrip("/")))' "$TARGETS_FILE" 2>/dev/null || true)
 fi
 
 [[ "$rc" -eq 0 ]] && log "PASS — records search is served by a warm field list"
