@@ -76,6 +76,10 @@ test, but treat the whole area as a preview.
   rest in Compose) is supported but is the least-travelled path; it is where
   most of the recent bugs have surfaced.
 
+### How to help
+
+There is room to help at every size. Small checks and scripts that need no cluster are labelled [`good first issue`](https://github.com/living-atlases/la-docker-compose/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22). Bigger areas where outside experience matters are labelled [`help wanted`](https://github.com/living-atlases/la-docker-compose/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22): services we do not validate yet, Airflow ingestion, and data hubs spread across hosts. If you run a Living Atlas, reports of what breaks on your inventory are just as useful. See [CONTRIBUTING.md](CONTRIBUTING.md) for the ground rules and for the checks to run before a PR.
+
 ## Overview
 
 Unlike a traditional deployment, where `ala-install` directly mutates the state of
