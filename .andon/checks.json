@@ -81,6 +81,13 @@
         "scripts/test-hub-inventory-args.sh"
       ],
       "run": "bash scripts/test-hub-inventory-args.sh"
+    },
+    {
+      "match": [
+        "scripts/check-nginx-duplicate-server-names.sh",
+        "scripts/test-nginx-duplicate-server-names.sh"
+      ],
+      "run": "bash scripts/test-nginx-duplicate-server-names.sh"
     }
   ],
   "ignore": [

@@ -6,6 +6,7 @@
 #   2. ansible-playbook config-gen.yml  (generate configs locally)
 #   3. No localhost/127.0.0.1 in DB connection strings
 #   4. No localhost/127.0.0.1 in nginx upstream blocks
+#  4b. No server_name declared in two enabled nginx vhost files
 #   5. docker compose config   (compose file syntax validation)
 #
 # Usage: scripts/validate-config-gen.sh [INVENTORY] [OUTPUT_DIR]
@@ -196,6 +197,16 @@ else
   else
     pass "No localhost in nginx upstream blocks"
   fi
+fi
+
+# ── Check 4b: one server_name per enabled vhost file (TASK-44) ───────────────
+section "Check 4b: No server_name declared in two nginx vhost files"
+
+if out="$(bash scripts/check-nginx-duplicate-server-names.sh "$OUTPUT_DIR/nginx/sites-enabled" 2>&1)"; then
+  pass "${out#\[PASS\] }"
+else
+  fail "duplicate server_name across vhost files (nginx ignores all but the first):"
+  echo "$out" | tail -n +2
 fi
 
 # ── Check 5: Docker Compose config syntax ────────────────────────────────────
