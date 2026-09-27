@@ -59,14 +59,18 @@ fi
 
 # Start the fixture in $WORK_DIR, loudly. It used to be `up -d >/dev/null 2>&1` under
 # set -e: when it failed (#414), the script died right after "Case 1" with no trace of why.
-# One retry covers a transient pull hiccup; a second failure prints compose's own error.
+# The retry drops the fixture's images and pulls them again first: on the Jenkins node the
+# containerd snapshotter lost a layer of alpine:3.20 ("failed to create snapshot: missing
+# parent ... bucket: not found", #415), and only a fresh pull clears that. A second
+# failure prints compose's own error.
 fixture_up() {
     local out
     if out=$(docker compose -f "$WORK_DIR/docker-compose.yml" up -d 2>&1); then
         return 0
     fi
     info "fixture 'docker compose up' failed, retrying once: $(tail -3 <<<"$out")"
-    docker compose -f "$WORK_DIR/docker-compose.yml" down -v --remove-orphans >/dev/null 2>&1 || true
+    docker compose -f "$WORK_DIR/docker-compose.yml" down -v --remove-orphans --rmi all >/dev/null 2>&1 || true
+    docker compose -f "$WORK_DIR/docker-compose.yml" pull >/dev/null 2>&1 || true
     if out=$(docker compose -f "$WORK_DIR/docker-compose.yml" up -d 2>&1); then
         return 0
     fi
