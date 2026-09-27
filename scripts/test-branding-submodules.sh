@@ -5,7 +5,8 @@
 # `git submodule update` in stage-branding-source.yml ran on the compose hosts, where the
 # controller-side branding_source_path does not exist, so they were skipped.
 #
-# 1. static: the tasks that read branding_source_path run on the controller;
+# 1. static: the tasks that read branding_source_path run on the controller, as its owner
+#    (not root: #416 left the submodule root-owned and synchronize could not read it);
 # 2. behaviour: the REAL guard tasks from the role, run against fixtures, fail on an
 #    empty submodule and pass on a populated one, a branding without .gitmodules, and a
 #    disabled branding (their loop is templated before `when`). ~5s, no cluster.
@@ -37,6 +38,13 @@ for name in ("Stat branding .gitmodules (local source)",
         bad.append("missing task: " + name)
     elif t.get("delegate_to") != "localhost":
         bad.append("not delegated to localhost: " + name)
+    # The inventory sets ansible_become=yes, and an inventory connection var beats the
+    # `become:` keyword: only a task var keeps git from running as root (#416).
+    elif (t.get("vars") or {}).get("ansible_become") is not False:
+        bad.append("does not set vars.ansible_become: false (keyword is overridden): " + name)
+repair = by_name.get("Give the branding checkout back to its owner (controller)")
+if repair is None or repair.get("delegate_to") != "localhost":
+    bad.append("missing controller-side ownership repair of the branding checkout")
 if bad:
     print("[FAIL] " + "; ".join(bad), file=sys.stderr)
     sys.exit(1)
@@ -45,7 +53,7 @@ guard = [by_name[n] for n in ("Find the branding's submodules in the build direc
 yaml.safe_dump([{"hosts": "localhost", "gather_facts": False, "tasks": guard}],
                open(sys.argv[2], "w"), sort_keys=False)
 PY
-pass "the .gitmodules stat and the submodule init run on the controller"
+pass "the .gitmodules stat and the submodule init run on the controller, as the checkout owner"
 
 # ── 2. the guard, against fixtures ────────────────────────────────────────────
 src="$tmp/src"; out="$tmp/data"

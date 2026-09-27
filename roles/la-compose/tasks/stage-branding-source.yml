@@ -143,8 +143,53 @@
     path: "{{ branding_source_path }}/.gitmodules"
   register: branding_gitmodules
   delegate_to: localhost
-  become: false
+  vars:
+    ansible_become: false
   when: "(inst_branding_enabled | bool) and not (branding_is_git_url | default(false) | bool)"
+  tags:
+    - branding
+    - docker-compose
+
+# Run git as the user who owns the checkout, never as root. `become: false` is not enough:
+# the inventory sets ansible_become=yes, and a connection variable from the inventory
+# beats the task keyword, so in #416 git ran under sudo on the Jenkins node and left
+# commonui-bs3-2019 root-owned and unreadable; synchronize (as jenkins) then died with
+# "Permission denied" and took the host out of the play. A task var does win.
+#
+# The repair below hands back anything an earlier root run left behind. It only acts when
+# something in the checkout is not owned by the checkout's owner, so a clean checkout never
+# needs sudo on the controller.
+- name: Find branding checkout paths not owned by its owner (controller)
+  ansible.builtin.command:
+    cmd: find {{ branding_source_path | quote }} -not -user {{ branding_gitmodules.stat.pw_name | quote }} -print -quit
+  register: branding_foreign_owned
+  delegate_to: localhost
+  vars:
+    ansible_become: false
+  changed_when: false
+  failed_when: false
+  when: >-
+    (inst_branding_enabled | bool)
+    and not (branding_is_git_url | default(false) | bool)
+    and branding_gitmodules.stat.exists | default(false)
+  tags:
+    - branding
+    - docker-compose
+
+- name: Give the branding checkout back to its owner (controller)
+  ansible.builtin.file:
+    path: "{{ branding_source_path }}"
+    owner: "{{ branding_gitmodules.stat.pw_name }}"
+    group: "{{ branding_gitmodules.stat.gr_name }}"
+    recurse: true
+  delegate_to: localhost
+  become: true
+  throttle: 1
+  when:
+    - inst_branding_enabled | bool
+    - not (branding_is_git_url | default(false) | bool)
+    - branding_gitmodules.stat.exists | default(false)
+    - (branding_foreign_owned.stdout | default('')) | length > 0
   tags:
     - branding
     - docker-compose
@@ -155,7 +200,8 @@
     chdir: "{{ branding_source_path }}"
   register: branding_submodule_init
   delegate_to: localhost
-  become: false
+  vars:
+    ansible_become: false
   throttle: 1
   changed_when: "branding_submodule_init.stdout | trim | length > 0"
   when: >-
