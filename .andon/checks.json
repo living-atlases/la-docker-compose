@@ -95,6 +95,14 @@
         "scripts/test-branding-submodules.sh"
       ],
       "run": "bash scripts/test-branding-submodules.sh"
+    },
+    {
+      "match": [
+        "scripts/wait-for-health.sh",
+        "scripts/test-wait-for-health-converge.sh",
+        "scripts/fixtures/wait-for-health-*/**"
+      ],
+      "run": "bash scripts/test-wait-for-health-converge.sh"
     }
   ],
   "ignore": [

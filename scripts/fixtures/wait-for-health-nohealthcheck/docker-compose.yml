@@ -1,0 +1,26 @@
+# Fixture for the no-healthcheck cases of scripts/test-wait-for-health-converge.sh —
+# NOT a deployable stack.
+#
+# Models gatus in build #403: no HEALTHCHECK, panics on its config at boot, and
+# `restart: unless-stopped` brings it back. It is `running` most of the time, which the
+# gate used to accept on sight. Next to it, a service without a healthcheck that simply
+# stays up (mailhog), which the gate must still accept.
+---
+services:
+  crash-looper-nohc:
+    image: alpine:3.20
+    container_name: la_test_crash_looper_nohc
+    command:
+      - sh
+      - -c
+      - |
+        sleep 2
+        exit 2
+    restart: unless-stopped
+    stop_grace_period: 2s
+  steady-nohc:
+    image: alpine:3.20
+    container_name: la_test_steady_nohc
+    command: ["sleep", "3600"]
+    restart: unless-stopped
+    stop_grace_period: 2s

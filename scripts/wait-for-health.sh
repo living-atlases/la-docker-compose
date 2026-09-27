@@ -200,6 +200,9 @@ get_services() {
 # baseline is per wait phase and is reset between converge rounds anyway.
 declare -A RESTART_BASELINE=()
 CRASHLOOP_RESTARTS="${CRASHLOOP_RESTARTS:-3}"
+# A container WITHOUT a healthcheck counts as up only once it has stayed running this long
+# (see check_service_health). Short: it only has to outlast one boot-and-crash cycle.
+NOHEALTHCHECK_MIN_UPTIME="${NOHEALTHCHECK_MIN_UPTIME:-20}"
 CRASHLOOP_SERVICE=""
 
 reset_restart_baseline() {
@@ -266,11 +269,28 @@ check_service_health() {
             # above never fires) for these — handle all three forms here, else they fall
             # through to `*)` and get stuck "STARTING" forever (gatus, mailhog, and the
             # one-shot cassandra-load-keyspace job → 480s gate timeout with 0 unhealthy).
-            local state exit_code
+            #
+            # "Running" is not enough on its own. A container that dies on boot and is brought
+            # back by its restart policy is running most of the time, so on the first pass it
+            # read OK, the gate returned before a second look, and is_crash_looping never saw
+            # RestartCount grow: gatus panicked on a duplicate endpoint for a whole build
+            # (#403) behind a green gate. Only call it up once it has STAYED up for
+            # NOHEALTHCHECK_MIN_UPTIME; until then it is starting, and the loop comes back.
+            local state restarting exit_code started_at uptime
             state=$(docker inspect --format='{{.State.Running}}' "$container_name" 2>/dev/null || echo "false")
+            restarting=$(docker inspect --format='{{.State.Restarting}}' "$container_name" 2>/dev/null || echo "false")
             exit_code=$(docker inspect --format='{{.State.ExitCode}}' "$container_name" 2>/dev/null || echo "1")
-            if [[ "$state" == "true" ]]; then
-                return 0  # Running, no healthcheck (gatus, mailhog) -> OK
+            if [[ "$restarting" == "true" ]]; then
+                return 2  # In restart-policy backoff: starting again, not done
+            elif [[ "$state" == "true" ]]; then
+                started_at=$(docker inspect --format='{{.State.StartedAt}}' "$container_name" 2>/dev/null || echo "")
+                # An unparseable StartedAt keeps the old verdict (up) rather than "starting"
+                # forever.
+                uptime=$(( $(date +%s) - $(date -d "$started_at" +%s 2>/dev/null || echo 0) ))
+                if (( uptime < NOHEALTHCHECK_MIN_UPTIME )); then
+                    return 2  # Up for ${uptime}s only: not yet proven it stays up
+                fi
+                return 0  # Running and stable, no healthcheck (gatus, mailhog) -> OK
             elif [[ "$exit_code" == "0" ]]; then
                 return 0  # One-shot job completed cleanly (cassandra-load-keyspace) -> done
             else

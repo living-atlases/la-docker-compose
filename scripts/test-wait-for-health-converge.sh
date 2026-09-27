@@ -18,6 +18,7 @@
 #      are not falling back to the script's own defaults
 #   3a. wrapped in the OLD budget (blind to the converge rounds), the gate dies rc=124
 #   3b. wrapped in the DERIVED budget, it returns 0
+# Cases 5-6 (no healthcheck) run the gate on a crash-looping and a stable container.
 # 3a is the regression proper: it fails if someone re-decouples the two budgets.
 # That the role renders the derived budget from role variables, rather than a
 # transcribed literal, is asserted separately in molecule/unit/converge.yml.
@@ -173,9 +174,53 @@ else
     pass "crash loop detected in ${elapsed}s (rc=$rc) instead of burning the timeout and every converge round"
 fi
 
+# --- Case 5: crash loop WITHOUT a healthcheck -------------------------------------
+# Build #403: gatus has no HEALTHCHECK, panicked on a duplicate endpoint at boot and was
+# restarted forever. The gate accepted "running" on the first pass and returned before
+# it could see RestartCount climb, so the build went on with gatus down.
+info "Case 5: crash-looping service with no healthcheck -> expect the crash loop to be caught"
+cleanup
+WORK_DIR="$(mktemp -d)"
+cp "$SCRIPT_DIR/fixtures/wait-for-health-nohealthcheck/docker-compose.yml" "$WORK_DIR/"
+docker compose -f "$WORK_DIR/docker-compose.yml" up -d >/dev/null 2>&1
+
+start=$(date +%s)
+rc=0
+CRASHLOOP_RESTARTS=2 NOHEALTHCHECK_MIN_UPTIME=10 CONVERGE_ROUNDS=1 CONVERGE_TIMEOUT=30 \
+    bash "$GATE" --compose-dir "$WORK_DIR" --service crash-looper-nohc \
+    --timeout 60 --check-interval 2 >"$WORK_DIR/out.log" 2>&1 || rc=$?
+elapsed=$(( $(date +%s) - start ))
+
+if [[ $rc -eq 0 ]]; then
+    fail "gate returned 0 for a no-healthcheck container that keeps crashing"
+    failures=$((failures + 1))
+elif ! grep -qi 'crash-looping' "$WORK_DIR/out.log"; then
+    fail "gate failed (rc=$rc) but never identified the crash loop"
+    sed -n '1,25p' "$WORK_DIR/out.log"
+    failures=$((failures + 1))
+else
+    pass "no-healthcheck crash loop detected in ${elapsed}s (rc=$rc)"
+fi
+
+# --- Case 6: a stable service without a healthcheck still passes -----------------
+# The other side of case 5 (mailhog): waiting for it to prove it stays up must cost one
+# NOHEALTHCHECK_MIN_UPTIME, not fail it.
+info "Case 6: stable service with no healthcheck -> expect rc=0"
+rc=0
+NOHEALTHCHECK_MIN_UPTIME=10 CONVERGE_ROUNDS=1 CONVERGE_TIMEOUT=30 \
+    bash "$GATE" --compose-dir "$WORK_DIR" --service steady-nohc \
+    --timeout 60 --check-interval 2 >"$WORK_DIR/out6.log" 2>&1 || rc=$?
+if [[ $rc -eq 0 ]]; then
+    pass "stable no-healthcheck service accepted"
+else
+    fail "gate returned rc=$rc for a no-healthcheck service that stays up"
+    sed -n '1,25p' "$WORK_DIR/out6.log"
+    failures=$((failures + 1))
+fi
+
 echo
 if [[ $failures -eq 0 ]]; then
-    pass "health gate converge-by-retry: 5/5 cases OK"
+    pass "health gate converge-by-retry: 7/7 cases OK"
     exit 0
 fi
 fail "health gate converge-by-retry: $failures case(s) failed"
