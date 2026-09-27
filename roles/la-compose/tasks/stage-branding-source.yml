@@ -130,10 +130,20 @@
 # and the Docker build context excludes .git, so submodules must be materialised on
 # the host before the synchronize below. The git-URL path already does this via
 # recursive: yes. Mirrors deploy.sh's required "git submodule update --init" step.
+#
+# Both tasks run on the CONTROLLER: branding_source_path is a controller-side path (the
+# synchronize below pushes it from there). Undelegated, the stat ran on each compose host,
+# found no .gitmodules, and skipped the init; synchronize then shipped an empty
+# commonui-bs3-2019, and every page of a data hub came up unstyled (404 on
+# /css/bootstrap.min.css, /js/jquery.min.js). The portal only escaped it because the
+# Jenkinsfile inits lademo-branding's submodule itself. throttle: 1 so the hosts do not
+# race on the checkout's git lock; the second and later runs are no-ops.
 - name: Stat branding .gitmodules (local source)
   ansible.builtin.stat:
     path: "{{ branding_source_path }}/.gitmodules"
   register: branding_gitmodules
+  delegate_to: localhost
+  become: false
   when: "(inst_branding_enabled | bool) and not (branding_is_git_url | default(false) | bool)"
   tags:
     - branding
@@ -144,6 +154,9 @@
     cmd: git submodule update --init --recursive
     chdir: "{{ branding_source_path }}"
   register: branding_submodule_init
+  delegate_to: localhost
+  become: false
+  throttle: 1
   changed_when: "branding_submodule_init.stdout | trim | length > 0"
   when: >-
     (inst_branding_enabled | bool)
@@ -165,6 +178,45 @@
       - "--exclude=public"
       - "--exclude=dist"
   when: inst_branding_enabled | bool
+  tags:
+    - branding
+    - docker-compose
+
+# Every submodule the branding declares must reach the build directory with content.
+# An empty one still builds: vite copies nothing and the bundle ships without the
+# assets the apps link to, which only shows as an unstyled page in a browser.
+- name: Find the branding's submodules in the build directory
+  ansible.builtin.find:
+    paths: "{{ docker_compose_data_dir }}/dockerfiles/branding{{ inst.suffix }}/{{ item }}"
+    file_type: any
+  register: branding_submodule_content
+  # The loop is templated before `when` is looked at: tolerate a missing .gitmodules
+  # and an unset path (branding disabled) instead of failing on the lookup.
+  loop: >-
+    {{ (lookup('ansible.builtin.file', (branding_source_path | default('/nonexistent')) ~ '/.gitmodules',
+               errors='ignore') or '')
+       | regex_findall('(?m)^\s*path\s*=\s*(\S+)') }}
+  when:
+    - inst_branding_enabled | bool
+    - not (branding_is_git_url | default(false) | bool)
+    - branding_gitmodules.stat.exists | default(false)
+  tags:
+    - branding
+    - docker-compose
+
+- name: Fail if a branding submodule reached the build directory empty
+  ansible.builtin.fail:
+    msg: >-
+      Branding submodule {{ item.item }} is empty in
+      {{ docker_compose_data_dir }}/dockerfiles/branding{{ inst.suffix }}/. Run
+      `git submodule update --init` in {{ branding_source_path }} on the controller;
+      without it the pages linking to its assets come up unstyled.
+  loop: "{{ branding_submodule_content.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item | default('') }}"
+  when:
+    - item.matched is defined
+    - item.matched == 0
   tags:
     - branding
     - docker-compose

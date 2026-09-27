@@ -1,4 +1,5 @@
 import { hubs, targets } from "../../support/services";
+import { linkedAssetsLoad } from "../../support/checks";
 
 // Branding is per hub: a hub that declares a branding_source of its own gets its own
 // image, its own volume and its own nginx mount; a hub without one reuses the portal's
@@ -32,6 +33,13 @@ describe("Data hub branding", () => {
           );
         },
       );
+    });
+
+    // A footer that loads is not a styled page: see linkedAssetsLoad().
+    Object.entries(hub.services).forEach(([service, url]) => {
+      it(`${hub.key} ${service}: every stylesheet and script it links loads`, () => {
+        linkedAssetsLoad(url.replace(/\/+$/, "") + "/");
+      });
     });
 
     it(`${hub.key} branding is its own when it declares one`, function () {

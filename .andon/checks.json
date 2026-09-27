@@ -88,6 +88,13 @@
         "scripts/test-nginx-duplicate-server-names.sh"
       ],
       "run": "bash scripts/test-nginx-duplicate-server-names.sh"
+    },
+    {
+      "match": [
+        "roles/la-compose/tasks/stage-branding-source.yml",
+        "scripts/test-branding-submodules.sh"
+      ],
+      "run": "bash scripts/test-branding-submodules.sh"
     }
   ],
   "ignore": [

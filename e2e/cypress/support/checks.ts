@@ -85,3 +85,34 @@ export function skipIfMissing(key: string, ctx: Mocha.Context): void {
     ctx.skip();
   }
 }
+
+/**
+ * Assert every stylesheet and script a page links from its own host loads (200).
+ *
+ * A page whose CSS/JS 404s still answers 200 and still has a body, so pageRenders()
+ * and every status check pass on a bare, unstyled page. The ALA hubs link bootstrap,
+ * jquery and ala-styles from the branding; an empty commonui-bs3-2019 submodule in the
+ * branding build (TASK-48) broke all of them at once and nothing went red.
+ * Third-party hosts (CDNs, Google Maps) are not this deployment's to serve: skipped.
+ */
+export function linkedAssetsLoad(pageUrl: string): void {
+  cy.request({ url: pageUrl, failOnStatusCode: false }).then((resp) => {
+    expect(resp.status, `GET ${pageUrl}`).to.be.lessThan(400);
+    // Comments out: an <!--[if lt IE 9]> html5.js shim is never fetched by a browser.
+    const html = String(resp.body).replace(/<!--[\s\S]*?-->/g, "");
+    const host = new URL(pageUrl).host;
+    const assets = [
+      ...html.matchAll(/<link[^>]+rel=["']stylesheet["'][^>]*href=["']([^"']+)["']/gi),
+      ...html.matchAll(/<link[^>]+href=["']([^"']+)["'][^>]*rel=["']stylesheet["']/gi),
+      ...html.matchAll(/<script[^>]+src=["']([^"']+)["']/gi),
+    ]
+      .map((m) => new URL(m[1].replace(/&amp;/g, "&"), pageUrl).toString())
+      .filter((a) => new URL(a).host === host);
+    expect(assets.length, `${pageUrl} links stylesheets/scripts of its own`).to.be.greaterThan(0);
+    [...new Set(assets)].forEach((asset) => {
+      cy.request({ url: asset, failOnStatusCode: false }).then((r) => {
+        expect(r.status, `GET ${asset} (linked from ${pageUrl})`).to.eq(200);
+      });
+    });
+  });
+}
