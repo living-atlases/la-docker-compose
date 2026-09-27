@@ -246,3 +246,22 @@
   tags:
     - always
     - docker-compose
+
+# nginx_shared_vhost_hostnames (above) only counts the apps placed on THIS host, so a
+# hostname split ACROSS hosts with a single member here looked unshared. That member
+# then rendered in fast_mode, rewriting the whole <hostname>.conf, and the cross-host
+# stubs (fragment mode) re-assembled the file from the fragments directory right after
+# -- which never held the local member. Result on the CI cluster: hub.l-a.site on
+# host2 lacked its own /species, on host3 its own /regions. Any hostname with more than
+# one member anywhere in the cluster (nginx_shared_vhost_topology is global) is shared.
+- name: Treat a hostname split across hosts as shared, even with one member here
+  ansible.builtin.set_fact:
+    nginx_shared_vhost_hostnames: >-
+      {%- set shared = nginx_shared_vhost_hostnames | list -%}
+      {%- for hostname, members in (nginx_shared_vhost_topology | default({})).items() -%}
+        {%- if members | length > 1 and hostname not in shared -%}{%- set _ = shared.append(hostname) -%}{%- endif -%}
+      {%- endfor -%}
+      {{ shared }}
+  tags:
+    - always
+    - docker-compose

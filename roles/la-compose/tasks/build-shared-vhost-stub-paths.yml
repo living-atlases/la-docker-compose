@@ -11,7 +11,7 @@
         {%- set entry = {
               'path': m.path, 'is_proxy': true, 'static_upstream': true,
               'proxy_hostname': m.hostname,
-              'proxy_pass': 'http://' ~ m.owner_private_ip ~ ':' ~ (m.container_port | string) ~ m.path
+              'proxy_pass': (m.proxy_proto | default('http')) ~ '://' ~ m.owner_private_ip ~ ':' ~ (m.container_port | string) ~ m.path
             } -%}
         {%- set _ = out.update({m.hostname: (out.get(m.hostname, []) + [entry])}) -%}
       {%- endfor -%}

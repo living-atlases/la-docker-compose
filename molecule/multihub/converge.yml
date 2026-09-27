@@ -578,3 +578,69 @@
         - generate-hub-instance.yml
         - generate-compose.yml
         - register-shared-vhost-stubs.yml
+
+    # ------------------------------------------------------------------ TC21
+    # A hostname split ACROSS hosts with only ONE member on this host is still shared.
+    # nginx_shared_vhost_hostnames used to count this host's apps only: farhub's
+    # species here was the lone local claim on far-hub.l-a.site, rendered in fast_mode
+    # (whole <hostname>.conf), and the cross-host stubs then re-assembled the file from
+    # fragments that never held it. The CI cluster lost hub.l-a.site/species on host2
+    # and /regions on host3 that way. farhub is that exact shape: records and branding
+    # on other-host, species here (regions given its own hostname so species is alone).
+    - name: "[TC21] Put farhub's records, species and branding on one hostname"
+      ansible.builtin.set_fact:
+        "{{ item.var }}": "{{ item.value }}"
+      delegate_to: "{{ item.host }}"
+      delegate_facts: true
+      loop:
+        - {host: other.ala_hub_farhub, var: biocache_hub_hostname, value: far-hub.l-a.site}
+        - {host: other.ala_hub_farhub, var: biocache_hub_context_path, value: /records}
+        - {host: localhost.ala_bie_farhub, var: bie_hub_hostname, value: far-hub.l-a.site}
+        - {host: localhost.ala_bie_farhub, var: bie_hub_context_path, value: /species}
+        - {host: localhost.regions_farhub, var: regions_hostname, value: far-regions.l-a.site}
+        - {host: other.branding_farhub, var: branding_url, value: far-hub.l-a.site}
+        - {host: other.branding_farhub, var: branding_path, value: /}
+
+    - name: "[TC21] Recompute hub facts for farhub alone"
+      ansible.builtin.include_tasks: ../../roles/la-compose/tasks/setup-hub-facts.yml
+      vars:
+        skip_hubs: []
+        la_hubs:
+          - {pkg: farhub, use_species: true, use_regions: true,
+             branding_source: 'https://github.com/living-atlases/base-branding'}
+
+    - name: "[TC21] The split hostname is shared here although only species claims it locally"
+      ansible.builtin.assert:
+        that:
+          - "'far-hub.l-a.site' in nginx_shared_vhost_hostnames"
+          - "'far-regions.l-a.site' not in nginx_shared_vhost_hostnames"
+          - nginx_shared_vhost_topology['far-hub.l-a.site'] | length == 3
+        fail_msg: "shared={{ nginx_shared_vhost_hostnames }} topology={{ nginx_shared_vhost_topology }}"
+
+    # ------------------------------------------------------------------ TC22
+    # The same split, resolved into what this host publishes and what it proxies, with
+    # the SAME file generate-compose.yml includes. The branding member (static files on
+    # the owner) must be proxied too -- to the owner's nginx over https -- or no copy of
+    # the vhost but the owner's has a '/' (hub.l-a.site/ 404, Gatus hub.l-a.site/root).
+    - name: "[TC22] Resolve shared-vhost membership (the SAME file the real render includes)"
+      ansible.builtin.include_tasks: ../../roles/la-compose/tasks/resolve-shared-vhost-members.yml
+      vars:
+        docker_extra_hosts_dict: {other-host: 10.77.0.9}
+
+    - name: "[TC22] Build the stubs from it"
+      ansible.builtin.include_tasks: ../../roles/la-compose/tasks/build-shared-vhost-stub-paths.yml
+
+    - name: "[TC22] Local species publishes its port; records and branding are proxied"
+      ansible.builtin.assert:
+        that:
+          - nginx_shared_ports_needed == ['bie-hub:farhub']
+          - tc22_remote | map(attribute='service_key') | sort == ['biocache-hub', 'branding']
+          - "'http://10.77.0.9:18180/records' in tc22_proxy"
+          - "'https://10.77.0.9:443/' in tc22_proxy"
+          - tc22_paths | map(attribute='proxy_hostname') | unique | list == ['far-hub.l-a.site']
+          - tc22_paths | map(attribute='path') | sort == ['/', '/records']
+        fail_msg: "remote={{ tc22_remote }} stubs={{ tc22_paths }}"
+      vars:
+        tc22_remote: "{{ nginx_remote_shared_members | selectattr('hostname', 'equalto', 'far-hub.l-a.site') | list }}"
+        tc22_paths: "{{ nginx_remote_stub_paths['far-hub.l-a.site'] }}"
+        tc22_proxy: "{{ tc22_paths | map(attribute='proxy_pass') | list }}"
