@@ -14,6 +14,11 @@
 # may not deploy Airflow at all — so an empty index must never be reported here as a failed
 # deployment BY DEFAULT.
 #
+# Pass --all-endpoints to gate on EVERY Gatus endpoint, whatever its group (vhost groups,
+# Hosts, DNS, TLS certs, Deep checks, Data checks...). This is the "total green" bar the
+# CI baseline is measured against: one red endpoint anywhere fails it. It implies the Data
+# checks, so the same seed-stage caveat as --gate-data-checks applies.
+#
 # Pass --gate-data-checks to widen the gate to "Data checks" too. Only do this once the
 # matching seed stages have actually run (Airflow Ingest E2E, BIE Taxonomy Import E2E, and
 # the Cypress species-list mutation spec under CYPRESS_ENABLE_MUTATION_TESTS) — otherwise
@@ -36,6 +41,7 @@
 #
 # Usage:
 #   scripts/verify-deployment.sh [--target HOST] [--blocking] [--direct] [--gate-data-checks]
+#                                [--all-endpoints]
 #                                [--gatus-host FQDN] [--targets-file PATH] [--timeout SEC]
 #                                [--connect-timeout SEC]
 set -euo pipefail
@@ -44,6 +50,7 @@ TARGET="localhost"
 BLOCKING=false
 DIRECT=false
 GATE_DATA_CHECKS=false
+ALL_ENDPOINTS=false
 GATUS_HOST=""
 TARGETS_FILE="${CYPRESS_TARGETS_FILE:-/data/docker-compose/e2e-targets.json}"
 TARGETS_FILE_EXPLICIT=false
@@ -58,7 +65,7 @@ CONNECT_TIMEOUT=45
 
 [[ "${GATUS_GATE_BLOCKING:-}" == "true" ]] && BLOCKING=true
 
-usage() { sed -n '2,33p' "$0"; exit 0; }
+usage() { sed -n '2,39p' "$0"; exit 0; }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -67,6 +74,7 @@ while [[ $# -gt 0 ]]; do
     --report-only)  BLOCKING=false; shift ;;
     --direct)       DIRECT=true; shift ;;
     --gate-data-checks) GATE_DATA_CHECKS=true; shift ;;
+    --all-endpoints) ALL_ENDPOINTS=true; shift ;;
     --gatus-host)   GATUS_HOST="$2"; shift 2 ;;
     --targets-file) TARGETS_FILE="$2"; TARGETS_FILE_EXPLICIT=true; shift 2 ;;
     --timeout)      TIMEOUT="$2"; shift 2 ;;
@@ -77,7 +85,11 @@ while [[ $# -gt 0 ]]; do
 done
 
 # GROUPS_JSON drives the jq filters below; GROUP_LABEL is only for log/error text.
-if [[ "$GATE_DATA_CHECKS" == true ]]; then
+# An empty GROUPS_JSON means "every group" (--all-endpoints).
+if [[ "$ALL_ENDPOINTS" == true ]]; then
+  GROUPS_JSON='[]'
+  GROUP_LABEL="all endpoints"
+elif [[ "$GATE_DATA_CHECKS" == true ]]; then
   GROUPS_JSON='["Deep checks","Data checks"]'
   GROUP_LABEL="Deep checks + Data checks"
 else
@@ -215,7 +227,7 @@ log "Verifying Gatus '$GROUP_LABEL' via ${GATUS_HOST} (target=$TARGET, timeout=$
 
 # Normalize the API to a bare array (older Gatus returns [...], newer may wrap in .endpoints).
 JQ_NORM='if type=="array" then . else (.endpoints // []) end'
-IN_GROUPS='.group as $g | ($groups | index($g)) != null'
+IN_GROUPS='.group as $g | ($groups | length) == 0 or ($groups | index($g)) != null'
 
 deadline=$(( SECONDS + TIMEOUT ))
 connect_deadline=$(( SECONDS + CONNECT_TIMEOUT ))
@@ -247,7 +259,9 @@ while :; do
 done
 
 # Evaluate: latest result per endpoint must be success.
-unhealthy="$(printf '%s' "$raw" | jq -r --argjson groups "$GROUPS_JSON" "($JQ_NORM)[] | select($IN_GROUPS) | select((.results[-1].success)==false) | .name")"
+# Name red endpoints as "group / name": with --all-endpoints the same URL-shaped name can
+# appear under several groups, and the group is what says which vhost or check family it is.
+unhealthy="$(printf '%s' "$raw" | jq -r --argjson groups "$GROUPS_JSON" "($JQ_NORM)[] | select($IN_GROUPS) | select((.results[-1].success)==false) | \"\\(.group) / \\(.name)\"")"
 total="$(printf '%s' "$raw" | jq -r --argjson groups "$GROUPS_JSON" "[ ($JQ_NORM)[] | select($IN_GROUPS) ] | length")"
 
 if [[ -n "$unhealthy" ]]; then

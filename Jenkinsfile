@@ -134,6 +134,11 @@ pipeline {
             description: 'Run the Cypress species-list mutation spec (6-lists/manage.cy.ts): create one species list through the real Upload UI, unless a list with that name already exists. Nothing else in the chain ever populates a species list, so without this Gatus\'s "lists count" Data check stays red on a supported, data-less deployment. Independent of RUN_AIRFLOW_INGEST/RUN_BIE_IMPORT. Report-only unless E2E_BLOCKING.'
         )
         booleanParam(
+            name: 'GATUS_ALL_BLOCKING',
+            defaultValue: true,
+            description: 'Total-green gate: after every seed stage, EVERY Gatus endpoint (all groups: vhosts, Hosts, DNS, TLS certs, Deep and Data checks) must be green. If true, one red endpoint fails the build; if false, it only marks it UNSTABLE. Runs under the same conditions as the Data checks gate.'
+        )
+        booleanParam(
             name: 'PROBE_HUB_COLD_START',
             defaultValue: false,
             description: 'EXPERIMENT (never fails the build): on a data-less stack, settle whether biocache-hub\'s cold-start 500 on /occurrences/search needs DATA or is just an initialisation defect a restart clears. Restarts biocache-hub once and prints a verdict. Only meaningful with RUN_AIRFLOW_INGEST=false on a CLEAN_MACHINE build — it refuses to run against an index that already holds records. See gh-8.'
@@ -1634,6 +1639,53 @@ ENVEOF
                         }
                     } else {
                         echo "Gatus 'Deep checks' + 'Data checks' verified."
+                    }
+                }
+            }
+        }
+
+        // ----- Total green: EVERY Gatus endpoint, not just the gated groups -----
+        // The group-scoped gates above only look at "Deep checks" and "Data checks" (~14 of
+        // ~137 endpoints on the 3-host topology). A red vhost check -- hub.l-a.site/ answering
+        // 404 on 2026-09-27 -- is invisible to both, so a build could go SUCCESS with Gatus
+        // red. This stage is the baseline bar for any deploy-path change: one red endpoint
+        // anywhere, and the build is not green. Same conditions as the Data checks gate,
+        // since "every endpoint" includes the Data checks and they need the seed stages.
+        stage('Verify Gatus Total Green') {
+            when { expression { params.RUN_AIRFLOW_INGEST && params.RUN_BIE_IMPORT && params.RUN_LISTS_SEED && params.AUTO_DEPLOY && !params.ONLY_CLEAN } }
+            steps {
+                script {
+                    def hosts = env.TARGET_HOSTS.trim().split(/\s+/)
+                    def verdict = ''
+                    for (h in hosts) {
+                        def targetHost = h
+                        echo "Gatus total-green gate via ${targetHost}..."
+                        def rc = sh(returnStatus: true, script: """
+                            set -u
+                            rc=0
+                            bash "${WORKSPACE}/scripts/verify-deployment.sh" \
+                                --target ${targetHost} --blocking --all-endpoints --timeout 420 \
+                                > "${WORKSPACE}/gatus-all-gate.log" 2>&1 || rc=\$?
+                            cat "${WORKSPACE}/gatus-all-gate.log"
+                            exit \$rc
+                        """)
+                        def log = readFile("${WORKSPACE}/gatus-all-gate.log")
+                        if (log.contains('GATE-PASSED:')) { verdict = 'PASSED'; break }
+                        if (log.contains('GATE-FAILED:')) { verdict = 'FAILED'; break }
+                        echo "Gatus total-green gate could not be evaluated via ${targetHost} (rc=${rc}); trying the next host."
+                    }
+                    if (verdict == '') {
+                        error("GATE-NOT-RUN: the Gatus total-green gate never produced a verdict on any of [${hosts.join(', ')}] - see the log above. This is a broken gate, not a healthy deployment.")
+                    }
+                    if (verdict == 'FAILED') {
+                        def msg = "GATE-FAILED: Gatus reports unhealthy endpoints (all groups) - see the log above."
+                        if (params.GATUS_ALL_BLOCKING) {
+                            error(msg)
+                        } else {
+                            unstable(msg)
+                        }
+                    } else {
+                        echo "Gatus total green: every endpoint verified."
                     }
                 }
             }

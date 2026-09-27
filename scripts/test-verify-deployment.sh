@@ -101,6 +101,26 @@ cat > "$TMP/statuses-all-healthy.json" <<'EOF'
 ]
 EOF
 
+# Deep AND Data checks green, but a vhost-group endpoint red -- the CI cluster on
+# 2026-09-27 (hub.l-a.site/ answering 404). Invisible to every group-scoped gate above.
+cat > "$TMP/statuses-vhost-red.json" <<'EOF2'
+[
+  {"name":"records-ws occurrences search","group":"Deep checks","results":[{"success":true}]},
+  {"name":"records-ws index fields","group":"Data checks","results":[{"success":true}]},
+  {"name":"https://hub.example.test/root","group":"hub.example.test","results":[{"success":false}]},
+  {"name":"https://hub.example.test/records","group":"hub.example.test","results":[{"success":true}]}
+]
+EOF2
+# Every endpoint of every group green: the "total green" baseline.
+cat > "$TMP/statuses-total-green.json" <<'EOF2'
+[
+  {"name":"records-ws occurrences search","group":"Deep checks","results":[{"success":true}]},
+  {"name":"records-ws index fields","group":"Data checks","results":[{"success":true}]},
+  {"name":"https://hub.example.test/root","group":"hub.example.test","results":[{"success":true}]},
+  {"name":"gatus.example.test","group":"TLS certs","results":[{"success":true}]}
+]
+EOF2
+
 # --- shims -----------------------------------------------------------------------------
 # ssh: serves `cat <manifest>` from the fixture, and `curl ...` by delegating to the curl
 # shim, so the remote path is exercised exactly as the script drives it.
@@ -149,6 +169,8 @@ case "\$url" in
         unreachable)  exit 22 ;;
         unhealthy)    cat "$TMP/statuses-unhealthy.json" ;;
         all-healthy)  cat "$TMP/statuses-all-healthy.json" ;;
+        vhost-red)    cat "$TMP/statuses-vhost-red.json" ;;
+        total-green)  cat "$TMP/statuses-total-green.json" ;;
         *)            cat "$TMP/statuses-healthy.json" ;;
       esac ;;
   *) exit 22 ;;
@@ -239,6 +261,32 @@ if [[ "$(marker_of "$out")" == "GATE-PASSED" ]]; then
     pass "without the flag, an all-healthy deploy still passes as before"
 else
     fail "the default gate regressed on an all-healthy deploy"
+fi
+
+# --- 2c. --all-endpoints: every group gates, not just the ones named ---------------------
+info "2c. --all-endpoints: a red endpoint in ANY group fails the gate"
+out="$(run_gate GATUS_STATE=vhost-red -- --target ci-host-1 --gate-data-checks --blocking --timeout 5)"
+if [[ "$(marker_of "$out")" == "GATE-PASSED" ]]; then
+    pass "the group-scoped gate cannot see a red vhost endpoint (why --all-endpoints exists)"
+else
+    fail "fixture drift: expected the group-scoped gate to pass, got '$(marker_of "$out")'"
+fi
+out="$(run_gate GATUS_STATE=vhost-red -- --target ci-host-1 --all-endpoints --blocking --timeout 5)"; rc=$?
+if [[ "$(marker_of "$out")" == "GATE-FAILED" && "$rc" -eq 1 ]]; then
+    pass "--all-endpoints fails the gate on a red vhost-group endpoint"
+else
+    fail "expected GATE-FAILED/exit 1 with --all-endpoints, got '$(marker_of "$out")'/exit $rc"
+fi
+if [[ "$out" == *"hub.example.test / https://hub.example.test/root"* ]]; then
+    pass "names the red endpoint with its group"
+else
+    fail "does not say which endpoint (and group) is red"
+fi
+out="$(run_gate GATUS_STATE=total-green -- --target ci-host-1 --all-endpoints --blocking --timeout 5)"; rc=$?
+if [[ "$(marker_of "$out")" == "GATE-PASSED" && "$rc" -eq 0 && "$out" == *"all 4 'all endpoints'"* ]]; then
+    pass "--all-endpoints passes when every endpoint of every group is green, and counts all of them"
+else
+    fail "expected GATE-PASSED/exit 0 over 4 endpoints, got '$(marker_of "$out")'/exit $rc"
 fi
 
 # --- 3. a gate that cannot run can never look like a pass --------------------------------
@@ -355,6 +403,15 @@ else
     else
         pass "no PIPESTATUS in the stage's sh step"
     fi
+fi
+
+total="$(awk '/stage\(.Verify Gatus Total Green.\)/,/^    post \{/' "$JF")"
+if [[ -z "$total" ]]; then
+    fail "could not locate the 'Verify Gatus Total Green' stage in the Jenkinsfile"
+elif [[ "$total" == *"--all-endpoints"* && "$total" == *"GATE-PASSED"* && "$total" == *"GATE-NOT-RUN"* ]]; then
+    pass "the total-green stage gates every endpoint and requires a verdict marker"
+else
+    fail "the total-green stage does not pass --all-endpoints or does not check the verdict markers"
 fi
 
 # --- 8. the generated manifest carries a gatus URL at all ---------------------------------
