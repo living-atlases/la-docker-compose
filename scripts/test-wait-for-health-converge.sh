@@ -57,13 +57,31 @@ if ! docker compose version >/dev/null 2>&1; then
     exit 1
 fi
 
+# Start the fixture in $WORK_DIR, loudly. It used to be `up -d >/dev/null 2>&1` under
+# set -e: when it failed (#414), the script died right after "Case 1" with no trace of why.
+# One retry covers a transient pull hiccup; a second failure prints compose's own error.
+fixture_up() {
+    local out
+    if out=$(docker compose -f "$WORK_DIR/docker-compose.yml" up -d 2>&1); then
+        return 0
+    fi
+    info "fixture 'docker compose up' failed, retrying once: $(tail -3 <<<"$out")"
+    docker compose -f "$WORK_DIR/docker-compose.yml" down -v --remove-orphans >/dev/null 2>&1 || true
+    if out=$(docker compose -f "$WORK_DIR/docker-compose.yml" up -d 2>&1); then
+        return 0
+    fi
+    fail "fixture 'docker compose up' failed in $WORK_DIR:"
+    echo "$out" | tail -20
+    exit 1
+}
+
 # Each case gets a pristine container: the fixture's boot counter lives on the
 # container's writable layer, so a reused container would start already-healthy.
 reset_fixture() {
     cleanup
     WORK_DIR="$(mktemp -d)"
     cp "$FIXTURE_SRC/docker-compose.yml" "$WORK_DIR/"
-    docker compose -f "$WORK_DIR/docker-compose.yml" up -d >/dev/null 2>&1
+    fixture_up
 }
 
 failures=0
@@ -150,7 +168,7 @@ info "Case 4: crash-looping service -> expect the gate to abort quickly, not bur
 cleanup
 WORK_DIR="$(mktemp -d)"
 cp "$SCRIPT_DIR/fixtures/wait-for-health-crashloop/docker-compose.yml" "$WORK_DIR/"
-docker compose -f "$WORK_DIR/docker-compose.yml" up -d >/dev/null 2>&1
+fixture_up
 
 # Budget deliberately generous: the point is that the gate returns long before it.
 start=$(date +%s)
@@ -182,7 +200,7 @@ info "Case 5: crash-looping service with no healthcheck -> expect the crash loop
 cleanup
 WORK_DIR="$(mktemp -d)"
 cp "$SCRIPT_DIR/fixtures/wait-for-health-nohealthcheck/docker-compose.yml" "$WORK_DIR/"
-docker compose -f "$WORK_DIR/docker-compose.yml" up -d >/dev/null 2>&1
+fixture_up
 
 start=$(date +%s)
 rc=0
