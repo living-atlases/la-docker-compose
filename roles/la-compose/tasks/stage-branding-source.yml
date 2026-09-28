@@ -218,11 +218,16 @@
     dest: "{{ docker_compose_data_dir }}/dockerfiles/branding{{ inst.suffix }}/"
     delete: yes
     recursive: yes
+    # --chmod: the served assets must be world-readable whatever the controller's umask.
+    # The submodule an earlier root run checked out on the Jenkins node is 0640, archive
+    # mode kept that all the way into the assets volume, and nginx (uid 101) answered 403
+    # on /css/bootstrap.min.css (#419).
     rsync_opts:
       - "--exclude=node_modules"
       - "--exclude=.git"
       - "--exclude=public"
       - "--exclude=dist"
+      - "--chmod=a+rX"
   when: inst_branding_enabled | bool
   tags:
     - branding

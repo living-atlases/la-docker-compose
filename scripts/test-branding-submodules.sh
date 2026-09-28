@@ -6,7 +6,8 @@
 # controller-side branding_source_path does not exist, so they were skipped.
 #
 # 1. static: the tasks that read branding_source_path run on the controller, as its owner
-#    (not root: #416 left the submodule root-owned and synchronize could not read it);
+#    (not root: #416 left the submodule root-owned and synchronize could not read it),
+#    and the copy forces world-readable modes (#419: 0640 assets, nginx 403);
 # 2. behaviour: the REAL guard tasks from the role, run against fixtures, fail on an
 #    empty submodule and pass on a populated one, a branding without .gitmodules, and a
 #    disabled branding (their loop is templated before `when`). ~5s, no cluster.
@@ -45,6 +46,12 @@ for name in ("Stat branding .gitmodules (local source)",
 repair = by_name.get("Give the branding checkout back to its owner (controller)")
 if repair is None or repair.get("delegate_to") != "localhost":
     bad.append("missing controller-side ownership repair of the branding checkout")
+# Whatever the controller's umask, what reaches the assets volume must be readable by
+# nginx: #419 served the fixed submodule as 0640 root:root and got 403s.
+sync = by_name.get("Copy branding source to build directory") or {}
+opts = ((sync.get("ansible.posix.synchronize") or {}).get("rsync_opts") or [])
+if "--chmod=a+rX" not in opts:
+    bad.append("branding sync does not force world-readable files (--chmod=a+rX)")
 if bad:
     print("[FAIL] " + "; ".join(bad), file=sys.stderr)
     sys.exit(1)

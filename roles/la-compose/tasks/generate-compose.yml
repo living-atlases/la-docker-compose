@@ -11,6 +11,23 @@
     - docker-compose
     - build
 
+# Before anything is rendered: a `docker compose up` that ran while a bind-mounted FILE
+# was missing left a root-owned DIRECTORY at its path, and the template for that file
+# then writes into the directory instead of replacing it -- the container never starts
+# again (nginx.conf and a data hub's -config.properties on docker-1, #417-#419). The
+# script reads the previous run's compose files and removes such directories when they
+# hold nothing but stray files; the renders below then write the real files.
+- name: Remove directories Docker left where bind-mounted files belong
+  ansible.builtin.script: >-
+    remove-file-mount-artifacts.py {{ docker_compose_data_dir | quote }}
+  args:
+    executable: python3
+  become: true
+  register: file_mount_artifacts
+  changed_when: "(file_mount_artifacts.stdout_lines | default([]) | last | default('')) != 'removed 0'"
+  tags:
+    - docker-compose
+
 # Enforce deployment_type=container for the entire generate-compose flow.
 # This uses set_fact (higher precedence than inventory vars) to prevent
 # ala-install roles (e.g. common/setfacts) from resetting it to 'vm'
