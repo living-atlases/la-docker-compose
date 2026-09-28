@@ -1508,6 +1508,10 @@ ENVEOF
                     def targetHost = hosts[0]
                     // Cypress consumes the inventory-generated manifest — build the docker cmd once.
                     def body = {
+                        // Marks the start of THIS run: post publishes only results newer than it,
+                        // so a run that never reaches Cypress publishes nothing instead of the
+                        // previous run's root-owned results (#422/#423 showed a stale 53/53).
+                        sh 'touch e2e/.run-started'
                         // Fetch the manifest from a target host into the workspace for the container.
                         sh """
                             set -eu
@@ -1549,6 +1553,15 @@ ENVEOF
                             # user can't rm them, so otherwise junit republishes the last good run's stale
                             # results and freezes the same failures at an ever-growing age. Then run fresh, so
                             # junit reflects THIS build (or empty -> honest -> UNSTABLE, not stale-green).
+                            # The agent's Docker has corrupted a layer before ("missing parent ...
+                            # bucket: not found", #423): the image then never extracts and Cypress
+                            # never runs. Drop the local copy and pull it again once before giving up.
+                            CYPRESS_IMAGE=cypress/browsers:latest
+                            if ! docker pull -q "\$CYPRESS_IMAGE" >/dev/null 2>&1; then
+                                echo "WARN: pulling \$CYPRESS_IMAGE failed; removing the local copy and retrying"
+                                docker rmi -f "\$CYPRESS_IMAGE" >/dev/null 2>&1 || true
+                                docker pull -q "\$CYPRESS_IMAGE"
+                            fi
                             docker run --rm -v "${WORKSPACE}/e2e:/e2e" -w /e2e -e CYPRESS_TARGET_ENV=lademo -e CYPRESS_TARGETS_FILE=/e2e/e2e-targets.json -e CYPRESS_LADEMO_USERNAME -e CYPRESS_LADEMO_PASSWORD -e CYPRESS_DOWNLOAD_EMAIL -e CYPRESS_ENABLE_AUTH_TESTS=${params.ENABLE_AUTH_TESTS} -e CYPRESS_ENABLE_MUTATION_TESTS=${params.RUN_LISTS_SEED} -e CYPRESS_BIE_HAS_DATA=\${BIE_HAS_DATA:-false} cypress/browsers:latest sh -c 'rm -rf /e2e/results; npm ci && npx cypress run'
                         """
                     }
@@ -1587,7 +1600,16 @@ ENVEOF
                             """
                         }
                     }
-                    junit allowEmptyResults: true, testResults: 'e2e/results/*.xml'
+                    // Only this run's results (see .run-started): e2e/results is root-owned and
+                    // outlives a run that failed before Cypress wrote anything.
+                    sh '''
+                        rm -rf e2e/results-fresh && mkdir -p e2e/results-fresh
+                        if [ -f e2e/.run-started ] && [ -d e2e/results ]; then
+                            find e2e/results -name '*.xml' -newer e2e/.run-started -exec cp {} e2e/results-fresh/ \\;
+                        fi
+                        echo "E2E: publishing $(ls e2e/results-fresh | wc -l) result file(s) written by this run"
+                    '''
+                    junit allowEmptyResults: true, testResults: 'e2e/results-fresh/*.xml'
                     archiveArtifacts artifacts: 'e2e/cypress/screenshots/**, e2e/cypress/videos/**, e2e/logs/**', allowEmptyArchive: true
                 }
             }
