@@ -525,6 +525,19 @@
             chdir: "{{ docker_compose_data_dir }}"
           become: true
 
+        # --no-recreate also keeps every exited one-shot (branding-init, ...) on its OLD
+        # definition, so a changed init command never runs (#422: branding volume stayed
+        # 0640). Exited one-shots are safe to recreate: nothing goes down.
+        - name: "Post-up: recreate one-shot init containers whose definition changed"
+          ansible.builtin.script: recreate-drifted-oneshots.sh
+          args:
+            chdir: "{{ docker_compose_data_dir }}"
+            executable: /bin/bash
+          become: true
+          register: oneshot_recreate
+          changed_when: "'recreated 0' not in oneshot_recreate.stdout"
+          when: not (docker_force_recreate | default(false) | bool)
+
         # Finding 1 (non-fatal warning): on the --no-recreate path a changed service
         # DEFINITION (image/version bump, new env/port/volume) is NOT applied to an
         # already-running container — config-restart-apply only re-reads bind-mounted

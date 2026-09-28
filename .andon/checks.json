@@ -118,6 +118,13 @@
         "scripts/test-file-mount-artifacts.sh"
       ],
       "run": "bash scripts/test-file-mount-artifacts.sh"
+    },
+    {
+      "match": [
+        "roles/la-compose/files/recreate-drifted-oneshots.sh",
+        "scripts/test-recreate-drifted-oneshots.sh"
+      ],
+      "run": "bash scripts/test-recreate-drifted-oneshots.sh"
     }
   ],
   "ignore": [
