@@ -15,6 +15,13 @@ nothing but a few stray files, which is all such an artifact ever contains, and 
 empty file in its place (a restarting container would otherwise recreate the directory
 before the template runs). The template run that follows then writes the real file.
 
+The same happens one level removed: a file mounted at a destination INSIDE another bind
+mount of the service (/data/testhub-hub:/data/ala-hub plus a properties file at
+/data/ala-hub/config/...) needs a mountpoint there, and Docker creates it on the HOST, in
+the parent mount's source. Created while the file was still missing, it is a directory,
+and the file mount then fails with "not a directory" forever (#421). Those host
+mountpoints are cleaned the same way.
+
 Usage: remove-file-mount-artifacts.py COMPOSE_DIR [--dry-run]
 Prints one "removed <path>" line per artifact, then "removed N".
 """
@@ -31,10 +38,11 @@ MAX_STRAY_ENTRIES = 3
 # Short-syntax bind mounts, which is all the rendered compose files use:
 #   - /data/x/config/x-config.properties:/data/ala-hub/config/ala-hub-config.properties:ro
 # Parsed as text on purpose: the compose hosts need not have PyYAML.
-BIND = re.compile(r"""^\s*-\s*["']?(/[^:"'\s]+):/""")
+BIND = re.compile(r"""^\s*-\s*["']?(/[^:"'\s]+):(/[^:"'\s]*)""")
 
 
-def bind_sources(compose_dir):
+def binds(compose_dir):
+    """Yields the (source, destination) bind mounts of each compose file, as a list."""
     files = [os.path.join(compose_dir, "docker-compose.yml")]
     files += glob.glob(os.path.join(compose_dir, "**", "*.yml"), recursive=True)
     for path in sorted(set(files)):
@@ -42,10 +50,19 @@ def bind_sources(compose_dir):
             lines = open(path, encoding="utf-8", errors="replace").read().splitlines()
         except OSError:
             continue
-        for line in lines:
-            m = BIND.match(line)
-            if m:
-                yield m.group(1)
+        yield [m.groups() for m in map(BIND.match, lines) if m]
+
+
+def nested_mountpoints(mounts):
+    """Host paths of the mountpoints Docker needs for file mounts nested in a dir mount."""
+    dirs = [(s, d.rstrip("/")) for s, d in mounts if os.path.isdir(s) and not FILE_LIKE.search(s)]
+    for src, dst in mounts:
+        if not (os.path.isfile(src) or is_artifact(src)):
+            continue
+        parents = [(s, d) for s, d in dirs if dst.startswith(d + "/")]
+        if parents:
+            psrc, pdst = max(parents, key=lambda p: len(p[1]))
+            yield psrc + dst[len(pdst):]
 
 
 def is_artifact(path):
@@ -63,7 +80,11 @@ def main(argv):
         return 2
     compose_dir, dry_run = argv[1], "--dry-run" in argv[2:]
     removed = 0
-    for src in sorted(set(bind_sources(compose_dir))):
+    candidates = set()
+    for mounts in binds(compose_dir):
+        candidates.update(s for s, _ in mounts)
+        candidates.update(nested_mountpoints(mounts))
+    for src in sorted(candidates):
         if is_artifact(src):
             if not dry_run:
                 parent = os.stat(os.path.dirname(src))
