@@ -562,6 +562,14 @@ allow_service_removal: false
 # {{ docker_compose_data_dir }}/.config-hashes/. nginx is excluded (reload).
 config_change_restart: true
 
+# Recreate RUNNING services whose compose definition changed (image, env, ports,
+# mounts). --no-recreate otherwise leaves them on the old definition with only a
+# drift warning, and `docker compose restart` does not apply env changes either:
+# a JAVA_OPTS fix never reached la_biocache-hub. Each drifted service goes down
+# for its own restart, nothing else is touched. Off in production, where the
+# drift warning stays and the operator recreates deliberately.
+docker_recreate_drifted: "{{ (la_env | default('ci')) != 'production' }}"
+
 # Dump MySQL/MongoDB/PostgreSQL (auth users, registry, metadata DBs) before the
 # deploy mutates anything — the container equivalent of ala-install's db-backup
 # role (mysqldump/pg_dump/mongodump invoked before each service role). Enabled

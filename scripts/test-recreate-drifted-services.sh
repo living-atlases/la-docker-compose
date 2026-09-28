@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# roles/la-compose/files/recreate-drifted-oneshots.sh against a real Docker fixture.
+# roles/la-compose/files/recreate-drifted-services.sh against a real Docker fixture.
 # `up --no-recreate` kept branding-init on its old command after the template gained a
 # chmod (#422, hub assets 0640 -> nginx 403). The script must recreate an exited
-# one-shot whose definition changed, and leave alone: a one-shot that did not change,
-# and a RUNNING service whose definition changed (recreating that is downtime).
+# one-shot whose definition changed, and leave alone a one-shot that did not change and,
+# without --running, a RUNNING service whose definition changed (that is downtime, not
+# allowed in production). With --running (CI/staging) the drifted running service is
+# recreated too: a JAVA_OPTS fix otherwise never reached la_biocache-hub.
 # ~15s, needs Docker.
 set -eu
 cd "$(dirname "$0")/.."
-SCRIPT="$PWD/roles/la-compose/files/recreate-drifted-oneshots.sh"
+SCRIPT="$PWD/roles/la-compose/files/recreate-drifted-services.sh"
 
 pass() { printf '[PASS] %s\n' "$*"; }
 fail() { printf '[FAIL] %s\n' "$*" >&2; exit 1; }
@@ -61,8 +63,25 @@ pass "an exited one-shot whose definition changed is recreated and runs the new 
 [ "$(docker compose ps -q live)" = "$live_before" ] || fail "a running service was recreated (downtime)"
 [ "$(docker compose ps -a -q same)" = "$same_before" ] || fail "an unchanged one-shot was recreated"
 echo "$out" | tail -1 | grep -qx "recreated 1" || fail "expected 'recreated 1': $out"
-pass "running services and unchanged one-shots are left alone"
+pass "without --running, running services and unchanged one-shots are left alone"
 
-out="$(bash "$SCRIPT")"
+out="$(bash "$SCRIPT" --running)" || fail "script --running failed: $out"
+echo "$out" | grep -qx "recreated live" || fail "--running did not recreate the drifted running service: $out"
+[ "$(docker compose ps -q live)" != "$live_before" ] || fail "--running left the drifted running service in place"
+docker inspect -f '{{json .Config.Cmd}}' "$(docker compose ps -q live)" | grep -q 'sleep 3601' ||
+  fail "the recreated running service does not carry the new definition"
+[ "$(docker compose ps -a -q same)" = "$same_before" ] || fail "--running recreated an unchanged one-shot"
+pass "with --running, a drifted running service is recreated with its new definition"
+
+out="$(bash "$SCRIPT" --running)"
 echo "$out" | tail -1 | grep -qx "recreated 0" || fail "second run not idempotent: $out"
 pass "a second run recreates nothing"
+
+# Wiring: the role passes --running only through docker_recreate_drifted, and that is
+# off in production (the non-destructive redeploy contract keeps only the drift warning).
+cd "$OLDPWD"
+grep -q "recreate-drifted-services.sh{{ ' --running' if docker_recreate_drifted" roles/la-compose/tasks/main.yml ||
+  fail "main.yml does not gate --running on docker_recreate_drifted"
+grep -qx "docker_recreate_drifted: \"{{ (la_env | default('ci')) != 'production' }}\"" roles/la-compose/defaults/main.yml ||
+  fail "docker_recreate_drifted is not off by default in production"
+pass "--running is gated on docker_recreate_drifted, off in production"

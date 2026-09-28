@@ -525,17 +525,21 @@
             chdir: "{{ docker_compose_data_dir }}"
           become: true
 
-        # --no-recreate also keeps every exited one-shot (branding-init, ...) on its OLD
-        # definition, so a changed init command never runs (#422: branding volume stayed
-        # 0640). Exited one-shots are safe to recreate: nothing goes down.
-        - name: "Post-up: recreate one-shot init containers whose definition changed"
-          ansible.builtin.script: recreate-drifted-oneshots.sh
+        # --no-recreate also keeps every existing container on its OLD definition: an
+        # exited one-shot re-runs its old command (#422: branding volume stayed 0640),
+        # a running service never gets a changed env/image (a JAVA_OPTS fix never
+        # reached la_biocache-hub). Exited one-shots are always recreated (nothing goes
+        # down); drifted running services only with docker_recreate_drifted (default:
+        # everywhere but production, where the drift warning below stays).
+        - name: "Post-up: recreate containers whose definition changed"
+          ansible.builtin.script: >-
+            recreate-drifted-services.sh{{ ' --running' if docker_recreate_drifted | default(false) | bool else '' }}
           args:
             chdir: "{{ docker_compose_data_dir }}"
             executable: /bin/bash
           become: true
-          register: oneshot_recreate
-          changed_when: "'recreated 0' not in oneshot_recreate.stdout"
+          register: drift_recreate
+          changed_when: "'recreated 0' not in drift_recreate.stdout"
           when: not (docker_force_recreate | default(false) | bool)
 
         # Finding 1 (non-fatal warning): on the --no-recreate path a changed service
