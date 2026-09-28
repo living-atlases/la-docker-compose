@@ -62,6 +62,12 @@ yaml.safe_dump([{"hosts": "localhost", "gather_facts": False, "tasks": guard}],
 PY
 pass "the .gitmodules stat and the submodule init run on the controller, as the checkout owner"
 
+# branding-init copies the image's assets into the volume with `cp` (no -p), which applies
+# the process umask: #420 served 0640 root:root assets and nginx answered 403.
+grep -q 'chmod -R a+rX /output' roles/la-compose/templates/docker-compose/infrastructure/branding.yml.j2 ||
+  fail "branding-init does not make the copied assets world-readable (chmod -R a+rX /output)"
+pass "branding-init leaves the served assets world-readable"
+
 # ── 2. the guard, against fixtures ────────────────────────────────────────────
 src="$tmp/src"; out="$tmp/data"
 mkdir -p "$src" "$out/dockerfiles/branding-hub/commonui-bs3-2019"

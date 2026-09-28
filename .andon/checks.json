@@ -92,7 +92,8 @@
     {
       "match": [
         "roles/la-compose/tasks/stage-branding-source.yml",
-        "scripts/test-branding-submodules.sh"
+        "scripts/test-branding-submodules.sh",
+        "roles/la-compose/templates/docker-compose/infrastructure/branding.yml.j2"
       ],
       "run": "bash scripts/test-branding-submodules.sh"
     },

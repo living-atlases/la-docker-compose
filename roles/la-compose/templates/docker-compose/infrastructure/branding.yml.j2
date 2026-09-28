@@ -23,6 +23,9 @@ services:
     # (stale/rebuilt branding-builder image, pull_policy: never) or the cp failed,
     # the volume was left EMPTY and nginx served 404s for every asset (ORB-blocked
     # CSS/JS -> unstyled site). Guard the destructive delete on a non-empty source.
+    # chmod: nginx (uid 101) serves these; cp without -p applies the process umask, and on
+    # docker-1 that left every hub asset 0640 root:root -> 403 on /css/bootstrap.min.css
+    # although the image had them 0644 (#420).
     # Always exit 0: nginx depends_on this with service_completed_successfully, so a
     # non-zero exit would block the WHOLE nginx (all vhosts), not just branding.
     command: >
@@ -32,6 +35,7 @@ services:
           ls -la /build/public/ &&
           find /output -mindepth 1 -delete &&
           cp -rv /build/public/* /output/ &&
+          chmod -R a+rX /output &&
           echo '✅ Branding assets copied successfully!' &&
           ls -la /output/ ;
         else

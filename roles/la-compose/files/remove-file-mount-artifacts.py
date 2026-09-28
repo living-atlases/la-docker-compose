@@ -11,8 +11,9 @@ build. Seen on docker-1 for nginx.conf and a data hub's config (#417-#419).
 Reads the compose files already rendered under COMPOSE_DIR (the previous run's; this
 runs before anything is rendered again), and for each bind mount whose source looks
 like a file (it has an extension) but is a directory, removes it -- only when it holds
-nothing but a few stray files, which is all such an artifact ever contains. The
-template run that follows then writes the real file.
+nothing but a few stray files, which is all such an artifact ever contains, and leaves an
+empty file in its place (a restarting container would otherwise recreate the directory
+before the template runs). The template run that follows then writes the real file.
 
 Usage: remove-file-mount-artifacts.py COMPOSE_DIR [--dry-run]
 Prints one "removed <path>" line per artifact, then "removed N".
@@ -65,7 +66,17 @@ def main(argv):
     for src in sorted(set(bind_sources(compose_dir))):
         if is_artifact(src):
             if not dry_run:
+                parent = os.stat(os.path.dirname(src))
                 shutil.rmtree(src)
+                # Leave an empty FILE, not nothing: a crash-looping container that mounts
+                # this path restarts within seconds, and Docker would recreate the
+                # directory before the template gets to write the file (#420).
+                open(src, "w").close()
+                os.chmod(src, 0o644)
+                try:
+                    os.chown(src, parent.st_uid, parent.st_gid)
+                except PermissionError:
+                    pass
             print("removed %s" % src)
             removed += 1
     print("removed %d" % removed)
