@@ -61,3 +61,6 @@
     {{ data_dir }}/sds/sensitivity-zones.xml
   register: sds_species_normalized
   changed_when: "'rewrote 0 ' not in sds_species_normalized.stdout"
+
+- name: SDS data | let nginx read what it serves
+  ansible.builtin.include_tasks: sds-data-permissions.yml

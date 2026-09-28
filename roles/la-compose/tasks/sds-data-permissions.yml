@@ -1,0 +1,17 @@
+---
+# nginx serves the three SDS files straight from {{ data_dir }}/sds (the alias locations of
+# the sensitive-data-service vhost) as its unprivileged `nginx` user. Downloaded by root under
+# a hardened umask (0027 on the gbif.es hosts) they land 0640 in a 0750 directory, so every
+# .xml answers 403 while the service itself is healthy. config/ keeps its own mode: nginx
+# never serves it. Tested by scripts/test-sds-data-permissions.sh.
+- name: SDS data | let nginx read the directory and the XML files it serves
+  ansible.builtin.file:
+    path: "{{ data_dir }}/sds/{{ item.name }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { name: "", mode: "0755" }
+    - { name: sensitive-species-data.xml, mode: "0644" }
+    - { name: sensitivity-zones.xml, mode: "0644" }
+    - { name: sensitivity-categories.xml, mode: "0644" }
+  loop_control:
+    label: "{{ data_dir }}/sds/{{ item.name }} {{ item.mode }}"

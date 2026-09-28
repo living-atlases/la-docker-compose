@@ -125,6 +125,14 @@
         "scripts/test-recreate-drifted-oneshots.sh"
       ],
       "run": "bash scripts/test-recreate-drifted-oneshots.sh"
+    },
+    {
+      "match": [
+        "roles/la-compose/tasks/sds-data-permissions.yml",
+        "roles/la-compose/tasks/sds-data-fixups.yml",
+        "scripts/test-sds-data-permissions.sh"
+      ],
+      "run": "VENV_MOLECULE=.venv-molecule bash scripts/test-sds-data-permissions.sh"
     }
   ],
   "ignore": [
