@@ -739,6 +739,32 @@
   tags:
     - docker-compose
 
+# nginx.conf is bind-mounted as a FILE. If a `docker compose up` ever runs while it is
+# missing, Docker creates a root-owned DIRECTORY at that path, and from then on the
+# template below does not replace it: given a directory as dest it writes nginx.conf.j2
+# INSIDE it. la_nginx then fails every start ("error mounting ... not a directory") and
+# every vhost on the host is down, build after build (docker-1, #417/#418). A directory
+# here is never ours, so remove it and let the template write the file.
+- name: Stat nginx.conf (a directory there is a Docker bind-mount artifact)
+  ansible.builtin.stat:
+    path: "{{ nginx_conf_dir }}/nginx.conf"
+    get_checksum: false
+  register: nginx_conf_path_stat
+  when: "'nginx' in services_enabled"
+  tags:
+    - docker-compose
+
+- name: Remove the directory Docker left where nginx.conf goes
+  ansible.builtin.file:
+    path: "{{ nginx_conf_dir }}/nginx.conf"
+    state: absent
+  become: true
+  when:
+    - "'nginx' in services_enabled"
+    - nginx_conf_path_stat.stat.isdir | default(false)
+  tags:
+    - docker-compose
+
 - name: Generate nginx.conf
   ansible.builtin.template:
     src: "{{ playbook_dir }}/../ala-install/ansible/roles/nginx/templates/nginx.conf.j2"

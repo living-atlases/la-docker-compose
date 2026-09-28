@@ -103,6 +103,13 @@
         "scripts/fixtures/wait-for-health-*/**"
       ],
       "run": "bash scripts/test-wait-for-health-converge.sh"
+    },
+    {
+      "match": [
+        "roles/la-compose/tasks/generate-compose.yml",
+        "scripts/test-nginx-conf-dir-artifact.sh"
+      ],
+      "run": "bash scripts/test-nginx-conf-dir-artifact.sh"
     }
   ],
   "ignore": [
