@@ -24,6 +24,12 @@
 # STACK SIZE (stack_size):
 # Emitted as -Xss<value>. Only for services that need a non-default thread stack; omit it and
 # the JVM default applies. An inventory `<key>_stack_size` overrides this value.
+#
+# JVM FLAGS (jvm_flags):
+# Raw JVM options appended to the service's <SERVICE>_JAVA_OPTS, for what is not a -D property
+# (so extra_params cannot carry it). ala_hub needs the Java 17 --add-opens that ala-install's
+# biocache-hub role adds on VMs (tasks/vm-tasks.yml): without them Groovy's reflection on
+# java.lang.Object is refused and every non-empty search page is an "Application error".
 docker_services_desc:
   collectory:
     name: 'collectory'
@@ -55,6 +61,9 @@ docker_services_desc:
     repository: 'https://github.com/AtlasOfLivingAustralia/biocache-hubs'
     version_variable: 'biocache_hub_version'
     log_config_filename: 'logback.xml'
+    jvm_flags:
+      - '--add-opens=java.base/java.lang=ALL-UNNAMED'
+      - '--add-opens=java.base/java.lang.reflect=ALL-UNNAMED'
   biocache_service:
     name: 'records-ws'
     alias: 'biocache-service'

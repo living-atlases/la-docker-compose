@@ -117,7 +117,9 @@ env.filters["bool"] = lambda value: str(value).strip().lower() in ("true", "yes"
 #                and it declares a logging config
 #   ala_hub      prefix remapped (BIOCACHE_HUB) AND artifact differs from the key
 #                (ala-hub), so /data/ala_hub/ would be wrong. It does declare a
-#                logging config -- the real inventory gives it logback.xml
+#                logging config -- the real inventory gives it logback.xml. It also
+#                declares jvm_flags (Java 17 --add-opens), which must reach the line
+#                verbatim; without them every non-empty search page 500s
 #   ala_bie      the other remap (BIE_HUB), guarding the map rather than one entry
 #   data-quality hyphenated key: the prefix must become DATA_QUALITY, and the
 #                <key>_version lookup must survive the same substitution
@@ -137,7 +139,9 @@ CASES = {
         "memory": "-Xmx512m", "log_config": "logback.xml", "version": "3.2.1",
     },
     "ala_hub": {
-        "desc": {"artifacts": "ala-hub", "log_config_filename": "logback.xml"},
+        "desc": {"artifacts": "ala-hub", "log_config_filename": "logback.xml",
+                 "jvm_flags": ["--add-opens=java.base/java.lang=ALL-UNNAMED",
+                               "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED"]},
         "prefix": "BIOCACHE_HUB", "artifact": "ala-hub",
         "java_opts": "-Djava.awt.headless=true -Xmx4g -Xms2g -Dlog4j2.formatMsgNoLookups=true",
         "memory": "-Xmx4g", "log_config": "logback.xml", "version": "8.3.0",
@@ -247,6 +251,13 @@ for key, case in CASES.items():
         require(prefix, f"-Xss{case['stack']}", "stack size must reach the JVM")
     else:
         reject(prefix, "-Xss", "it declares no stack_size")
+
+    # Raw JVM options from the desc, verbatim; nobody else gets any.
+    flags = case["desc"].get("jvm_flags", [])
+    for flag in flags:
+        require(prefix, f" {flag}", "a jvm_flags entry must reach the JVM")
+    if not flags:
+        reject(prefix, "--add-opens", "it declares no jvm_flags")
 
     # Propagated from Ansible, not computed here -- see SCOPE in the header.
     require(prefix, case["memory"], "the assembled JAVA_OPTS was not passed through")
