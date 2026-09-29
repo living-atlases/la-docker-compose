@@ -37,6 +37,10 @@ docker_housekeeping_logrotate_state: /var/lib/logrotate/docker-containers.status
 docker_housekeeping_gc_enabled: true
 docker_housekeeping_gc_keep: 168h
 docker_housekeeping_gc_oncalendar: "*-*-* 02:00:00"
+# Touched by la-compose for the length of a deploy (pull to health gate); the GC skips
+# its run while the marker is younger than the max age.
+docker_housekeeping_deploy_marker: /run/la-compose-deploy.marker
+docker_housekeeping_deploy_marker_max_age_min: 360
 
 # Journal cap. ~390 MB per host with no declared ceiling.
 docker_housekeeping_journal_enabled: true

@@ -366,6 +366,10 @@ EOF
                     # in the background and are unpacked before `up`. Local HTTP server, ~20s.
                     VENV_MOLECULE="$VENV_MOL" bash scripts/test-pipelines-shapefiles-async.sh
 
+                    # The nightly image GC skips while a deploy is in progress: it fired during
+                    # `compose up` in #428 and deleted a just-pulled image. Shimmed docker, ~5s.
+                    VENV_MOLECULE="$VENV_MOL" bash scripts/test-containerd-gc-deploy-guard.sh
+
                     # The Gatus health gate (Layer 1) was hollow for the whole of #385-#389:
                     # it resolved its target from a manifest that only exists on the deployed
                     # host, died at argument resolution on the agent, and catchError swallowed

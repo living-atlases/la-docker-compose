@@ -148,6 +148,14 @@
         "scripts/test-pipelines-shapefiles-async.sh"
       ],
       "run": "VENV_MOLECULE=.venv-molecule bash scripts/test-pipelines-shapefiles-async.sh"
+    },
+    {
+      "match": [
+        "roles/docker-housekeeping/templates/containerd-gc.sh.j2",
+        "roles/docker-housekeeping/defaults/main.yml",
+        "scripts/test-containerd-gc-deploy-guard.sh"
+      ],
+      "run": "VENV_MOLECULE=.venv-molecule bash scripts/test-containerd-gc-deploy-guard.sh"
     }
   ],
   "ignore": [

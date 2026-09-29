@@ -109,6 +109,18 @@
         - always
         - safety
 
+    # The nightly image GC (docker-housekeeping) skips its run while this marker is
+    # fresh: between the pull and `up` the pulled images belong to no container yet, and
+    # it deleted one mid-deploy in #428. Removed at the end of the role.
+    - name: "Deployment preparation: mark a deploy in progress for the image GC"
+      ansible.builtin.file:
+        path: "{{ docker_housekeeping_deploy_marker | default('/run/la-compose-deploy.marker') }}"
+        state: touch
+        mode: '0644'
+      become: true
+      tags:
+        - always
+
     # ~243MB from S3 in Sydney (29 min in CI): started now, in the background, so the
     # render overlaps it; pipelines-shapefiles-finish.yml waits and unpacks it before `up`.
     - name: "Pipelines shapefiles: start the background download"
@@ -913,3 +925,11 @@
         - validate
         - post-deploy
         - cross-host-ports
+
+    - name: "Deployment done: clear the in-progress marker for the image GC"
+      ansible.builtin.file:
+        path: "{{ docker_housekeeping_deploy_marker | default('/run/la-compose-deploy.marker') }}"
+        state: absent
+      become: true
+      tags:
+        - always
