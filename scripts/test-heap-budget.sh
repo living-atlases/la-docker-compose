@@ -82,7 +82,7 @@ import sys, yaml
 from pathlib import Path
 tasks = yaml.safe_load((Path(sys.argv[1]) / "roles/la-compose/tasks/generate-compose.yml").read_text())
 mine = [t for t in tasks if str(t.get("name", "")).startswith("Heap budget:")]
-assert len(mine) == 3, f"expected 3 'Heap budget:' tasks, found {len(mine)}"
+assert len(mine) == 4, f"expected 4 'Heap budget:' tasks, found {len(mine)}"
 Path(sys.argv[2]).write_text(yaml.safe_dump(mine))
 PYTHON
 mkdir -p "$tmp/templates"; cp "$REPO_ROOT/roles/la-compose/templates/heap-budget.j2" "$tmp/templates/"
