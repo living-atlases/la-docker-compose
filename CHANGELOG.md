@@ -14,17 +14,23 @@ edit by hand, write the notes in the annotated tag instead.
 
 - CHANGELOG.md: one entry per release tag, back to v0.1.0 ([fe8a3dc](https://github.com/living-atlases/la-docker-compose/commit/fe8a3dc5c3767efed76660aa2b9f935364a99060))
 
+#### Other changes
+
+- every commit between tags, generated from git ([ae8956b](https://github.com/living-atlases/la-docker-compose/commit/ae8956b6e629f7cc393da66dc7385b9b3cd98a2f))
+
 <a name="v1.10.0"></a>
 
-## v1.10.0 - 2026-09-28
+## v1.10.0 - 2026-09-29
 
 **every Gatus endpoint green, and data hubs that serve every path on every host**
 
-Green on 5aaf24b: build #426 (SUCCESS, CLEAN_MACHINE=true, 149 min), after the
-redeploys #424 and #425 (SUCCESS). All 137 Gatus endpoints healthy through the new
-total-green gate, Cypress 62/63 passing with 1 pending. First green since #413,
-after the #414-#423 red streak. The hot-redeploy test (#427) was still running
-when this was tagged.
+Green on 5aaf24b: builds #426 (SUCCESS, CLEAN_MACHINE=true, 149 min) and #427
+(SUCCESS, CLEAN_MACHINE=true plus the hot-redeploy test, 225 min: ~130 min clean
+deploy, ~74 min hot redeploy with no data loss and no nginx downtime, ~20 min e2e
+and gates), after the redeploys #424 and #425 (SUCCESS). All 137 Gatus endpoints
+healthy through the new total-green gate, Cypress 62/63 passing with 1 pending.
+First green since #413, after the #414-#423 red streak. #426 and #427 are the
+reference timings for the fast-deploy work.
 
 Gatus
 - feat(gatus): verify-deployment.sh --all-endpoints and a blocking "Verify Gatus
