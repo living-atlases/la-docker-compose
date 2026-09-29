@@ -1,0 +1,38 @@
+{#-
+  Do the -Xmx of the JVMs this host runs fit in its RAM? Rendered by
+  generate-compose.yml ("Heap budget"), tested by scripts/test-heap-budget.sh.
+
+  Each JVM needs its heap plus docker_jvm_overhead_mb of metaspace, threads and
+  buffers (~0.3-0.5 GB measured idle on gbif-es), and the host keeps
+  docker_heap_reserve_mb for the OS, page cache and the non-JVM containers.
+  -Xmx is a ceiling, not an allocation, so going over is not an immediate OOM:
+  it is the load at which the kernel starts killing containers.
+
+  Every Java service gets -Xmx2g unless <key>_max_memory says otherwise, and on
+  VMs the same apps shared ONE tomcat heap, so VM values cannot be copied per
+  app. This makes the sum visible instead.
+-#}
+{%- macro mb(v) -%}
+{%- set s = (v | string | lower) -%}
+{%- if s.endswith('g') -%}{{ ((s[:-1] | float) * 1024) | int }}
+{%- elif s.endswith('m') -%}{{ s[:-1] | int }}
+{%- elif s.endswith('k') -%}{{ ((s[:-1] | int) / 1024) | int }}
+{%- else -%}{{ ((s | int) / 1048576) | int }}
+{%- endif -%}
+{%- endmacro -%}
+{%- set reserve = docker_heap_reserve_mb | default(3072) | int -%}
+{%- set overhead = docker_jvm_overhead_mb | default(512) | int -%}
+{%- set opts = service_java_opts_dict | default({}) -%}
+{%- set ns = namespace(heap=0, rows=[]) -%}
+{%- for key in (services_enabled | default([])) | reject('in', skip_services | default([])) if key in opts -%}
+{%-   set x = namespace(xmx='') -%}
+{%-   for tok in opts[key].split(' ') if tok.startswith('-Xmx') -%}{%- set x.xmx = tok[4:] -%}{%- endfor -%}
+{%-   set m = mb(x.xmx) | int -%}
+{%-   set ns.heap = ns.heap + m -%}
+{%-   set ns.rows = ns.rows + [{'service': key, 'xmx_mb': m}] -%}
+{%- endfor -%}
+{%- set need = ns.heap + overhead * (ns.rows | length) + reserve -%}
+{%- set total = ansible_memtotal_mb | default(0) | int -%}
+{{ {'total_mb': total, 'heap_mb': ns.heap, 'jvms': ns.rows | length, 'need_mb': need,
+    'reserve_mb': reserve, 'overhead_mb': overhead,
+    'over': total > 0 and need > total, 'services': ns.rows} | tojson }}

@@ -2197,6 +2197,40 @@
   tags:
     - docker-compose
 
+# The JVM heaps this host runs, against its RAM (templates/heap-budget.j2). Java services
+# default to -Xmx2g each and VM tuning does not carry over (on VMs several apps shared one
+# tomcat heap), so nobody sees the total until the kernel starts killing containers under
+# load. Warn by default; docker_heap_budget_strict=true turns it into a failure.
+- name: "Heap budget: sum the -Xmx of the JVMs on this host"
+  ansible.builtin.set_fact:
+    heap_budget: "{{ lookup('ansible.builtin.template', 'heap-budget.j2') | from_json }}"
+  tags:
+    - docker-compose
+
+- name: "Heap budget: warn when the JVM heaps do not fit in this host's RAM"
+  ansible.builtin.debug:
+    msg:
+      - >-
+        WARN: the JVMs on this host may need {{ heap_budget.need_mb }} MB and it has
+        {{ heap_budget.total_mb }} MB ({{ heap_budget.heap_mb }} MB of -Xmx across
+        {{ heap_budget.jvms }} JVMs + {{ heap_budget.overhead_mb }} MB each + {{ heap_budget.reserve_mb }} MB reserved).
+      - "Heaps: {{ heap_budget.services | map(attribute='service') | zip(heap_budget.services | map(attribute='xmx_mb')) | map('join', '=') | join(', ') }}"
+      - "Set <service>_max_memory per host (e.g. biocache_service_max_memory=4g) or give the host more RAM."
+  when: heap_budget.over | bool
+  tags:
+    - docker-compose
+
+- name: "Heap budget: fail when strict and the heaps do not fit"
+  ansible.builtin.fail:
+    msg: >-
+      docker_heap_budget_strict: {{ heap_budget.need_mb }} MB needed, {{ heap_budget.total_mb }} MB
+      available. See the warning above.
+  when:
+    - heap_budget.over | bool
+    - docker_heap_budget_strict | default(false) | bool
+  tags:
+    - docker-compose
+
 - name: Debug - Show service_extra_params (extra JVM parameters defined per service)
   ansible.builtin.debug:
     verbosity: 2

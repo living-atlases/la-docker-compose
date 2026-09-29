@@ -156,6 +156,13 @@
         "scripts/test-containerd-gc-deploy-guard.sh"
       ],
       "run": "VENV_MOLECULE=.venv-molecule bash scripts/test-containerd-gc-deploy-guard.sh"
+    },
+    {
+      "match": [
+        "roles/la-compose/templates/heap-budget.j2",
+        "scripts/test-heap-budget.sh"
+      ],
+      "run": "VENV_MOLECULE=.venv-molecule bash scripts/test-heap-budget.sh"
     }
   ],
   "ignore": [
