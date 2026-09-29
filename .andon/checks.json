@@ -163,6 +163,20 @@
         "scripts/test-heap-budget.sh"
       ],
       "run": "VENV_MOLECULE=.venv-molecule bash scripts/test-heap-budget.sh"
+    },
+    {
+      "match": [
+        "roles/la-compose/tasks/build-images.yml",
+        "scripts/test-compose-pull-policy.sh"
+      ],
+      "run": "VENV_MOLECULE=.venv-molecule bash scripts/test-compose-pull-policy.sh"
+    },
+    {
+      "match": [
+        "scripts/validate-healthcheck-commands.sh",
+        "scripts/test-healthcheck-probe-cache.sh"
+      ],
+      "run": "bash scripts/test-healthcheck-probe-cache.sh"
     }
   ],
   "ignore": [

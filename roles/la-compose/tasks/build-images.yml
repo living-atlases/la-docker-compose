@@ -77,13 +77,44 @@
   when:
     - "'branding' in services_enabled or (branding_render_list | default([]) | length > 0)"
 
+# A pinned tag (x:1.2.3, x@sha256:...) names the same image forever, so it is pulled only when
+# it is missing: `docker compose pull` re-resolved ~40 manifests per host on every run, 4.4 min
+# of each #430/#431 playbook with everything already cached. Mutable tags (:latest, or no tag)
+# are still pulled every time, so a redeploy picks up their new builds.
+# la_compose_pull_policy=always restores the old behaviour for pinned tags too.
+- name: List the services whose image tag is mutable
+  ansible.builtin.command: docker compose config --format json
+  args:
+    chdir: "{{ docker_compose_data_dir }}"
+  become: true
+  register: compose_config_for_pull
+  changed_when: false
+  when:
+    - docker_registry | default('') != ''
+  tags:
+    - build
+    - docker-compose
+
+- name: Split the services by image tag
+  ansible.builtin.set_fact:
+    compose_mutable_tag_services: >-
+      {{ (compose_config_for_pull.stdout | from_json).services | dict2items
+         | selectattr('value.image', 'defined')
+         | selectattr('value.image', 'search', '(:latest$)|(^[^:@]*$)|(/[^/:@]*$)')
+         | map(attribute='key') | list }}
+  when:
+    - docker_registry | default('') != ''
+  tags:
+    - build
+    - docker-compose
+
 # Docker Hub fails transiently on its own token endpoint and `docker compose pull` aborts every
 # in-flight layer with it (2026-08-05, build #331: "auth.docker.io/token: 500 Internal Server
 # Error" while pulling db-backup). Unretried, that single 500 fails the task, drops the host out
 # of the play and leaves it with NO containers at all — which is what emptied
 # gbif-es-docker-cluster-2023-1 and turned every one of its vhosts red in Gatus.
 - name: Pull Docker images
-  ansible.builtin.command: docker compose pull
+  ansible.builtin.command: docker compose pull --policy {{ la_compose_pull_policy | default('missing') }}
   args:
     chdir: "{{ docker_compose_data_dir }}"
   become: true
@@ -94,7 +125,25 @@
   changed_when: true
   when:
     - docker_registry | default('') != ''
+  tags:
+    - build
+    - docker-compose
 
+- name: Pull the images with a mutable tag
+  ansible.builtin.command:
+    argv: "{{ ['docker', 'compose', 'pull', '--policy', 'always'] + compose_mutable_tag_services }}"
+  args:
+    chdir: "{{ docker_compose_data_dir }}"
+  become: true
+  register: compose_pull_mutable
+  until: compose_pull_mutable.rc == 0
+  retries: 3
+  delay: 30
+  changed_when: true
+  when:
+    - docker_registry | default('') != ''
+    - la_compose_pull_policy | default('missing') != 'always'
+    - compose_mutable_tag_services | default([]) | length > 0
   tags:
     - build
     - docker-compose

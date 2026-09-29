@@ -371,6 +371,14 @@ EOF
                     # `compose up` in #428 and deleted a just-pulled image. Shimmed docker, ~5s.
                     VENV_MOLECULE="$VENV_MOL" bash scripts/test-containerd-gc-deploy-guard.sh
 
+                    # Pinned image tags are pulled only when missing, mutable ones every time
+                    # (4.4 min of manifest checks per run in #430/#431). Shimmed docker, ~10s.
+                    VENV_MOLECULE="$VENV_MOL" bash scripts/test-compose-pull-policy.sh
+
+                    # The healthcheck binary probe caches passes by image ID (2.4-3.9 min of
+                    # container starts per run in #430/#431). Shimmed docker, ~2s.
+                    bash scripts/test-healthcheck-probe-cache.sh
+
                     # The Gatus health gate (Layer 1) was hollow for the whole of #385-#389:
                     # it resolved its target from a manifest that only exists on the deployed
                     # host, died at argument resolution on the agent, and catchError swallowed
