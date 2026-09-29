@@ -13,6 +13,10 @@ cd "$(dirname "$0")/.."
 TASKS="$PWD/roles/la-compose/tasks"
 ANSIBLE_PLAYBOOK="${VENV_MOLECULE:+$VENV_MOLECULE/bin/}ansible-playbook"
 command -v "$ANSIBLE_PLAYBOOK" >/dev/null || ANSIBLE_PLAYBOOK=ansible-playbook
+# Modules run under the python that runs ansible-playbook (the venv's), not the target's
+# /usr/bin/python3: on the Jenkins agent that one dies importing an unreadable root-owned
+# _cffi_backend .so from /usr/local (#429).
+PYARG='ansible_python_interpreter={{ ansible_playbook_python }}'
 DELAY=4
 
 pass() { printf '[PASS] %s\n' "$*"; }
@@ -64,7 +68,7 @@ $( [ "$2" = start ] && printf '    - ansible.builtin.include_tasks: %s/pipelines
     - ansible.builtin.include_tasks: $TASKS/pipelines-shapefiles-finish.yml
 YML
   : >"$tmp/requests"
-  ANSIBLE_LOCALHOST_WARNING=false "$ANSIBLE_PLAYBOOK" -i localhost, "$tmp/play-$1.yml" \
+  ANSIBLE_LOCALHOST_WARNING=false "$ANSIBLE_PLAYBOOK" -i localhost, -e "$PYARG" "$tmp/play-$1.yml" \
     -e "data_dir=$tmp/data" -e "pipelines_shapefiles_url=$url" \
     -e "pipelines_shapefiles_checksum=$sha1" -e ansible_become=false \
     -e "docker_container_uid=$(id -u)" -e "docker_container_gid=$(id -g)" >"$tmp/$1.log" 2>&1 ||

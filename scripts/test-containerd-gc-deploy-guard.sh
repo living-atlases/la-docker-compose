@@ -12,6 +12,10 @@ set -eu
 cd "$(dirname "$0")/.."
 ANSIBLE_PLAYBOOK="${VENV_MOLECULE:+$VENV_MOLECULE/bin/}ansible-playbook"
 command -v "$ANSIBLE_PLAYBOOK" >/dev/null || ANSIBLE_PLAYBOOK=ansible-playbook
+# Modules run under the python that runs ansible-playbook (the venv's), not the target's
+# /usr/bin/python3: on the Jenkins agent that one dies importing an unreadable root-owned
+# _cffi_backend .so from /usr/local (#429).
+PYARG='ansible_python_interpreter={{ ansible_playbook_python }}'
 
 pass() { printf '[PASS] %s\n' "$*"; }
 fail() { printf '[FAIL] %s\n' "$*" >&2; exit 1; }
@@ -32,7 +36,7 @@ cat >"$tmp/play.yml" <<YML
         dest: $tmp/containerd-gc.sh
         mode: '0755'
 YML
-ANSIBLE_LOCALHOST_WARNING=false "$ANSIBLE_PLAYBOOK" -i localhost, "$tmp/play.yml" \
+ANSIBLE_LOCALHOST_WARNING=false "$ANSIBLE_PLAYBOOK" -i localhost, -e "$PYARG" "$tmp/play.yml" \
   -e "docker_housekeeping_deploy_marker=$marker" >"$tmp/render.log" 2>&1 ||
   { cat "$tmp/render.log" >&2; fail "template did not render"; }
 

@@ -14,6 +14,10 @@ cd "$(dirname "$0")/.."
 SRC="${1:-$PWD/ala-install/ansible/roles/sensitive-data-service/tasks/docker-tasks.yml}"
 ANSIBLE_PLAYBOOK="${VENV_MOLECULE:+$VENV_MOLECULE/bin/}ansible-playbook"
 command -v "$ANSIBLE_PLAYBOOK" >/dev/null || ANSIBLE_PLAYBOOK=ansible-playbook
+# Modules run under the python that runs ansible-playbook (the venv's), not the target's
+# /usr/bin/python3: on the Jenkins agent that one dies importing an unreadable root-owned
+# _cffi_backend .so from /usr/local (#429).
+PYARG='ansible_python_interpreter={{ ansible_playbook_python }}'
 PY="${VENV_MOLECULE:+$VENV_MOLECULE/bin/}python3"  # needs PyYAML
 command -v "$PY" >/dev/null || PY=python3
 
@@ -85,7 +89,7 @@ EOF
 run() { # $1 case name, $2 sds_url, $3 sds_layers_url
   rm -rf "$tmp/data-$1"
   ANSIBLE_LOCALHOST_WARNING=false ANSIBLE_INVENTORY_UNPARSED_WARNING=false \
-    "$ANSIBLE_PLAYBOOK" -i localhost, -c local "$tmp/play.yml" \
+    "$ANSIBLE_PLAYBOOK" -i localhost, -e "$PYARG" -c local "$tmp/play.yml" \
     -e "data_dir=$tmp/data-$1" -e "sds_url=$2" -e "sds_layers_url=$3" >"$tmp/$1.log" 2>&1 ||
     { cat "$tmp/$1.log" >&2; fail "$1: playbook failed"; }
 }
