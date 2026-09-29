@@ -109,6 +109,19 @@
         - always
         - safety
 
+    # ~243MB from S3 in Sydney (29 min in CI): started now, in the background, so the
+    # render overlaps it; pipelines-shapefiles-finish.yml waits and unpacks it before `up`.
+    - name: "Pipelines shapefiles: start the background download"
+      ansible.builtin.include_tasks:
+        file: pipelines-shapefiles-start.yml
+        apply:
+          tags: [pipelines, pipelines-layers, docker-compose]
+      when: "'pipelines' in services_enabled"
+      tags:
+        - pipelines
+        - pipelines-layers
+        - docker-compose
+
     - name: Load variables from collectory role if present on this server
       ansible.builtin.include_vars:
         file: "{{ playbook_dir }}/../ala-install/ansible/roles/collectory/vars/main.yml"
@@ -490,6 +503,17 @@
       tags:
         - docker-compose
         - deploy
+
+    - name: "Pipelines shapefiles: wait for the download and unpack"
+      ansible.builtin.include_tasks:
+        file: pipelines-shapefiles-finish.yml
+        apply:
+          tags: [pipelines, pipelines-layers, docker-compose]
+      when: "'pipelines' in services_enabled"
+      tags:
+        - pipelines
+        - pipelines-layers
+        - docker-compose
 
     # block/rescue: on `docker compose up` failure, capture root-cause diagnostics
     # to /tmp/la-docker-deploy-failure.log + /tmp/la-docker-deploy-failure.root.log
