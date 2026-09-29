@@ -35,8 +35,11 @@ echo "Installing molecule + ansible + linters..."
 
 # Prove the pair is coherent before anyone relies on it: ansible-lint prints the
 # ansible-core it links against, which must be the venv's own `ansible`.
-lint_core="$("$VENV_DIR/bin/ansible-lint" --version 2>/dev/null | sed -n 's/.*ansible-core:\([0-9.]*\).*/\1/p')"
-ansible_core="$("$VENV_DIR/bin/ansible" --version 2>/dev/null | sed -n '1s/.*core \([0-9.]*\).*/\1/p')"
+# With FORCE_COLOR / PY_COLORS / ANSIBLE_FORCE_COLOR in the environment ansible-lint
+# colours the numbers even into a pipe, so drop the ANSI codes before parsing.
+strip_ansi() { sed 's/\x1b\[[0-9;]*m//g'; }
+lint_core="$(NO_COLOR=1 "$VENV_DIR/bin/ansible-lint" --version 2>/dev/null | strip_ansi | sed -n 's/.*ansible-core:\([0-9.]*\).*/\1/p')"
+ansible_core="$(NO_COLOR=1 "$VENV_DIR/bin/ansible" --version 2>/dev/null | strip_ansi | sed -n '1s/.*core \([0-9.]*\).*/\1/p')"
 
 if [[ -z "$lint_core" || -z "$ansible_core" ]]; then
   echo "ERROR: could not determine ansible-lint / ansible-core versions in $VENV_DIR" >&2
