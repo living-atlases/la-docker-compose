@@ -148,7 +148,8 @@ Versions that actually matter:
 |---|---|
 | Docker Compose | **≥ 2.20** — the generated `docker-compose.yml` uses the top-level `include:` key, added in 2.20. Older versions fail to parse it. |
 | Node | **22** — what CI pins for the Yeoman generator and the Cypress suites. |
-| Docker Engine / Ansible | No hard floor established. CI runs Docker 29.x with the containerd snapshotter and ansible-core 2.19. |
+| Ansible | **ansible 10.3.0 / ansible-core 2.17.3**, the pair ala-install supports. CI deploys and tests with it; `ansible-constraints.txt` pins it and `scripts/setup-molecule.sh` installs it. |
+| Docker Engine | No hard floor established. CI runs Docker 29.x with the containerd snapshotter. |
 
 Clone the repository **with submodules** so that `ala-install/` is populated:
 

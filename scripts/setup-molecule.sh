@@ -22,8 +22,12 @@ python3 -m venv "$VENV_DIR"
 
 echo "Installing molecule + ansible + linters..."
 "$VENV_DIR/bin/pip" install --quiet --upgrade pip
-"$VENV_DIR/bin/pip" install --quiet \
+# ansible-constraints.txt: the Ansible ala-install supports, which is also what the
+# CI tests and deploys with.
+"$VENV_DIR/bin/pip" install --quiet -c ansible-constraints.txt \
   molecule \
+  ansible-compat \
+  ansible \
   ansible-core \
   "molecule-plugins[docker]" \
   ansible-lint \

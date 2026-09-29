@@ -173,6 +173,14 @@
     },
     {
       "match": [
+        "ansible-constraints.txt",
+        "scripts/test-ansible-version-pin.sh",
+        "scripts/setup-molecule.sh"
+      ],
+      "run": "bash scripts/test-ansible-version-pin.sh"
+    },
+    {
+      "match": [
         "scripts/validate-healthcheck-commands.sh",
         "scripts/test-healthcheck-probe-cache.sh"
       ],

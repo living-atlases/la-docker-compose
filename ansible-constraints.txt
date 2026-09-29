@@ -1,0 +1,18 @@
+# The one place that fixes the Ansible every venv gets: the deploy venv and the
+# test venv in the Jenkinsfile, and scripts/setup-molecule.sh for local use.
+# Install with `pip install -c ansible-constraints.txt <packages>`.
+#
+# Tests must run the Ansible that deploys: `lookup('template') | from_json`
+# gets a dict on 2.17 and a string on 2.20, and build #432 broke on exactly that.
+#
+# ansible / ansible-core: the pair ala-install upstream supports (its README,
+# "The current supported version is"). scripts/test-ansible-version-pin.sh
+# fails when the two drift apart, so bump them together with the submodule.
+ansible==10.3.0
+ansible-core==2.17.3
+
+# Test tooling. From 26.6 on, molecule, ansible-compat and ansible-lint declare
+# `ansible-core!=2.17.*`; unpinned, pip would drag ansible-core past the deploy's.
+molecule==26.4.0
+ansible-compat==26.3.0
+ansible-lint==26.4.0

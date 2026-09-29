@@ -322,7 +322,15 @@ EOF
                         python3 -m venv "$VENV_MOL"
                     fi
                     "$VENV_MOL/bin/pip" install --quiet --upgrade pip
-                    "$VENV_MOL/bin/pip" install --quiet molecule ansible-core
+                    # Same ansible/ansible-core as the deploy venv ('Prepare environment'),
+                    # from the same constraints file: #432 passed every test on 2.20 and
+                    # failed the deploy on 2.17. molecule & co. are pinned there too (26.6+
+                    # refuse ansible-core 2.17).
+                    "$VENV_MOL/bin/pip" install --quiet -c ansible-constraints.txt \
+                        molecule ansible-compat ansible ansible-core
+                    "$VENV_MOL/bin/pip" check
+                    bash scripts/test-ansible-version-pin.sh --skip-readme "$VENV_MOL"
+                    export PATH="$VENV_MOL/bin:$PATH"
                     VENV_MOLECULE="$VENV_MOL" PATH="$VENV_MOL/bin:$PATH" "$VENV_MOL/bin/molecule" test -s unit
 
                     # Data hub facts. A hub may be SPREAD across compose hosts (records
@@ -361,6 +369,12 @@ EOF
                     # service would start with none of its /data/<artifact>/config
                     # overrides. Renders the template, ~1s.
                     bash scripts/test-java-opts-env.sh
+
+                    # The per-host -Xmx budget: the template's arithmetic, and the tasks that
+                    # render and parse it run through ansible-playbook -- on this venv's
+                    # ansible-core, the deploy's, which is how #432 should have been caught
+                    # (the lookup returns a dict on 2.17, a string on 2.20). ~10s.
+                    VENV_MOLECULE="$VENV_MOL" bash scripts/test-heap-budget.sh
 
                     # Ingest-only data artifacts (shapefiles: 29 min from S3 in #426/#427, all hosts
                     # idle; SDS layers: 30 min from ALA) are fetched from upstream in the background
@@ -484,14 +498,20 @@ EOF
                     # Upgrade pip
                     "${VENV_DIR}/bin/pip" install --upgrade pip
                     
-                    # Install Ansible
-                    "${VENV_DIR}/bin/pip" install ansible
-                    
+                    # Install Ansible: the version ala-install upstream supports, the same the
+                    # tests ran on (ansible-constraints.txt). Unpinned, a recreated venv would
+                    # pull the latest ansible-core, which the roles are not tested against.
+                    "${VENV_DIR}/bin/pip" install -c ansible-constraints.txt ansible ansible-core
+                    "${VENV_DIR}/bin/pip" check
+
                     # Verify Ansible installation
                     echo "Verifying Ansible installation..."
                     test -x "${VENV_DIR}/bin/ansible-playbook" || { echo "ERROR: ansible-playbook not found in venv"; exit 1; }
                     "${VENV_DIR}/bin/ansible-playbook" --version
-                    
+                    # The pin matches the (just synced) ala-install README, and the tests'
+                    # venv and this one both carry it.
+                    bash scripts/test-ansible-version-pin.sh "${WORKSPACE}/.venv-molecule" "${VENV_DIR}"
+
                     echo "Ansible venv ready at: ${VENV_DIR}"
                 """
             }

@@ -134,7 +134,7 @@ check_prerequisites() {
     # Check ansible
     if ! command_available ansible-playbook; then
         log_fail "ansible-playbook not found"
-        echo -e "  ${YELLOW}Install: pip install ansible${NC}"
+        echo -e "  ${YELLOW}Install: scripts/setup-molecule.sh && source .venv-molecule/bin/activate${NC}"
         exit 1
     fi
     ANSIBLE_VERSION=$(ansible-playbook --version | head -1 | awk '{print $NF}')
