@@ -189,7 +189,9 @@
     {
       "match": [
         "roles/la-compose/templates/docker-compose/services/*.yml.j2",
-        "scripts/test-java-opts-wiring.sh"
+        "scripts/test-java-opts-wiring.sh",
+        "roles/la-compose/vars/docker-services-desc.yaml",
+        "roles/la-compose/templates/docker-compose.env.j2"
       ],
       "run": "bash scripts/test-java-opts-wiring.sh"
     }

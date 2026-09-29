@@ -92,4 +92,32 @@ check() {  # $1 template, $2 service, $3 .env var
 check namematching-service.yml.j2 namematching-service NAMEMATCHINGSERVICE_JAVA_OPTS
 check sensitive-data-service.yml.j2 sensitive-data-service SENSITIVEDATASERVICE_JAVA_OPTS
 
+# --- 3. the REAL desc: Grails deprecation noise silenced -------------------------------
+# ala-hub, species-lists and logger log a WARN per dot-notation config read (190k of 293k
+# lines in 3 h for ala-hub under load on gbif.es). The level travels as an extra_param, so
+# render the real .env template from the real desc and look for it on each line.
+"$PYTHON" - "$REPO_ROOT" <<'PYTHON' || fail=1
+import sys, yaml
+from pathlib import Path
+from jinja2 import ChainableUndefined, Environment, FileSystemLoader
+root = Path(sys.argv[1])
+desc = yaml.safe_load((root / "roles/la-compose/vars/docker-services-desc.yaml").read_text())["docker_services_desc"]
+env = Environment(loader=FileSystemLoader(str(root / "roles/la-compose/templates")), undefined=ChainableUndefined)
+env.filters["bool"] = lambda v: str(v).strip().lower() in ("true", "yes", "on", "1")
+keys = ["ala_hub", "species_lists", "logger"]
+out = env.get_template("docker-compose.env.j2").render(
+    service_java_opts_dict={k: "-Xmx1g" for k in keys},
+    docker_services_desc=desc,
+    service_extra_params={k: desc[k].get("extra_params", []) for k in keys}, vars={})
+lines = {l.split("=", 1)[0]: l for l in out.splitlines() if "_JAVA_OPTS=" in l}
+bad = 0
+for prefix in ("BIOCACHE_HUB", "SPECIES_LISTS", "LOGGER"):
+    line = lines.get(f"{prefix}_JAVA_OPTS", "")
+    if "-Dlogging.level.org.grails.config.NavigableMap=ERROR" in line:
+        print(f"[PASS] {prefix}_JAVA_OPTS silences NavigableMap")
+    else:
+        print(f"[FAIL] {prefix}_JAVA_OPTS lacks the NavigableMap level: {line[:160]}"); bad = 1
+sys.exit(bad)
+PYTHON
+
 exit "$fail"

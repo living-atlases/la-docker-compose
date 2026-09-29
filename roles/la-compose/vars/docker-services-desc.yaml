@@ -64,6 +64,12 @@ docker_services_desc:
     jvm_flags:
       - '--add-opens=java.base/java.lang=ALL-UNNAMED'
       - '--add-opens=java.base/java.lang.reflect=ALL-UNNAMED'
+    extra_params:
+      # Grails logs a WARN for every config key read with dot notation, several per request:
+      # 190k of 293k log lines in 3 h on gbif.es under a load test (CPU and disk for nothing).
+      # The role's logback.xml sets root WARN; Spring Boot's logging.level raises this one.
+      - key: logging.level.org.grails.config.NavigableMap
+        value: ERROR
   biocache_service:
     name: 'records-ws'
     alias: 'biocache-service'
@@ -141,6 +147,10 @@ docker_services_desc:
     repository: 'https://github.com/AtlasOfLivingAustralia/specieslist-webapp'
     version_variable: 'species_list_version'
     log_config_filename: 'logback.xml'
+    extra_params:
+      # Same NavigableMap deprecation noise as ala_hub (see there).
+      - key: logging.level.org.grails.config.NavigableMap
+        value: ERROR
   regions:
     name: 'regions'
     nameInt: 'regions'
@@ -174,6 +184,10 @@ docker_services_desc:
     log_config_filename: 'logback.xml'
     extra_config_name: 'logger-config'
     stack_size: '512k'
+    extra_params:
+      # Same NavigableMap deprecation noise as ala_hub (see there).
+      - key: logging.level.org.grails.config.NavigableMap
+        value: ERROR
   solr:
     name: 'solr'
     nameInt: 'solr'
