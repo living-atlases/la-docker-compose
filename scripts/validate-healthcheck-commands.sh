@@ -18,19 +18,25 @@
 #
 # Usage:
 #   scripts/validate-healthcheck-commands.sh [--compose-dir DIR] [--pull] [--service NAME]
+#                                            [--cache-dir DIR]
 # Default DIR is /data/docker-compose (the single runtime, local and CI).
+# --cache-dir remembers each (image ID, binary) that passed, so an unchanged image is not
+# probed again: one container start per image cost 2.4-3.9 min of every playbook run
+# (#430/#431). Only passes are cached; an image ID names immutable content.
 set -uo pipefail
 
 COMPOSE_DIR="/data/docker-compose"
 PULL=false
 ONLY=""
+CACHE_DIR=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --compose-dir) COMPOSE_DIR="$2"; shift 2 ;;
         --service)     ONLY="$2"; shift 2 ;;
         --pull)        PULL=true; shift ;;
-        -h|--help)     sed -n '2,24p' "$0"; exit 0 ;;
+        --cache-dir)   CACHE_DIR="$2"; shift 2 ;;
+        -h|--help)     sed -n '2,28p' "$0"; exit 0 ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
 done
@@ -92,6 +98,17 @@ for row in "${ROWS[@]}"; do
         fi
     fi
 
+    cache_key=""
+    if [[ -n "$CACHE_DIR" ]]; then
+        image_id=$(docker image inspect -f '{{.Id}}' "$image" 2>/dev/null)
+        cache_key="${image_id#sha256:}-$(printf '%s' "$binary" | sha1sum | cut -c1-12)"
+        if [[ -n "$image_id" && -f "$CACHE_DIR/$cache_key" ]]; then
+            echo "ok    $service: $binary present in $image (cached)"
+            ok=$((ok + 1))
+            continue
+        fi
+    fi
+
     # `--entrypoint <binary>` with no command: the container init fails BEFORE the binary
     # runs if it is missing, which is exactly the signal we want. A binary that exists but
     # dislikes its (absent) arguments exits non-zero with its own message, and passes.
@@ -106,6 +123,9 @@ for row in "${ROWS[@]}"; do
     else
         echo "ok    $service: $binary present in $image"
         ok=$((ok + 1))
+        if [[ -n "$cache_key" ]] && mkdir -p "$CACHE_DIR" 2>/dev/null; then
+            : >"$CACHE_DIR/$cache_key" 2>/dev/null || true
+        fi
     fi
 done
 

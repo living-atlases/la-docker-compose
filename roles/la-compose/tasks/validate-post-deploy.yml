@@ -75,6 +75,7 @@
             cmd: >-
               {{ docker_compose_data_dir }}/validate-healthcheck-commands.sh
               --compose-dir {{ docker_compose_data_dir }}
+              --cache-dir {{ la_artifact_cache_dir | default('/var/cache/la-artifacts') }}/healthcheck-probe
           register: healthcheck_commands_result
           become: true
           changed_when: false
