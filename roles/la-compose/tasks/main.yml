@@ -121,17 +121,39 @@
       tags:
         - always
 
-    # ~243MB from S3 in Sydney (29 min in CI): started now, in the background, so the
-    # render overlaps it; pipelines-shapefiles-finish.yml waits and unpacks it before `up`.
+    # Large data artifacts only an ingest needs (29 min for the shapefiles from S3 in
+    # Sydney, 30 for the SDS layers from ALA's archive): fetched from upstream in the
+    # background, into a host-local cache outside data_dir, while the render goes on.
+    # artifact-fetch-finish.yml waits for them and unpacks them before `up`.
     - name: "Pipelines shapefiles: start the background download"
       ansible.builtin.include_tasks:
-        file: pipelines-shapefiles-start.yml
+        file: artifact-fetch-start.yml
         apply:
           tags: [pipelines, pipelines-layers, docker-compose]
+      vars:
+        artifact_name: pipelines-shapefiles
+        artifact_url: "{{ pipelines_shapefiles_url | default('https://pipelines-shp.s3-ap-southeast-2.amazonaws.com/pipelines-shapefiles.zip') }}"
+        artifact_checksum: "{{ pipelines_shapefiles_checksum | default('sha1:d4755425902e109e749c319f8d4ee98fa7ef2c4d') }}"
+        artifact_skip_if_exists: "{{ data_dir }}/pipelines-shp/cw_state_poly.dbf"
       when: "'pipelines' in services_enabled"
       tags:
-        - pipelines
         - pipelines-layers
+        - docker-compose
+
+    - name: "SDS layers: start the background download"
+      ansible.builtin.include_tasks:
+        file: artifact-fetch-start.yml
+        apply:
+          tags: [sensitive-data-service, docker-compose]
+      vars:
+        artifact_name: sds-layers
+        artifact_url: "{{ sds_layers_url | default('https://archives.ala.org.au/archives/layers/sds-layers.tgz') }}"
+        artifact_fallback_url: https://archives.ala.org.au/archives/layers/sds-layers.tgz
+      when:
+        - "'sensitiveDataService' in services_enabled"
+        - "service_aliases.get('sensitive-data-service') is defined"
+      tags:
+        - sensitive-data-service
         - docker-compose
 
     - name: Load variables from collectory role if present on this server
@@ -518,13 +540,39 @@
 
     - name: "Pipelines shapefiles: wait for the download and unpack"
       ansible.builtin.include_tasks:
-        file: pipelines-shapefiles-finish.yml
+        file: artifact-fetch-finish.yml
         apply:
           tags: [pipelines, pipelines-layers, docker-compose]
+      vars:
+        artifact_name: pipelines-shapefiles
+        artifact_url: "{{ pipelines_shapefiles_url | default('https://pipelines-shp.s3-ap-southeast-2.amazonaws.com/pipelines-shapefiles.zip') }}"
+        artifact_checksum: "{{ pipelines_shapefiles_checksum | default('sha1:d4755425902e109e749c319f8d4ee98fa7ef2c4d') }}"
+        artifact_dest: "{{ data_dir }}/pipelines-shp"
+        artifact_creates: "{{ data_dir }}/pipelines-shp/cw_state_poly.dbf"
+        artifact_owner: "{{ docker_container_uid }}"
+        artifact_group: "{{ docker_container_gid }}"
       when: "'pipelines' in services_enabled"
       tags:
-        - pipelines
         - pipelines-layers
+        - docker-compose
+
+    # SDS def ALA tgz is created with a MacOS tar, hence --warning=no-unknown-keyword.
+    - name: "SDS layers: wait for the download and unpack"
+      ansible.builtin.include_tasks:
+        file: artifact-fetch-finish.yml
+        apply:
+          tags: [sensitive-data-service, docker-compose]
+      vars:
+        artifact_name: sds-layers
+        artifact_url: "{{ sds_layers_url | default('https://archives.ala.org.au/archives/layers/sds-layers.tgz') }}"
+        artifact_fallback_url: https://archives.ala.org.au/archives/layers/sds-layers.tgz
+        artifact_dest: "{{ data_dir }}/biocache/layers"
+        artifact_extra_opts: ["--warning=no-unknown-keyword"]
+      when:
+        - "'sensitiveDataService' in services_enabled"
+        - "service_aliases.get('sensitive-data-service') is defined"
+      tags:
+        - sensitive-data-service
         - docker-compose
 
     # block/rescue: on `docker compose up` failure, capture root-cause diagnostics

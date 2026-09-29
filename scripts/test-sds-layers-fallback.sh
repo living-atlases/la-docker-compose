@@ -86,11 +86,11 @@ cat >"$tmp/play.yml" <<EOF
     - ansible.builtin.include_tasks: $tmp/tasks.yml
 EOF
 
-run() { # $1 case name, $2 sds_url, $3 sds_layers_url
+run() { # $1 case name, $2 sds_url, $3 sds_layers_url, $4 optional extra -e
   rm -rf "$tmp/data-$1"
   ANSIBLE_LOCALHOST_WARNING=false ANSIBLE_INVENTORY_UNPARSED_WARNING=false \
     "$ANSIBLE_PLAYBOOK" -i localhost, -e "$PYARG" -c local "$tmp/play.yml" \
-    -e "data_dir=$tmp/data-$1" -e "sds_url=$2" -e "sds_layers_url=$3" >"$tmp/$1.log" 2>&1 ||
+    -e "data_dir=$tmp/data-$1" -e "sds_url=$2" -e "sds_layers_url=$3" ${4:+-e "$4"} >"$tmp/$1.log" 2>&1 ||
     { cat "$tmp/$1.log" >&2; fail "$1: playbook failed"; }
 }
 layers_origin() { tar -xzOf "$tmp/data-$1/biocache/layers/sds-layers.tgz" origin.txt; }
@@ -116,4 +116,10 @@ run all-ok "$base/good" "$base/mirror/sds-layers.tgz"
 [ "$(xml_origin all-ok)" = good ] && [ "$(layers_origin all-ok)" = mirror ] ||
   fail "all-ok: something came from the fallback"
 pass "with both URLs answering, nothing comes from ALA"
+# 4. A caller that fetches the layers itself (la-docker-compose, in the background).
+run no-layers "$base/good" "$base/mirror/sds-layers.tgz" sds_layers_download=false
+[ "$(xml_origin no-layers)" = good ] || fail "no-layers: the XML configs were skipped too"
+[ ! -e "$tmp/data-no-layers/biocache/layers/sds-layers.tgz" ] ||
+  fail "no-layers: sds_layers_download=false still downloaded the layers"
+pass "sds_layers_download=false leaves the layers to the caller and still fetches the XMLs"
 echo "All checks passed."

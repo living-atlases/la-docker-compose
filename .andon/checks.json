@@ -143,11 +143,11 @@
     },
     {
       "match": [
-        "roles/la-compose/tasks/pipelines-shapefiles-start.yml",
-        "roles/la-compose/tasks/pipelines-shapefiles-finish.yml",
-        "scripts/test-pipelines-shapefiles-async.sh"
+        "roles/la-compose/tasks/artifact-fetch-start.yml",
+        "roles/la-compose/tasks/artifact-fetch-finish.yml",
+        "scripts/test-artifact-fetch.sh"
       ],
-      "run": "VENV_MOLECULE=.venv-molecule bash scripts/test-pipelines-shapefiles-async.sh"
+      "run": "VENV_MOLECULE=.venv-molecule bash scripts/test-artifact-fetch.sh"
     },
     {
       "match": [

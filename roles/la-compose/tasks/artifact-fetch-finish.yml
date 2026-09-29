@@ -1,0 +1,105 @@
+---
+# Second half of artifact-fetch-start.yml: wait for the background download and unpack it
+# from the cache into data_dir. A background download that failed, or that never started
+# (a --tags run that skipped the start), is not fatal here: the foreground get_url below
+# is the fallback, and returns at once when the cache already holds the file.
+#
+# Vars: artifact_name, artifact_url, artifact_checksum (as in the start), plus
+#   artifact_dest           directory to unpack into
+#   artifact_creates        optional path whose existence means "already unpacked"
+#   artifact_owner/group    optional owner of the unpacked files
+#   artifact_fallback_url   optional second upstream to try if artifact_url fails
+- name: "Artifact {{ artifact_name }} | load the background job"
+  ansible.builtin.set_fact:
+    la_artifact_job: >-
+      {{ (la_artifact_jobs | default({}))[artifact_name] | default({
+           'jid': '', 'skip': false,
+           'cache_file': (la_artifact_cache_dir | default('/var/cache/la-artifacts')) ~ '/' ~
+             ((artifact_checksum | default('') | regex_replace('^[a-z0-9]+:', ''))
+              if artifact_checksum | default('') | length > 0
+              else (artifact_url | hash('sha1'))) ~ '/' ~ (artifact_url | urlsplit('path') | basename)}) }}
+
+- name: "Artifact {{ artifact_name }} | fetch, wait and unpack"
+  when: not la_artifact_job.skip
+  block:
+    - name: "Artifact {{ artifact_name }} | wait for the background download"
+      ansible.builtin.async_status:
+        jid: "{{ la_artifact_job.jid }}"
+      register: la_artifact_status
+      until: la_artifact_status.finished
+      retries: "{{ ((la_artifact_async_timeout | default(5400) | int) / 10) | int }}"
+      delay: 10
+      failed_when: false
+      become: true
+      when: la_artifact_job.jid | length > 0
+
+    # failed_when: false above masks the job's own failed flag, so judge by the result:
+    # a background get_url that succeeded left the file in the cache.
+    - name: "Artifact {{ artifact_name }} | check what the background download left"
+      ansible.builtin.stat:
+        path: "{{ la_artifact_job.cache_file }}"
+      register: la_artifact_cached
+      become: true
+      when: la_artifact_job.jid | length > 0
+
+    - name: "Artifact {{ artifact_name }} | report a failed background download"
+      ansible.builtin.debug:
+        msg: "WARNING: background download of {{ artifact_name }} failed ({{ la_artifact_status.msg | default('no message') }}); retrying in the foreground"
+      when:
+        - la_artifact_job.jid | length > 0
+        - not (la_artifact_status.finished | default(false)) or not la_artifact_cached.stat.exists
+
+    - name: "Artifact {{ artifact_name }} | ensure the cache directory exists"
+      ansible.builtin.file:
+        path: "{{ la_artifact_job.cache_file | dirname }}"
+        state: directory
+        mode: '0755'
+      become: true
+
+    - name: "Artifact {{ artifact_name }} | download in the foreground (no-op when cached)"
+      block:
+        - name: "Artifact {{ artifact_name }} | download from {{ artifact_url }}"
+          ansible.builtin.get_url:
+            url: "{{ artifact_url }}"
+            dest: "{{ la_artifact_job.cache_file }}"
+            checksum: "{{ artifact_checksum | default(omit, true) }}"
+            mode: '0644'
+          become: true
+          register: la_artifact_download
+          retries: 2
+          delay: 10
+          until: la_artifact_download is succeeded
+      rescue:
+        - name: "Artifact {{ artifact_name }} | download from the fallback URL"
+          ansible.builtin.get_url:
+            url: "{{ artifact_fallback_url }}"
+            dest: "{{ la_artifact_job.cache_file }}"
+            checksum: "{{ artifact_checksum | default(omit, true) }}"
+            mode: '0644'
+          become: true
+          when: artifact_fallback_url | default('') | length > 0 and artifact_fallback_url != artifact_url
+
+        - name: "Artifact {{ artifact_name }} | fail when there is no fallback"
+          ansible.builtin.fail:
+            msg: "Could not download {{ artifact_name }} from {{ artifact_url }}: {{ la_artifact_download.msg | default('') }}"
+          when: not (artifact_fallback_url | default('') | length > 0 and artifact_fallback_url != artifact_url)
+
+    - name: "Artifact {{ artifact_name }} | ensure the destination exists"
+      ansible.builtin.file:
+        path: "{{ artifact_dest }}"
+        state: directory
+        owner: "{{ artifact_owner | default(omit) }}"
+        group: "{{ artifact_group | default(omit) }}"
+        mode: '0755'
+      become: true
+
+    - name: "Artifact {{ artifact_name }} | unpack into {{ artifact_dest }}"
+      ansible.builtin.unarchive:
+        src: "{{ la_artifact_job.cache_file }}"
+        dest: "{{ artifact_dest }}"
+        remote_src: true
+        owner: "{{ artifact_owner | default(omit) }}"
+        group: "{{ artifact_group | default(omit) }}"
+        creates: "{{ artifact_creates | default(omit, true) }}"
+        extra_opts: "{{ artifact_extra_opts | default(omit) }}"
+      become: true

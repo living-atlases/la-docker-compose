@@ -362,9 +362,10 @@ EOF
                     # overrides. Renders the template, ~1s.
                     bash scripts/test-java-opts-env.sh
 
-                    # The geocode shapefiles (29 min from S3 in #426/#427, all hosts idle) download
-                    # in the background and are unpacked before `up`. Local HTTP server, ~20s.
-                    VENV_MOLECULE="$VENV_MOL" bash scripts/test-pipelines-shapefiles-async.sh
+                    # Ingest-only data artifacts (shapefiles: 29 min from S3 in #426/#427, all hosts
+                    # idle; SDS layers: 30 min from ALA) are fetched from upstream in the background
+                    # into a host cache outside /data, and unpacked before `up`. Local HTTP server, ~40s.
+                    VENV_MOLECULE="$VENV_MOL" bash scripts/test-artifact-fetch.sh
 
                     # The nightly image GC skips while a deploy is in progress: it fired during
                     # `compose up` in #428 and deleted a just-pulled image. Shimmed docker, ~5s.

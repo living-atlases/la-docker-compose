@@ -1540,6 +1540,9 @@
     # config template and services/sensitive-data-service.yml.j2 resolve to. It used to be
     # pinned to 'nm', silently reading whatever namematching-service had installed there.
     nameindex_datestamp: "{{ sds_nameindex_datestamp }}"
+    # The layers archive is fetched in the background by main.yml (artifact-fetch-*.yml),
+    # off the critical path; the role still fetches the XML configs.
+    sds_layers_download: false
   when:
     - "'sensitiveDataService' in services_enabled"
     - "service_aliases.get('sensitive-data-service') is defined"
@@ -3191,8 +3194,8 @@
     # an `exportUrl` pinned to a concrete version (.../releases/1.0.3/export). Resolve it,
     # then download that.
     # The geocode shapefiles are downloaded in the background from main.yml
-    # (pipelines-shapefiles-start.yml) and unpacked just before `docker compose up`
-    # (pipelines-shapefiles-finish.yml): 29 min from S3 that used to block every host here.
+    # (artifact-fetch-start.yml) and unpacked just before `docker compose up`
+    # (artifact-fetch-finish.yml): 29 min from S3 that used to block every host here.
 
     - name: Resolve the current export URL for each GBIF vocabulary
       ansible.builtin.uri:

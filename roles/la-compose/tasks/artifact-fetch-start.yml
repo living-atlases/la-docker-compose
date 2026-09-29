@@ -1,0 +1,58 @@
+---
+# Background fetch of a large data artifact the stack only needs at ingest time (geocode
+# shapefiles, SDS layers), so a slow upstream stays off the deploy's critical path.
+# artifact-fetch-finish.yml waits for it and unpacks it before `docker compose up`.
+#
+# Always from the upstream URL: no third-party mirror. The file lands in a host-local
+# cache OUTSIDE data_dir (la_artifact_cache_dir), which a CI wipe of /data and a
+# redeploy both keep. The cache key is the pinned checksum when there is one; otherwise
+# the URL, and get_url then only re-downloads when the upstream copy is newer.
+#
+# Vars:
+#   artifact_name           key for the finish (e.g. "pipelines-shapefiles")
+#   artifact_url            upstream URL
+#   artifact_checksum       optional "sha1:..." pin
+#   artifact_skip_if_exists optional path: when it exists, nothing is fetched or unpacked
+- name: "Artifact {{ artifact_name }} | check whether it is already in place"
+  ansible.builtin.stat:
+    path: "{{ artifact_skip_if_exists }}"
+  register: la_artifact_marker
+  become: true
+  when: artifact_skip_if_exists | default('') | length > 0
+
+- name: "Artifact {{ artifact_name }} | resolve its cache path"
+  ansible.builtin.set_fact:
+    la_artifact_cache_file: >-
+      {{ la_artifact_cache_dir | default('/var/cache/la-artifacts') }}/{{
+         (artifact_checksum | default('') | regex_replace('^[a-z0-9]+:', ''))
+         if artifact_checksum | default('') | length > 0
+         else (artifact_url | hash('sha1')) }}/{{ artifact_url | urlsplit('path') | basename }}
+    la_artifact_skip: "{{ la_artifact_marker.stat.exists | default(false) }}"
+
+- name: "Artifact {{ artifact_name }} | ensure the cache directory exists"
+  ansible.builtin.file:
+    path: "{{ la_artifact_cache_file | dirname }}"
+    state: directory
+    mode: '0755'
+  become: true
+  when: not la_artifact_skip
+
+- name: "Artifact {{ artifact_name }} | start the download in the background"
+  ansible.builtin.get_url:
+    url: "{{ artifact_url }}"
+    dest: "{{ la_artifact_cache_file }}"
+    checksum: "{{ artifact_checksum | default(omit, true) }}"
+    mode: '0644'
+  become: true
+  async: "{{ la_artifact_async_timeout | default(5400) }}"
+  poll: 0
+  register: la_artifact_async
+  when: not la_artifact_skip
+
+- name: "Artifact {{ artifact_name }} | remember the job for the finish"
+  ansible.builtin.set_fact:
+    la_artifact_jobs: >-
+      {{ la_artifact_jobs | default({}) | combine({artifact_name: {
+           'jid': la_artifact_async.ansible_job_id | default(''),
+           'skip': la_artifact_skip,
+           'cache_file': la_artifact_cache_file}}) }}
