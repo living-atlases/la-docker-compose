@@ -194,6 +194,13 @@
         "roles/la-compose/templates/docker-compose.env.j2"
       ],
       "run": "bash scripts/test-java-opts-wiring.sh"
+    },
+    {
+      "match": [
+        "scripts/bundle/*.sh",
+        "scripts/test-bundle-spike.sh"
+      ],
+      "run": "bash scripts/test-bundle-spike.sh"
     }
   ],
   "ignore": [

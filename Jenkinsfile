@@ -143,6 +143,11 @@ pipeline {
             defaultValue: false,
             description: 'EXPERIMENT (never fails the build): on a data-less stack, settle whether biocache-hub\'s cold-start 500 on /occurrences/search needs DATA or is just an initialisation defect a restart clears. Restarts biocache-hub once and prints a verdict. Only meaningful with RUN_AIRFLOW_INGEST=false on a CLEAN_MACHINE build — it refuses to run against an index that already holds records. See gh-8.'
         )
+        booleanParam(
+            name: 'BUNDLE_SPIKE',
+            defaultValue: false,
+            description: 'MEASUREMENT (TASK-50, never fails the build, at most UNSTABLE): on the stack already deployed, capture a bundle (rendered compose dir + config bind sources) and time applying it without Ansible: live (restore, pull, up, health = redeploy floor), then down + cold (= new-portal floor, without the init steps). Prints BUNDLE-TIMING lines. Without FORCE_REDEPLOY it neither cleans nor redeploys: it runs against the stack the previous build left.'
+        )
     }
 
     stages {
@@ -192,7 +197,9 @@ pipeline {
             // Never wipe in ingest-only mode (RUN_AIRFLOW_INGEST without FORCE_REDEPLOY), even if
             // CLEAN_MACHINE is left at its default true — the intent there is to test the ingest
             // against the live stack, not to destroy it.
-            when { expression { (params.CLEAN_MACHINE || params.ONLY_CLEAN) && !(params.RUN_AIRFLOW_INGEST && !params.FORCE_REDEPLOY) } }
+            // Same for a bundle-spike-only run (BUNDLE_SPIKE without FORCE_REDEPLOY): it measures
+            // the stack the previous build left.
+            when { expression { (params.CLEAN_MACHINE || params.ONLY_CLEAN) && !(params.RUN_AIRFLOW_INGEST && !params.FORCE_REDEPLOY) && !(params.BUNDLE_SPIKE && !params.FORCE_REDEPLOY) } }
             steps {
                 script {
                     assertDisposableHosts(env.TARGET_HOSTS, env.CLEAN_HOSTS_ALLOW_REGEX)
@@ -358,6 +365,8 @@ EOF
                     # Pure shell, ~1s.
                     bash scripts/test-hub-inventory-args.sh
                     bash scripts/test-nginx-vhost-loop-var.sh
+                    # TASK-50 bundle spike: capture/apply against a shimmed docker, ~2s.
+                    bash scripts/test-bundle-spike.sh
                     # Data hubs under a path (hub.l-a.site/records) must serve and probe there.
                     bash scripts/test-hub-context-path.sh
                     # The post-ingest hub restart must cover data hubs too, not only the portal.
@@ -558,6 +567,10 @@ EOF
                     if (params.RUN_AIRFLOW_INGEST && !params.FORCE_REDEPLOY) {
                         env.DO_REDEPLOY = 'false'
                         echo 'Ingest-only run (RUN_AIRFLOW_INGEST, no FORCE_REDEPLOY): skipping redeploy + docker cleanup.'
+                    } else if (params.BUNDLE_SPIKE && !params.FORCE_REDEPLOY) {
+                        // Same guard, same reason: measure the running stack, never wipe it first.
+                        env.DO_REDEPLOY = 'false'
+                        echo 'Bundle-spike-only run (BUNDLE_SPIKE, no FORCE_REDEPLOY): skipping redeploy + docker cleanup.'
                     } else if (params.FORCE_REDEPLOY || (isManual && !isCron)) {
                         env.DO_REDEPLOY = 'true'
                         echo 'Force or Manual redeploy detected.'
@@ -1759,6 +1772,80 @@ ENVEOF
                         }
                     } else {
                         echo "Gatus total green: every endpoint verified."
+                    }
+                }
+            }
+        }
+        // ----- Bundle spike (opt-in via BUNDLE_SPIKE, TASK-50) -----
+        // A MEASUREMENT, not a deploy path: what does a deploy cost once Ansible is out of the
+        // critical path? Captures a bundle on each host from the stack Ansible just deployed
+        // (never an older one: restoring a stale .env would silently revert the build), then
+        //   live: restore + pull --policy missing + up + health, all hosts in parallel
+        //         = the floor of a redeploy with nothing to change;
+        //   down: compose down on ALL hosts (volumes and /data kept), then
+        //   cold: the same as live on the stopped stack, all hosts in parallel
+        //         = the floor of a new portal, minus the init steps (db, solr, cas, apikeys,
+        //           geoserver) an empty volume still needs: those are Ansible-only until
+        //           they become init containers (phase 2); take their cost from profile_tasks.
+        // The bundle holds secrets: it stays on the host (root, 0600) and is never archived.
+        // Ends with the Deep checks gate, report-only, so the next build finds a green stack.
+        stage('Bundle spike') {
+            when { expression { params.BUNDLE_SPIKE && params.AUTO_DEPLOY && !params.ONLY_CLEAN } }
+            options { timeout(time: 150, unit: 'MINUTES') }
+            steps {
+                script {
+                    def hosts = env.TARGET_HOSTS.trim().split(/\s+/)
+                    def ssh = 'ssh -o BatchMode=yes -o StrictHostKeyChecking=no'
+                    def remoteDir = '/tmp/la-bundle-spike'
+                    // No `ssh ... bash -s`: a compose command that reads stdin would eat the script.
+                    def onHosts = { String phase, String cmd ->
+                        def t0 = sh(returnStdout: true, script: 'date +%s').trim()
+                        def branches = [:]
+                        for (h in hosts) {
+                            def targetHost = h
+                            branches[targetHost] = {
+                                catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
+                                    sh "${ssh} ${targetHost} 'sudo bash ${remoteDir}/${cmd}'"
+                                }
+                            }
+                        }
+                        parallel branches
+                        sh "echo \"BUNDLE-TIMING host=all phase=${phase} step=wall seconds=\$(( \$(date +%s) - ${t0} ))\""
+                    }
+
+                    for (h in hosts) {
+                        sh """
+                            set -eu
+                            ${ssh} ${h} 'mkdir -p ${remoteDir}'
+                            scp -o BatchMode=yes -o StrictHostKeyChecking=no \
+                                "${WORKSPACE}/scripts/bundle/capture.sh" "${WORKSPACE}/scripts/bundle/apply.sh" \
+                                "${WORKSPACE}/scripts/wait-for-health.sh" ${h}:${remoteDir}/
+                        """
+                    }
+                    onHosts('capture', 'capture.sh')
+                    onHosts('live', 'apply.sh --phase live')
+                    onHosts('down', 'apply.sh --phase down')
+                    onHosts('cold', 'apply.sh --phase cold')
+
+                    // Deep checks, report-only: the stack must be left as green as it came.
+                    def verdict = ''
+                    for (h in hosts) {
+                        def targetHost = h
+                        sh(returnStatus: true, script: """
+                            set -u
+                            bash "${WORKSPACE}/scripts/verify-deployment.sh" \
+                                --target ${targetHost} --blocking --timeout 420 \
+                                > "${WORKSPACE}/gatus-bundle-gate.log" 2>&1 || true
+                            cat "${WORKSPACE}/gatus-bundle-gate.log"
+                        """)
+                        def log = readFile("${WORKSPACE}/gatus-bundle-gate.log")
+                        if (log.contains('GATE-PASSED:')) { verdict = 'PASSED'; break }
+                        if (log.contains('GATE-FAILED:')) { verdict = 'FAILED'; break }
+                    }
+                    if (verdict != 'PASSED') {
+                        unstable("Bundle spike: the Deep checks gate after the cold start is ${verdict ?: 'NOT-RUN'} - see the log above.")
+                    } else {
+                        echo "Bundle spike: Deep checks green after the cold start."
                     }
                 }
             }
