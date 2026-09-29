@@ -10,12 +10,82 @@ edit by hand, write the notes in the annotated tag instead.
 
 ## Unreleased
 
+#### Other changes
+
+- Heap budget: warn when a host's JVM heaps do not fit in its RAM ([faf0a16](https://github.com/living-atlases/la-docker-compose/commit/faf0a16c654ab92c49f250e5705af805f06c6bac))
+
+<a name="v1.10.1"></a>
+
+## v1.10.1 - 2026-09-29
+
+**a clean deploy 30 min faster, a redeploy 34 min faster**
+
+Green on 66fd530: build #431 (SUCCESS, CLEAN_MACHINE=true plus the hot-redeploy
+test, 165 min), after #430 on 7f67066 (SUCCESS, same parameters, 157 min). Both
+with all 137 Gatus endpoints healthy through the total-green gate, Cypress 62/63
+passing with 1 pending, and the hot redeploy with no data loss and no nginx
+downtime. Against the v1.10.0 reference (#427, 225 min): the clean-deploy playbook
+went from 110 to 73-80 min and the redeploy playbook from 73 to 39 min.
+First step of the fast-deploy work (TASK-50, phases 0 and 1).
+
+Data downloads off the critical path
+- perf(data): ingest-only data artifacts are fetched from their upstream URL in
+  the background, into a host-local cache outside /data (/var/cache/la-artifacts,
+  keyed by the pinned checksum, or by the URL and then only revalidated), and
+  unpacked before docker compose up. The cache survives the CI wipe of /data and
+  redeploys; a failed background job falls back to the foreground and to a
+  fallback URL. Used for the pipelines geocode shapefiles (29 min from S3, with
+  every host waiting) and the SDS layers.
+- fix(sds): the layers archive no longer follows a failed XML download to ALA.
+  The CI SDS answers 500 on sensitive-species-data.xml, and the shared rescue
+  also replaced the layers with ALA's archive (30 min of every redeploy). The
+  XML fallback now prints a WARNING (ala-install 4ae627d4, 1aea58d4).
+
+Fixes
+- fix(housekeeping): the nightly image GC skips while a deploy is in progress.
+  It fired during docker compose up in #428 and deleted an image pulled minutes
+  earlier ("No such image: livingatlases/ala-bie-hub:4.1.3"): between the pull
+  and up no container references the images, and --filter until= looks at the
+  build date. la-compose keeps /run/la-compose-deploy.marker for the length of
+  the role; a stale marker stops blocking after 6 h.
+
+CI and tests
+- ci: per-task timings (ansible.posix profile_tasks and timer) in both playbook
+  runs, and scripts/profile-build-log.py to compare builds offline.
+- test: test-artifact-fetch.sh, test-sds-layers-fallback.sh and
+  test-containerd-gc-deploy-guard.sh; modules run under the playbook's python,
+  since the agent's system python cannot import its own cffi (#429).
+- docs: CHANGELOG.md generated from the tags and every commit between them.
+
+Known at tag time: the "Check if ports are listening" task probes
+<host>.docker_compose, which does not resolve, so it always reports FAILED and
+is ignored. The CI SDS serves no sensitive-species.xml, so its XML configs come
+from ALA (now with a WARNING).
+
+### Commits (9 since v1.10.0)
+
+#### Features
+
+- **data**: fetch ingest-only artifacts from upstream in the background, via a host cache ([66fd530](https://github.com/living-atlases/la-docker-compose/commit/66fd5304f5ed30c065a131c1b3c2e90786b1f2a4))
+- **pipelines**: download the geocode shapefiles in the background ([c1e9881](https://github.com/living-atlases/la-docker-compose/commit/c1e9881c2c29e34a9383518e20f543d18b4ce05a))
+
+#### Fixes
+
+- **housekeeping**: the nightly image GC skips while a deploy is in progress ([2f0ecc7](https://github.com/living-atlases/la-docker-compose/commit/2f0ecc77ca2fb66c75d08845c998c01be5c197ba))
+- **sds**: the layers archive no longer follows a failed XML download to ALA ([3dbe432](https://github.com/living-atlases/la-docker-compose/commit/3dbe432923e9591849a06c078a69ce437130aa1b))
+
+#### Tests and CI
+
+- run the modules under the playbook's python, not the agent's system one ([7f67066](https://github.com/living-atlases/la-docker-compose/commit/7f670669cae3e4756fa4c8867a170450d779bd81))
+- per-task timings (profile_tasks) and scripts/profile-build-log.py ([2f152ad](https://github.com/living-atlases/la-docker-compose/commit/2f152ad8e8380d97c378e240579a510fcd846fbe))
+
 #### Documentation
 
 - CHANGELOG.md: one entry per release tag, back to v0.1.0 ([fe8a3dc](https://github.com/living-atlases/la-docker-compose/commit/fe8a3dc5c3767efed76660aa2b9f935364a99060))
 
 #### Other changes
 
+- v1.10.0 notes include the #427 hot-redeploy result ([fc67063](https://github.com/living-atlases/la-docker-compose/commit/fc6706318c1cd4d2fe5e25e1322796d35a802890))
 - every commit between tags, generated from git ([ae8956b](https://github.com/living-atlases/la-docker-compose/commit/ae8956b6e629f7cc393da66dc7385b9b3cd98a2f))
 
 <a name="v1.10.0"></a>
