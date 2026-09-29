@@ -185,6 +185,13 @@
         "scripts/test-healthcheck-probe-cache.sh"
       ],
       "run": "bash scripts/test-healthcheck-probe-cache.sh"
+    },
+    {
+      "match": [
+        "roles/la-compose/templates/docker-compose/services/*.yml.j2",
+        "scripts/test-java-opts-wiring.sh"
+      ],
+      "run": "bash scripts/test-java-opts-wiring.sh"
     }
   ],
   "ignore": [

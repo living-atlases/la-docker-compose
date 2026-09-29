@@ -12,8 +12,11 @@ services:
        - "{{ sensitive_data_service_port }}:9189"
        - "{{ sensitive_data_admin_port }}:9190"
      environment:
-       - JAVA_OPTS=-Xmx2g -Xms1g
-       - SENSITIVE_DATA_SERVICE_JAVA_OPTS=-Xmx2g -Xms1g
+       - JAVA_OPTS=${SENSITIVEDATASERVICE_JAVA_OPTS:--Xmx2g -Xms1g}
+     # The image's CMD is a bare `java -jar ...` that never reads JAVA_OPTS: the JVM ran with
+     # no -Xmx at all, i.e. Java 8's default of 1/4 of the host RAM (5.6 GB on a 22 GB node),
+     # and sensitiveDataService_max_memory had no effect. Same command, with the .env flags.
+     command: ["/bin/sh", "-c", "exec java $$JAVA_OPTS -jar /opt/atlas/ala-sensitive-data-service/ala-sensitive-data-server.jar server /data/ala-sensitive-data-service/config/config.yml"]
      volumes:
        # Its own index, NOT namematching-service's .../namematching-nm (different Lucene major).
        # Same path inside and outside: config.yml renders conservation.index with this suffix.

@@ -7,8 +7,11 @@ services:
        - "{{ namematching_service_port }}:9179"
        - "{{ namematching_admin_port }}:9180"
      environment:
-       - JAVA_OPTS=-Xmx2g -Xms1g
-       - NAMEMATCHING_SERVICE_JAVA_OPTS=-Xmx2g -Xms1g
+       - JAVA_OPTS=${NAMEMATCHINGSERVICE_JAVA_OPTS:--Xmx2g -Xms1g}
+     # The published image freezes `java -Xmx2g -Xms2g ...` into its CMD, so JAVA_OPTS alone
+     # changed nothing and namematchingService_max_memory had no effect. Same command, with
+     # the flags from .env (they carry the same logging/spring.config -D the CMD had).
+     command: ["/bin/sh", "-c", "exec java $$JAVA_OPTS -Xss512k -jar /opt/atlas/$${APP_ARTIFACT}/app.jar server /data/ala-namematching-server/config/config.yml"]
      volumes:
        - "{{ data_dir }}/lucene/namematching-nm:/data/lucene/namematching-nm:ro"
        - "{{ data_dir }}/ala-namematching-service/config:/data/ala-namematching-server/config:ro"
