@@ -2201,9 +2201,17 @@
 # default to -Xmx2g each and VM tuning does not carry over (on VMs several apps shared one
 # tomcat heap), so nobody sees the total until the kernel starts killing containers under
 # load. Warn by default; docker_heap_budget_strict=true turns it into a failure.
+# ansible-core 2.17 (the deploy venv) already turns the rendered JSON into a dict, 2.20
+# (the test venv) hands back a string: accept both, or 2.17 dies in from_json (#432).
 - name: "Heap budget: sum the -Xmx of the JVMs on this host"
   ansible.builtin.set_fact:
-    heap_budget: "{{ lookup('ansible.builtin.template', 'heap-budget.j2') | from_json }}"
+    heap_budget_rendered: "{{ lookup('ansible.builtin.template', 'heap-budget.j2') }}"
+  tags:
+    - docker-compose
+
+- name: "Heap budget: parse it"
+  ansible.builtin.set_fact:
+    heap_budget: "{{ heap_budget_rendered if heap_budget_rendered is mapping else heap_budget_rendered | from_json }}"
   tags:
     - docker-compose
 
