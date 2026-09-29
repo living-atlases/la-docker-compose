@@ -362,6 +362,10 @@ EOF
                     # overrides. Renders the template, ~1s.
                     bash scripts/test-java-opts-env.sh
 
+                    # The geocode shapefiles (29 min from S3 in #426/#427, all hosts idle) download
+                    # in the background and are unpacked before `up`. Local HTTP server, ~20s.
+                    VENV_MOLECULE="$VENV_MOL" bash scripts/test-pipelines-shapefiles-async.sh
+
                     # The Gatus health gate (Layer 1) was hollow for the whole of #385-#389:
                     # it resolved its target from a manifest that only exists on the deployed
                     # host, died at argument resolution on the agent, and catchError swallowed
@@ -441,6 +445,12 @@ EOF
                     # land on the container mount, not its own host dir (#402, all 3 hosts).
                     echo "Checking bie-hub's container-path overrides (ala-install synced)..."
                     bash scripts/test-bie-hub-container-paths.sh
+                    # The ala-install SDS role fetches the XML configs (sds_url) and the layers
+                    # archive (sds_layers_url) with separate fallbacks: sharing one rescue, the
+                    # CI SDS's 500 on sensitive-species-data.xml also swapped the layers for
+                    # ALA's archive, 30 min of the #427 redeploy. Local HTTP server, ~15s.
+                    echo "Checking the SDS download fallbacks (ala-install synced)..."
+                    VENV_MOLECULE="${WORKSPACE}/.venv-molecule" bash scripts/test-sds-layers-fallback.sh
                     # Disable sparse checkout in case it was left active from a prior build
                     git -C ala-install config core.sparseCheckout false 2>/dev/null || true
                     git -C ala-install read-tree -mu HEAD 2>/dev/null || true
@@ -889,6 +899,10 @@ EOF
                         export ANSIBLE_FORCE_COLOR=true
                         export ANSIBLE_STDOUT_CALLBACK=yaml
                         export ANSIBLE_HOST_KEY_CHECKING=False
+                        # Per-task timings in the log and a top-40 at the end (TASK-50 phase 0);
+                        # scripts/profile-build-log.py reads the same log offline.
+                        export ANSIBLE_CALLBACKS_ENABLED=ansible.posix.profile_tasks,ansible.posix.timer
+                        export PROFILE_TASKS_TASK_OUTPUT_LIMIT=40
                         
                         echo "Ansible version:"
                         ansible-playbook --version
@@ -1209,6 +1223,10 @@ EOF
                         export ANSIBLE_FORCE_COLOR=true
                         export ANSIBLE_STDOUT_CALLBACK=yaml
                         export ANSIBLE_HOST_KEY_CHECKING=False
+                        # Per-task timings in the log and a top-40 at the end (TASK-50 phase 0);
+                        # scripts/profile-build-log.py reads the same log offline.
+                        export ANSIBLE_CALLBACKS_ENABLED=ansible.posix.profile_tasks,ansible.posix.timer
+                        export PROFILE_TASKS_TASK_OUTPUT_LIMIT=40
                         echo "[redeploy-test] Re-running site.yml over the live stack (no clean)..."
                         ansible-playbook playbooks/site.yml ${inventoryArg} --limit docker_compose --extra-vars "auto_deploy=true"${skipArg} -v
                     """

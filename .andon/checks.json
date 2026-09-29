@@ -133,6 +133,21 @@
         "scripts/test-sds-data-permissions.sh"
       ],
       "run": "VENV_MOLECULE=.venv-molecule bash scripts/test-sds-data-permissions.sh"
+    },
+    {
+      "match": [
+        "ala-install/ansible/roles/sensitive-data-service/tasks/docker-tasks.yml",
+        "scripts/test-sds-layers-fallback.sh"
+      ],
+      "run": "VENV_MOLECULE=.venv-molecule bash scripts/test-sds-layers-fallback.sh"
+    },
+    {
+      "match": [
+        "roles/la-compose/tasks/pipelines-shapefiles-start.yml",
+        "roles/la-compose/tasks/pipelines-shapefiles-finish.yml",
+        "scripts/test-pipelines-shapefiles-async.sh"
+      ],
+      "run": "VENV_MOLECULE=.venv-molecule bash scripts/test-pipelines-shapefiles-async.sh"
     }
   ],
   "ignore": [
