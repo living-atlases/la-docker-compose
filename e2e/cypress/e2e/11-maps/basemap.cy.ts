@@ -23,7 +23,9 @@ function templateFrom(
   return cy.request({ url: pageUrl, failOnStatusCode: false }).then((resp) => {
     expect(resp.status, `${label}: GET ${pageUrl}`).to.be.lessThan(400);
     const found = extract(String(resp.body));
-    expect(found, `${label}: ${pageUrl} hands its map a basemap tile URL`).to.not.eq(null);
+    // A boolean, not `found`: chai prints the subject in the command log, and the template
+    // carries the CARTO key, which the log, the screenshots and a failing spec's video keep.
+    expect(found !== null, `${label}: ${pageUrl} hands its map a basemap tile URL`).to.eq(true);
     return found as { template: string; subdomains: string };
   });
 }
