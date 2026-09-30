@@ -19,7 +19,15 @@ RUN groupadd -g 999 docker && groupadd -g 1000 ubuntu && useradd -u 1000 -g 1000
 RUN printf '#!/bin/sh\n/usr/sbin/sysctl "$@" 2>/dev/null || { echo "render: sysctl $* skipped" >&2; exit 0; }\n' \
       > /usr/local/sbin/sysctl && chmod +x /usr/local/sbin/sysctl
 # The VMs run become as root with umask 027 (login.defs), so files no task gives a mode come out
-# 0640/0750 there. Modules run through this interpreter to get the same.
-RUN printf '#!/bin/sh\numask 027\nexec /usr/local/bin/python3 "$@"\n' > /usr/local/bin/python-render \
+# 0640/0750 there. Modules run through umask-027 interpreters to get the same: python-render
+# (the inventory overlay's), and Debian's own python3, which ala-install's `common` role vars
+# (ansible_python_interpreter: auto, above inventory precedence) discover instead. It is
+# installed up front with python3-apt, which the apt module would otherwise pull mid-render.
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-apt \
+ && rm -rf /var/lib/apt/lists/* \
+ && mv /usr/bin/python3.11 /usr/bin/python3.11.real \
+ && printf '#!/bin/sh\numask 027\nexec /usr/bin/python3.11.real "$@"\n' > /usr/bin/python3.11 \
+ && chmod +x /usr/bin/python3.11 \
+ && printf '#!/bin/sh\numask 027\nexec /usr/local/bin/python3 "$@"\n' > /usr/local/bin/python-render \
  && chmod +x /usr/local/bin/python-render
 CMD ["sleep", "infinity"]

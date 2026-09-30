@@ -9,31 +9,10 @@
 # fetching data artifacts (shapefiles, SDS layers). Run with --skip-tags docker-volumes,nameindex
 # (external volumes and the 1.2 GB nameindexes are host state and data, not config).
 #
-# The render reads a few facts of the real machine (IP, memory, CPUs). They come from
-# render_host_facts in the inventory, or else play 1 reads them from the real host with a
-# read-only `setup` over the normal connection.
-
-- name: "Render: read the real hosts' facts (read-only)"
-  hosts: docker_compose
-  gather_facts: false
-  vars:
-    # The inventory overlay points these at the render container; this play talks to the host.
-    ansible_connection: "{{ render_real_connection | default('ssh') }}"
-    ansible_python_interpreter: auto_silent
-  tasks:
-    - name: "Render: gather the real host's hardware and network facts"
-      ansible.builtin.setup:
-        gather_subset: [hardware, network]
-      when: render_host_facts is not defined
-
-    - name: "Render: keep the facts the render reads"
-      ansible.builtin.set_fact:
-        render_host_facts:
-          default_ipv4: "{{ ansible_default_ipv4 | default({}) }}"
-          memtotal_mb: "{{ ansible_memtotal_mb }}"
-          processor_vcpus: "{{ ansible_processor_vcpus }}"
-          processor_count: "{{ ansible_processor_count }}"
-      when: render_host_facts is not defined
+# The render reads a few facts of the real machine (IP, memory, CPUs): render_host_facts, per
+# host. scripts/bundle/render.sh reads them from the real hosts with a separate, read-only
+# `ansible -m setup` (in this play the discovered interpreter of the real host would leak into
+# the container) and passes them in its inventory overlay.
 
 - name: "Render: generate the deploy tree in the render containers"
   hosts: docker_compose
@@ -44,6 +23,11 @@
     manage_docker_daemon: false
     la_compose_render_only: true
   pre_tasks:
+    - name: "Render: the real host's facts are required"
+      ansible.builtin.assert:
+        that: render_host_facts is defined
+        fail_msg: "render_host_facts is not set for {{ inventory_hostname }}: run through scripts/bundle/render.sh"
+
     - name: "Render: use the real host's facts, not the render container's"
       ansible.builtin.set_fact:
         ansible_default_ipv4: "{{ render_host_facts.default_ipv4 }}"

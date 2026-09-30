@@ -12,7 +12,8 @@
 #   7. manifest.py lists every member with a hash and never the content;
 #   8. compare-manifests.py classifies identical, content, mode and one-sided paths;
 #   9. render.sh: one container per docker_compose host, named after its ansible_host, an
-#      overlay that points the host at it, the render with the data/volume tags skipped, a
+#      overlay that points the host and its other aliases at it and blocks every other host
+#      (never ssh), the render with the data/volume tags skipped, a
 #      manifest per host, and the containers removed afterwards.
 # ~2s, no Docker, no root.
 set -eu
@@ -141,14 +142,18 @@ pass "compare-manifests classifies identical, content, mode and one-sided paths"
 cat >"$tmp/bin/ansible-inventory" <<'INV'
 #!/bin/sh
 cat <<'JSON'
-{"_meta": {"hostvars": {"h1.docker_compose": {"ansible_host": "vm-1"}, "h2.docker_compose": {"ansible_host": "vm-2"}}},
+{"_meta": {"hostvars": {"h1.docker_compose": {"ansible_host": "vm-1"}, "h2.docker_compose": {"ansible_host": "vm-2"},
+                        "h1.gatus": {"ansible_host": "vm-1"}, "prod-x": {"ansible_host": "prod.example"}}},
+ "all": {"children": ["docker_compose", "gatus", "ungrouped"]},
  "docker_compose": {"children": ["docker_compose_hosts"], "hosts": ["h1.docker_compose"]},
- "docker_compose_hosts": {"hosts": ["h2.docker_compose"]}}
+ "docker_compose_hosts": {"hosts": ["h2.docker_compose"]},
+ "gatus": {"hosts": ["h1.gatus"]}, "ungrouped": {"hosts": ["prod-x"]}}
 JSON
 INV
 cat >"$tmp/bin/ansible-playbook" <<PB
 #!/bin/sh
 echo "playbook \$*" >>"$tmp/docker-calls"
+echo "cache=\$ANSIBLE_CACHE_PLUGIN" >>"$tmp/docker-calls"
 for a in "\$@"; do case "\$a" in *render-overlay.ini) cp "\$a" "$tmp/overlay.seen" ;; esac; done
 PB
 cat >"$tmp/bin/docker" <<DK
@@ -157,15 +162,34 @@ echo "\$*" >>"$tmp/docker-calls"
 case "\$*" in exec*manifest.py*) echo "/data/x	abc	0o644	u:u" ;; exec*capture.sh*) echo "BUNDLE-TIMING host=c step=capture seconds=0" ;; esac
 exit 0
 DK
-chmod +x "$tmp/bin/ansible-inventory" "$tmp/bin/ansible-playbook" "$tmp/bin/docker"
+cat >"$tmp/bin/ansible" <<AN
+#!/bin/sh
+echo "ansible \$*" >>"$tmp/docker-calls"
+while [ \$# -gt 0 ]; do [ "\$1" = --tree ] && tree=\$2; shift; done
+mkdir -p "\$tree"
+for h in h1.docker_compose h2.docker_compose; do
+  echo '{"ansible_facts": {"ansible_default_ipv4": {"address": "10.0.0.9"}, "ansible_memtotal_mb": 2048, "ansible_processor_vcpus": 4, "ansible_processor_count": 4}}' >"\$tree/\$h"
+done
+AN
+chmod +x "$tmp/bin/ansible-inventory" "$tmp/bin/ansible-playbook" "$tmp/bin/docker" "$tmp/bin/ansible"
 bash scripts/bundle/render.sh --out "$tmp/render" --inventory-args "-i inv.ini" >"$tmp/render.out" 2>&1 ||
   { cat "$tmp/render.out" >&2; fail "render: failed"; }
 { grep -q -- "^run -d --name vm-1 --hostname vm-1 " "$tmp/docker-calls" && grep -q -- "^run -d --name vm-2 " "$tmp/docker-calls"; } ||
   fail "render: containers not named after ansible_host"
-grep -q "^h2.docker_compose ansible_connection=community.docker.docker " "$tmp/overlay.seen" ||
+grep -q "^h2.docker_compose ansible_connection=community.docker.docker ansible_docker_host=vm-2 " "$tmp/overlay.seen" ||
   fail "render: the overlay does not point the host at its container"
+grep -q "^ansible docker_compose -i inv.ini -m ansible.builtin.setup" "$tmp/docker-calls" ||
+  fail "render: the real hosts' facts are not read with a separate setup"
+grep -q "^h2.docker_compose .*render_host_facts='{\"default_ipv4\": {\"address\": \"10.0.0.9\"}, \"memtotal_mb\": 2048" "$tmp/overlay.seen" ||
+  fail "render: the real host's facts do not reach the render"
+grep -q "^h1.gatus ansible_connection=community.docker.docker ansible_docker_host=vm-1 " "$tmp/overlay.seen" ||
+  fail "render: another alias of a rendered machine would reach the real one"
+grep -q "^prod-x ansible_connection=community.docker.docker ansible_docker_host=la-render-blocked" "$tmp/overlay.seen" ||
+  fail "render: a host outside the render is not blocked"
+! grep -q "^run -d --name prod.example" "$tmp/docker-calls" || fail "render: a container was started for a non docker_compose host"
 grep -q "^playbook playbooks/bundle-render.yml -i inv.ini -i .*render-overlay.ini --limit docker_compose --skip-tags docker-volumes,nameindex" "$tmp/docker-calls" ||
   fail "render: wrong playbook invocation: $(grep ^playbook "$tmp/docker-calls")"
+grep -qx "cache=memory" "$tmp/docker-calls" || fail "render: the render may share the deploy's fact cache"
 { [ -s "$tmp/render/vm-1.render.manifest" ] && [ -s "$tmp/render/vm-2.render.manifest" ]; } || fail "render: no manifest per host"
 grep -q "BUNDLE-TIMING host=all step=render seconds=[0-9]* rc=0" "$tmp/render.out" || fail "render: no timing"
 { grep -q "^rm -f vm-1" "$tmp/docker-calls" && grep -q "^rm -f vm-2" "$tmp/docker-calls"; } || fail "render: containers left behind"
