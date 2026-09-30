@@ -197,8 +197,9 @@
     },
     {
       "match": [
-        "scripts/bundle/*.sh",
-        "scripts/test-bundle-spike.sh"
+        "scripts/bundle/**",
+        "scripts/test-bundle-spike.sh",
+        "playbooks/bundle-render.yml"
       ],
       "run": "bash scripts/test-bundle-spike.sh"
     }

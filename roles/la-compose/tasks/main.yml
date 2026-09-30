@@ -135,7 +135,9 @@
         artifact_url: "{{ pipelines_shapefiles_url | default('https://pipelines-shp.s3-ap-southeast-2.amazonaws.com/pipelines-shapefiles.zip') }}"
         artifact_checksum: "{{ pipelines_shapefiles_checksum | default('sha1:d4755425902e109e749c319f8d4ee98fa7ef2c4d') }}"
         artifact_skip_if_exists: "{{ data_dir }}/pipelines-shp/cw_state_poly.dbf"
-      when: "'pipelines' in services_enabled"
+      when:
+        - not (la_compose_render_only | default(false) | bool)
+        - "'pipelines' in services_enabled"
       tags:
         - pipelines-layers
         - docker-compose
@@ -150,6 +152,7 @@
         artifact_url: "{{ sds_layers_url | default('https://archives.ala.org.au/archives/layers/sds-layers.tgz') }}"
         artifact_fallback_url: https://archives.ala.org.au/archives/layers/sds-layers.tgz
       when:
+        - not (la_compose_render_only | default(false) | bool)
         - "'sensitiveDataService' in services_enabled"
         - "service_aliases.get('sensitive-data-service') is defined"
       tags:
@@ -551,7 +554,9 @@
         artifact_creates: "{{ data_dir }}/pipelines-shp/cw_state_poly.dbf"
         artifact_owner: "{{ docker_container_uid }}"
         artifact_group: "{{ docker_container_gid }}"
-      when: "'pipelines' in services_enabled"
+      when:
+        - not (la_compose_render_only | default(false) | bool)
+        - "'pipelines' in services_enabled"
       tags:
         - pipelines-layers
         - docker-compose
@@ -569,6 +574,7 @@
         artifact_dest: "{{ data_dir }}/biocache/layers"
         artifact_extra_opts: ["--warning=no-unknown-keyword"]
       when:
+        - not (la_compose_render_only | default(false) | bool)
         - "'sensitiveDataService' in services_enabled"
         - "service_aliases.get('sensitive-data-service') is defined"
       tags:

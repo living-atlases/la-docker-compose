@@ -1,0 +1,56 @@
+---
+# SPIKE (TASK-50 phase 4): render the la-compose deploy tree of every docker_compose host
+# WITHOUT deploying to it. Each host is rendered inside a throwaway container named like the
+# host's ansible_host (ansible_connection=community.docker.docker: the synchronize module
+# resolves the container from ansible_host); ansible_host itself stays the real one, since
+# la-compose co-locates services and derives IPs from it.
+#
+# la_compose_render_only skips what belongs to the apply side: building and pulling images and
+# fetching data artifacts (shapefiles, SDS layers). Run with --skip-tags docker-volumes,nameindex
+# (external volumes and the 1.2 GB nameindexes are host state and data, not config).
+#
+# The render reads a few facts of the real machine (IP, memory, CPUs). They come from
+# render_host_facts in the inventory, or else play 1 reads them from the real host with a
+# read-only `setup` over the normal connection.
+
+- name: "Render: read the real hosts' facts (read-only)"
+  hosts: docker_compose
+  gather_facts: false
+  vars:
+    # The inventory overlay points these at the render container; this play talks to the host.
+    ansible_connection: "{{ render_real_connection | default('ssh') }}"
+    ansible_python_interpreter: auto_silent
+  tasks:
+    - name: "Render: gather the real host's hardware and network facts"
+      ansible.builtin.setup:
+        gather_subset: [hardware, network]
+      when: render_host_facts is not defined
+
+    - name: "Render: keep the facts the render reads"
+      ansible.builtin.set_fact:
+        render_host_facts:
+          default_ipv4: "{{ ansible_default_ipv4 | default({}) }}"
+          memtotal_mb: "{{ ansible_memtotal_mb }}"
+          processor_vcpus: "{{ ansible_processor_vcpus }}"
+          processor_count: "{{ ansible_processor_count }}"
+      when: render_host_facts is not defined
+
+- name: "Render: generate the deploy tree in the render containers"
+  hosts: docker_compose
+  gather_facts: true
+  become: true
+  vars:
+    auto_deploy: false
+    manage_docker_daemon: false
+    la_compose_render_only: true
+  pre_tasks:
+    - name: "Render: use the real host's facts, not the render container's"
+      ansible.builtin.set_fact:
+        ansible_default_ipv4: "{{ render_host_facts.default_ipv4 }}"
+        ansible_memtotal_mb: "{{ render_host_facts.memtotal_mb | int }}"
+        ansible_processor_vcpus: "{{ render_host_facts.processor_vcpus | int }}"
+        ansible_processor_count: "{{ render_host_facts.processor_count | int }}"
+  tasks:
+    - name: Generate docker-compose deployment files
+      import_role:
+        name: la-compose
