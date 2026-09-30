@@ -125,6 +125,16 @@ trap cleanup EXIT
 # real deploy (wrong IP, heap budget, worker_processes), or the other way round. Memory only.
 export ANSIBLE_CACHE_PLUGIN=memory
 
+# synchronize only knows the community.docker connection from ansible.posix 1.3 on. The Jenkins
+# agent has an older ansible.posix (1.1.1) in ~/.ansible/collections, which wins over the one
+# the ansible package ships (1.5.4 there) and fails "Copy branding source to build directory".
+# Put the collections of the Python that runs ansible-playbook first.
+pkg_collections=$("$(dirname "$(command -v ansible-playbook)")/python3" -c \
+  'import ansible_collections, os; print(os.path.dirname(list(ansible_collections.__path__)[0]))' 2>/dev/null || true)
+if [ -n "$pkg_collections" ]; then
+  export ANSIBLE_COLLECTIONS_PATH="$pkg_collections:${ANSIBLE_COLLECTIONS_PATH:-$HOME/.ansible/collections:/usr/share/ansible/collections}"
+fi
+
 start=$(date +%s)
 rc=0
 # shellcheck disable=SC2086
