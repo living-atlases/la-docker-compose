@@ -70,6 +70,14 @@
     },
     {
       "match": [
+        "roles/la-compose/templates/docker-compose/services/geoserver.yml.j2",
+        "roles/la-compose/defaults/main.yml",
+        "scripts/test-geoserver-image-tag.sh"
+      ],
+      "run": "bash scripts/test-geoserver-image-tag.sh"
+    },
+    {
+      "match": [
         "scripts/refresh-biocache-fields.sh",
         "scripts/test-refresh-biocache-fields.sh"
       ],

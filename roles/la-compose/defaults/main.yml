@@ -725,3 +725,14 @@ ala_upstream_fallbacks:
     property: spatialService.remoteUrl
     reason: >-
       used to copy spatial layers from ALA; a new portal has no equivalent source.
+
+# ============================================
+# GeoServer image
+# ============================================
+# One version knob for VM and docker deployments: ala-install's geoserver_version (the
+# inventory value when set, else the ala-install geoserver role default). kartoza tags
+# follow GeoServer releases. geoserver_image_tag is still honoured as an explicit
+# override. No hardcoded fallback: a GeoServer data dir cannot be downgraded, so a
+# missing ala-install checkout must fail the render, not silently pick an old image.
+la_compose_ala_install_dir: "{{ playbook_dir }}/../ala-install"
+geoserver_image_tag: "{{ geoserver_version | default((lookup('file', la_compose_ala_install_dir ~ '/ansible/roles/geoserver/defaults/main.yml') | from_yaml).geoserver_version) }}"
