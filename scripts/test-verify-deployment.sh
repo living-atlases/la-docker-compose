@@ -386,32 +386,42 @@ else
     fail "explicit --targets-file was overridden by the remote read"
 fi
 
-# --- 7. the Jenkins stage gates on the marker, not the exit status -------------------------
-info "7. the Jenkins stage asserts on the verdict marker"
+# --- 7. the Jenkins stages gate on the marker, not the exit status -------------------------
+# The three gate stages call gatusGate(), defined above `pipeline {` (the declarative body
+# hit the JVM's 64 KB method limit, #435), so the markers are asserted in the function and
+# each stage is asserted to call it.
+info "7. the Jenkins gate stages assert on the verdict marker"
 JF="$REPO_DIR/Jenkinsfile"
-stage="$(awk '/stage\(.Verify Gatus Health.\)/,/^        stage\(.Probe hub cold start.\)/' "$JF")"
-if [[ -z "$stage" ]]; then
-    fail "could not locate the 'Verify Gatus Health' stage in the Jenkinsfile"
+fn="$(awk '/^def gatusGate\(/,/^}/' "$JF")"
+if [[ -z "$fn" ]]; then
+    fail "could not locate gatusGate() in the Jenkinsfile"
 else
-    if [[ "$stage" == *"GATE-PASSED"* && "$stage" == *"GATE-NOT-RUN"* ]]; then
-        pass "the stage requires positive evidence that the gate ran"
+    if [[ "$fn" == *"GATE-PASSED"* && "$fn" == *"GATE-NOT-RUN"* ]]; then
+        pass "gatusGate requires positive evidence that the gate ran"
     else
-        fail "the stage does not check the verdict markers -- it can go green on a gate that never ran"
+        fail "gatusGate does not check the verdict markers -- it can go green on a gate that never ran"
     fi
-    if [[ "$stage" == *'${PIPESTATUS'* ]]; then
+    if [[ "$fn" == *'${PIPESTATUS'* ]]; then
         fail "PIPESTATUS is a bashism; Jenkins runs sh steps with /bin/sh"
     else
-        pass "no PIPESTATUS in the stage's sh step"
+        pass "no PIPESTATUS in gatusGate's sh step"
     fi
 fi
 
-total="$(awk '/stage\(.Verify Gatus Total Green.\)/,/^    post \{/' "$JF")"
+stage="$(awk '/stage\(.Verify Gatus Health.\)/,/^        stage\(.Probe hub cold start.\)/' "$JF")"
+if [[ "$stage" == *"gatusGate("* ]]; then
+    pass "the 'Verify Gatus Health' stage runs gatusGate"
+else
+    fail "the 'Verify Gatus Health' stage does not run gatusGate"
+fi
+
+total="$(awk '/stage\(.Verify Gatus Total Green.\)/,/^        }$/' "$JF")"
 if [[ -z "$total" ]]; then
     fail "could not locate the 'Verify Gatus Total Green' stage in the Jenkinsfile"
-elif [[ "$total" == *"--all-endpoints"* && "$total" == *"GATE-PASSED"* && "$total" == *"GATE-NOT-RUN"* ]]; then
-    pass "the total-green stage gates every endpoint and requires a verdict marker"
+elif [[ "$total" == *"gatusGate("* && "$total" == *"--all-endpoints"* ]]; then
+    pass "the total-green stage runs gatusGate on every endpoint"
 else
-    fail "the total-green stage does not pass --all-endpoints or does not check the verdict markers"
+    fail "the total-green stage does not run gatusGate with --all-endpoints"
 fi
 
 # --- 8. the generated manifest carries a gatus URL at all ---------------------------------

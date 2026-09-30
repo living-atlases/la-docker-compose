@@ -13,6 +13,115 @@ def assertDisposableHosts(String hostsStr, String allowRegex) {
     }
 }
 
+// Gatus gates ('Verify Gatus Health', '... Data Checks', '... Total Green'), out of the
+// pipeline block because the declarative body hit the JVM's 64 KB method limit (#435:
+// "Method too large"). Asks each host in turn until one produces a verdict. A gate that
+// never produced one is a broken gate, not report-only material: it always fails the
+// build (#385-#389 and #403 were green on a gate that never ran). Only a verdict of
+// FAILED (the gate ran and found something unhealthy) is subject to o.blocking.
+def gatusGate(Map o) {
+    def hosts = env.TARGET_HOSTS.trim().split(/\s+/)
+    def verdict = ''
+    for (h in hosts) {
+        def targetHost = h
+        echo "${o.label} via ${targetHost}..."
+        // The marker, not the exit status, is the verdict. No pipe into tee: Jenkins runs
+        // `sh` with /bin/sh, where PIPESTATUS does not exist and the exit code would be tee's.
+        def rc = sh(returnStatus: true, script: """
+            set -u
+            rc=0
+            bash "${env.WORKSPACE}/scripts/verify-deployment.sh" \
+                --target ${targetHost} ${o.args} \
+                > "${env.WORKSPACE}/${o.log}" 2>&1 || rc=\$?
+            cat "${env.WORKSPACE}/${o.log}"
+            exit \$rc
+        """)
+        def log = readFile("${env.WORKSPACE}/${o.log}")
+        if (log.contains('GATE-PASSED:')) { verdict = 'PASSED'; break }
+        if (log.contains('GATE-FAILED:')) { verdict = 'FAILED'; break }
+        echo "${o.label} could not be evaluated via ${targetHost} (rc=${rc}); trying the next host."
+    }
+    if (verdict == '') {
+        error("GATE-NOT-RUN: the ${o.label} never produced a verdict on any of [${hosts.join(', ')}] - see the log above. This is a broken gate, not a healthy deployment.")
+    }
+    if (verdict == 'FAILED') {
+        if (o.blocking) {
+            error(o.failed)
+        } else {
+            unstable(o.failed)
+        }
+    } else {
+        echo o.ok
+    }
+}
+
+// ----- Bundle spike (opt-in via BUNDLE_SPIKE, TASK-50) -----
+// A MEASUREMENT, not a deploy path: what does a deploy cost once Ansible is out of the
+// critical path? Captures a bundle on each host from the stack Ansible just deployed
+// (never an older one: restoring a stale .env would silently revert the build), then
+//   live: restore + pull --policy missing + up + health, all hosts in parallel
+//         = the floor of a redeploy with nothing to change;
+//   down: compose down on ALL hosts (volumes and /data kept), then
+//   cold: the same as live on the stopped stack, all hosts in parallel
+//         = the floor of a new portal, minus the init steps (db, solr, cas, apikeys,
+//           geoserver) an empty volume still needs: those are Ansible-only until
+//           they become init containers (phase 2); take their cost from profile_tasks.
+// The bundle holds secrets: it stays on the host (root, 0600) and is never archived.
+// Ends with the Deep checks gate, report-only, so the next build finds a green stack.
+def bundleSpike() {
+    def hosts = env.TARGET_HOSTS.trim().split(/\s+/)
+    def ssh = 'ssh -o BatchMode=yes -o StrictHostKeyChecking=no'
+    def remoteDir = '/tmp/la-bundle-spike'
+    for (h in hosts) {
+        sh """
+            set -eu
+            ${ssh} ${h} 'mkdir -p ${remoteDir}'
+            scp -o BatchMode=yes -o StrictHostKeyChecking=no \
+                "${env.WORKSPACE}/scripts/bundle/capture.sh" "${env.WORKSPACE}/scripts/bundle/apply.sh" \
+                "${env.WORKSPACE}/scripts/wait-for-health.sh" ${h}:${remoteDir}/
+        """
+    }
+    // No `ssh ... bash -s`: a compose command that reads stdin would eat the script.
+    for (ph in [['capture', 'capture.sh'], ['live', 'apply.sh --phase live'],
+                  ['down', 'apply.sh --phase down'], ['cold', 'apply.sh --phase cold']]) {
+        def phase = ph[0]
+        def cmd = ph[1]
+        def t0 = sh(returnStdout: true, script: 'date +%s').trim()
+        def branches = [:]
+        for (h in hosts) {
+            def targetHost = h
+            branches[targetHost] = {
+                catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
+                    sh "${ssh} ${targetHost} 'sudo bash ${remoteDir}/${cmd}'"
+                }
+            }
+        }
+        parallel branches
+        sh "echo \"BUNDLE-TIMING host=all phase=${phase} step=wall seconds=\$(( \$(date +%s) - ${t0} ))\""
+    }
+
+    // Deep checks, report-only: the stack must be left as green as it came.
+    def verdict = ''
+    for (h in hosts) {
+        def targetHost = h
+        sh(returnStatus: true, script: """
+            set -u
+            bash "${env.WORKSPACE}/scripts/verify-deployment.sh" \
+                --target ${targetHost} --blocking --timeout 420 \
+                > "${env.WORKSPACE}/gatus-bundle-gate.log" 2>&1 || true
+            cat "${env.WORKSPACE}/gatus-bundle-gate.log"
+        """)
+        def log = readFile("${env.WORKSPACE}/gatus-bundle-gate.log")
+        if (log.contains('GATE-PASSED:')) { verdict = 'PASSED'; break }
+        if (log.contains('GATE-FAILED:')) { verdict = 'FAILED'; break }
+    }
+    if (verdict != 'PASSED') {
+        unstable("Bundle spike: the Deep checks gate after the cold start is ${verdict ?: 'NOT-RUN'} - see the log above.")
+    } else {
+        echo "Bundle spike: Deep checks green after the cold start."
+    }
+}
+
 pipeline {
     agent any
 
@@ -1079,53 +1188,12 @@ EOF
             when { expression { params.RUN_E2E && env.DO_REDEPLOY == 'true' && params.AUTO_DEPLOY && !params.ONLY_CLEAN } }
             steps {
                 script {
-                    def hosts = env.TARGET_HOSTS.trim().split(/\s+/)
-                    def verdict = ''
-                    for (h in hosts) {
-                        def targetHost = h
-                        echo "Gatus health gate via ${targetHost}..."
-                        // --blocking so the script reports honestly; whether THAT fails the
-                        // build is decided below by E2E_BLOCKING, not by hiding the result.
-                        // The log is kept because the marker, not the exit status, is the
-                        // verdict — a passing gate must say so out loud (see the script header).
-                        // No pipe into tee: Jenkins runs `sh` with /bin/sh, where
-                        // PIPESTATUS does not exist and the exit code would be tee's.
-                        def rc = sh(returnStatus: true, script: """
-                            set -u
-                            rc=0
-                            bash "${WORKSPACE}/scripts/verify-deployment.sh" \
-                                --target ${targetHost} --blocking --timeout 300 \
-                                > "${WORKSPACE}/gatus-gate.log" 2>&1 || rc=\$?
-                            cat "${WORKSPACE}/gatus-gate.log"
-                            exit \$rc
-                        """)
-                        def log = readFile("${WORKSPACE}/gatus-gate.log")
-                        if (log.contains('GATE-PASSED:')) { verdict = 'PASSED'; break }
-                        if (log.contains('GATE-FAILED:')) { verdict = 'FAILED'; break }
-                        echo "Gatus gate could not be evaluated via ${targetHost} (rc=${rc}); trying the next host."
-                    }
-                    // A gate that never ran is NOT a pass, and it is NEVER report-only: builds
-                    // #385-#389 were green on a stage that exited at argument resolution, and
-                    // build #403 was green with Gatus itself crash-looping (TASK-42) -- in both
-                    // cases the gate produced no verdict at all, yet the error() below used to
-                    // run INSIDE the same catchError that E2E_BLOCKING=false wraps around a mere
-                    // GATE-FAILED, so it was swallowed into buildResult 'SUCCESS' along with it.
-                    // A broken gate is not a flaky check: it always fails the build, regardless
-                    // of E2E_BLOCKING. Only a gate that ran and found something unhealthy
-                    // (GATE-FAILED) is subject to that policy knob.
-                    if (verdict == '') {
-                        error("GATE-NOT-RUN: the Gatus health gate never produced a verdict on any of [${hosts.join(', ')}] - see the log above. This is a broken gate, not a healthy deployment.")
-                    }
-                    if (verdict == 'FAILED') {
-                        def msg = "GATE-FAILED: Gatus reports unhealthy 'Deep checks' endpoints - see the log above."
-                        if (params.E2E_BLOCKING) {
-                            error(msg)
-                        } else {
-                            unstable(msg)
-                        }
-                    } else {
-                        echo "Gatus 'Deep checks' verified."
-                    }
+                    // --blocking so the script reports honestly; whether THAT fails the build is
+                    // decided by E2E_BLOCKING, not by hiding the result.
+                    gatusGate(label: 'Gatus health gate', args: '--blocking --timeout 300', log: 'gatus-gate.log',
+                        blocking: params.E2E_BLOCKING,
+                        failed: "GATE-FAILED: Gatus reports unhealthy 'Deep checks' endpoints - see the log above.",
+                        ok: "Gatus 'Deep checks' verified.")
                 }
             }
         }
@@ -1690,42 +1758,10 @@ ENVEOF
             when { expression { params.RUN_AIRFLOW_INGEST && params.RUN_BIE_IMPORT && params.RUN_LISTS_SEED && params.AUTO_DEPLOY && !params.ONLY_CLEAN } }
             steps {
                 script {
-                    def hosts = env.TARGET_HOSTS.trim().split(/\s+/)
-                    def verdict = ''
-                    for (h in hosts) {
-                        def targetHost = h
-                        echo "Gatus data-checks gate via ${targetHost}..."
-                        def rc = sh(returnStatus: true, script: """
-                            set -u
-                            rc=0
-                            bash "${WORKSPACE}/scripts/verify-deployment.sh" \
-                                --target ${targetHost} --blocking --gate-data-checks --timeout 300 \
-                                > "${WORKSPACE}/gatus-data-gate.log" 2>&1 || rc=\$?
-                            cat "${WORKSPACE}/gatus-data-gate.log"
-                            exit \$rc
-                        """)
-                        def log = readFile("${WORKSPACE}/gatus-data-gate.log")
-                        if (log.contains('GATE-PASSED:')) { verdict = 'PASSED'; break }
-                        if (log.contains('GATE-FAILED:')) { verdict = 'FAILED'; break }
-                        echo "Gatus data-checks gate could not be evaluated via ${targetHost} (rc=${rc}); trying the next host."
-                    }
-                    // Same policy as 'Verify Gatus Health' above: a gate that never produced a
-                    // verdict is a broken gate, not report-only material, so it always fails the
-                    // build. Only a verdict of FAILED (the gate ran and found something
-                    // unhealthy) is subject to E2E_BLOCKING.
-                    if (verdict == '') {
-                        error("GATE-NOT-RUN: the Gatus data-checks gate never produced a verdict on any of [${hosts.join(', ')}] - see the log above. This is a broken gate, not a healthy deployment.")
-                    }
-                    if (verdict == 'FAILED') {
-                        def msg = "GATE-FAILED: Gatus reports unhealthy 'Data checks' endpoints after seeding - see the log above."
-                        if (params.E2E_BLOCKING) {
-                            error(msg)
-                        } else {
-                            unstable(msg)
-                        }
-                    } else {
-                        echo "Gatus 'Deep checks' + 'Data checks' verified."
-                    }
+                    gatusGate(label: 'Gatus data-checks gate', args: '--blocking --gate-data-checks --timeout 300',
+                        log: 'gatus-data-gate.log', blocking: params.E2E_BLOCKING,
+                        failed: "GATE-FAILED: Gatus reports unhealthy 'Data checks' endpoints after seeding - see the log above.",
+                        ok: "Gatus 'Deep checks' + 'Data checks' verified.")
                 }
             }
         }
@@ -1741,112 +1777,21 @@ ENVEOF
             when { expression { params.RUN_AIRFLOW_INGEST && params.RUN_BIE_IMPORT && params.RUN_LISTS_SEED && params.AUTO_DEPLOY && !params.ONLY_CLEAN } }
             steps {
                 script {
-                    def hosts = env.TARGET_HOSTS.trim().split(/\s+/)
-                    def verdict = ''
-                    for (h in hosts) {
-                        def targetHost = h
-                        echo "Gatus total-green gate via ${targetHost}..."
-                        def rc = sh(returnStatus: true, script: """
-                            set -u
-                            rc=0
-                            bash "${WORKSPACE}/scripts/verify-deployment.sh" \
-                                --target ${targetHost} --blocking --all-endpoints --timeout 420 \
-                                > "${WORKSPACE}/gatus-all-gate.log" 2>&1 || rc=\$?
-                            cat "${WORKSPACE}/gatus-all-gate.log"
-                            exit \$rc
-                        """)
-                        def log = readFile("${WORKSPACE}/gatus-all-gate.log")
-                        if (log.contains('GATE-PASSED:')) { verdict = 'PASSED'; break }
-                        if (log.contains('GATE-FAILED:')) { verdict = 'FAILED'; break }
-                        echo "Gatus total-green gate could not be evaluated via ${targetHost} (rc=${rc}); trying the next host."
-                    }
-                    if (verdict == '') {
-                        error("GATE-NOT-RUN: the Gatus total-green gate never produced a verdict on any of [${hosts.join(', ')}] - see the log above. This is a broken gate, not a healthy deployment.")
-                    }
-                    if (verdict == 'FAILED') {
-                        def msg = "GATE-FAILED: Gatus reports unhealthy endpoints (all groups) - see the log above."
-                        if (params.GATUS_ALL_BLOCKING) {
-                            error(msg)
-                        } else {
-                            unstable(msg)
-                        }
-                    } else {
-                        echo "Gatus total green: every endpoint verified."
-                    }
+                    gatusGate(label: 'Gatus total-green gate', args: '--blocking --all-endpoints --timeout 420',
+                        log: 'gatus-all-gate.log', blocking: params.GATUS_ALL_BLOCKING,
+                        failed: 'GATE-FAILED: Gatus reports unhealthy endpoints (all groups) - see the log above.',
+                        ok: 'Gatus total green: every endpoint verified.')
                 }
             }
         }
-        // ----- Bundle spike (opt-in via BUNDLE_SPIKE, TASK-50) -----
-        // A MEASUREMENT, not a deploy path: what does a deploy cost once Ansible is out of the
-        // critical path? Captures a bundle on each host from the stack Ansible just deployed
-        // (never an older one: restoring a stale .env would silently revert the build), then
-        //   live: restore + pull --policy missing + up + health, all hosts in parallel
-        //         = the floor of a redeploy with nothing to change;
-        //   down: compose down on ALL hosts (volumes and /data kept), then
-        //   cold: the same as live on the stopped stack, all hosts in parallel
-        //         = the floor of a new portal, minus the init steps (db, solr, cas, apikeys,
-        //           geoserver) an empty volume still needs: those are Ansible-only until
-        //           they become init containers (phase 2); take their cost from profile_tasks.
-        // The bundle holds secrets: it stays on the host (root, 0600) and is never archived.
-        // Ends with the Deep checks gate, report-only, so the next build finds a green stack.
+
+        // See bundleSpike() above the pipeline.
         stage('Bundle spike') {
             when { expression { params.BUNDLE_SPIKE && params.AUTO_DEPLOY && !params.ONLY_CLEAN } }
             options { timeout(time: 150, unit: 'MINUTES') }
             steps {
                 script {
-                    def hosts = env.TARGET_HOSTS.trim().split(/\s+/)
-                    def ssh = 'ssh -o BatchMode=yes -o StrictHostKeyChecking=no'
-                    def remoteDir = '/tmp/la-bundle-spike'
-                    // No `ssh ... bash -s`: a compose command that reads stdin would eat the script.
-                    def onHosts = { String phase, String cmd ->
-                        def t0 = sh(returnStdout: true, script: 'date +%s').trim()
-                        def branches = [:]
-                        for (h in hosts) {
-                            def targetHost = h
-                            branches[targetHost] = {
-                                catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
-                                    sh "${ssh} ${targetHost} 'sudo bash ${remoteDir}/${cmd}'"
-                                }
-                            }
-                        }
-                        parallel branches
-                        sh "echo \"BUNDLE-TIMING host=all phase=${phase} step=wall seconds=\$(( \$(date +%s) - ${t0} ))\""
-                    }
-
-                    for (h in hosts) {
-                        sh """
-                            set -eu
-                            ${ssh} ${h} 'mkdir -p ${remoteDir}'
-                            scp -o BatchMode=yes -o StrictHostKeyChecking=no \
-                                "${WORKSPACE}/scripts/bundle/capture.sh" "${WORKSPACE}/scripts/bundle/apply.sh" \
-                                "${WORKSPACE}/scripts/wait-for-health.sh" ${h}:${remoteDir}/
-                        """
-                    }
-                    onHosts('capture', 'capture.sh')
-                    onHosts('live', 'apply.sh --phase live')
-                    onHosts('down', 'apply.sh --phase down')
-                    onHosts('cold', 'apply.sh --phase cold')
-
-                    // Deep checks, report-only: the stack must be left as green as it came.
-                    def verdict = ''
-                    for (h in hosts) {
-                        def targetHost = h
-                        sh(returnStatus: true, script: """
-                            set -u
-                            bash "${WORKSPACE}/scripts/verify-deployment.sh" \
-                                --target ${targetHost} --blocking --timeout 420 \
-                                > "${WORKSPACE}/gatus-bundle-gate.log" 2>&1 || true
-                            cat "${WORKSPACE}/gatus-bundle-gate.log"
-                        """)
-                        def log = readFile("${WORKSPACE}/gatus-bundle-gate.log")
-                        if (log.contains('GATE-PASSED:')) { verdict = 'PASSED'; break }
-                        if (log.contains('GATE-FAILED:')) { verdict = 'FAILED'; break }
-                    }
-                    if (verdict != 'PASSED') {
-                        unstable("Bundle spike: the Deep checks gate after the cold start is ${verdict ?: 'NOT-RUN'} - see the log above.")
-                    } else {
-                        echo "Bundle spike: Deep checks green after the cold start."
-                    }
+                    bundleSpike()
                 }
             }
         }
