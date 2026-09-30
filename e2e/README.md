@@ -119,10 +119,13 @@ cypress/e2e/
   6-lists/       species lists load
   7-monitoring/  gatus dashboard + API
   8-auth/        CAS/OIDC login (GATED)
+  11-maps/       basemap tiles carry no CARTO "API KEY REQUIRED" watermark
+                 (records, species and every data hub; needs outbound HTTPS to CARTO)
 cypress/support/
   services.ts    manifest loader + serviceUrl()
   checks.ts      shared data-robust assertions + gating helpers
   downloads.ts   download helpers: the 400-vs-412 discriminator, queue polling, mailhog
+  basemap.ts     tile URL extraction + flat-ocean-tile watermark detector
   commands.ts    cy.login() for CAS/OIDC
   e2e.ts         setup + benign-error suppression
 ```
