@@ -347,6 +347,7 @@
       "headerAndFooter.baseURL": "https://branding.l-a.site/brand-2023",
       "images.baseURL": "https://images.l-a.site",
       "layersService.baseURL": "https://spatial.l-a.site/ws",
+      "map.minimal.url": "https://basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}.png",
       "security.cas.casServerLoginUrl": "https://auth.l-a.site/cas/login",
       "security.cas.casServerLogoutUrl": "https://auth.l-a.site/cas/logout",
       "security.cas.casServerName": "https://auth.l-a.site",
