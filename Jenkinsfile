@@ -115,16 +115,20 @@ def renderSpike() {
 
 // ----- Apply spike (opt-in via APPLY_SPIKE, TASK-50 phase 5) -----
 // The applier on the stack Ansible just deployed: render + export every host's bundle on the
-// agent, then scripts/bundle/apply-spike.sh: a no-change apply (nothing restarted, no running
-// container replaced), a controlled config change on the first host (only its service
+// agent, then scripts/bundle/apply-spike.sh: a converge apply, a no-change apply (nothing
+// restarted, no running container replaced), a controlled config change on the first host (only its service
 // restarts) and the revert. Then the total-green gate. The exported bundles hold secrets: they
 // are deleted whatever happens, and never archived.
 def applySpike() {
     assertDisposableHosts(env.TARGET_HOSTS, env.CLEAN_HOSTS_ALLOW_REGEX)
     def out = "${env.WORKSPACE}/bundle-apply"
+    def spikeError = null
     try {
         runRender(out, '--export')
         sh "bash scripts/bundle/apply-spike.sh --out '${out}'"
+    } catch (e) {
+        // The gate below runs anyway: a broken expectation must not hide the stack's health (#446).
+        spikeError = e
     } finally {
         sh "rm -rf '${out}/export'"
     }
@@ -132,6 +136,7 @@ def applySpike() {
         log: 'gatus-apply-gate.log', blocking: false,
         failed: 'GATE-FAILED: Gatus reports unhealthy endpoints after the bundle apply - see the log above.',
         ok: 'Gatus total green after the bundle apply.')
+    if (spikeError) { throw spikeError }
 }
 
 // ----- Bundle spike (opt-in via BUNDLE_SPIKE, TASK-50) -----

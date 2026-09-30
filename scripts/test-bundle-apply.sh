@@ -14,7 +14,7 @@
 #   5. the service-consistency gate stops a removal unless allow_service_removal;
 #   6. `nginx -t` failing: no reload, the step fails;
 #   7. la-bundle-apply.sh runs every host, prefixes their output and fails if one fails;
-#   8. apply-spike.sh + add-marker.py end to end: a no-change apply, a controlled config
+#   8. apply-spike.sh + add-marker.py end to end: a converge apply, a no-change apply, a controlled config
 #      change that restarts only its service, and the revert that deletes the marker.
 # ~3s, no Docker, no root.
 set -eu
@@ -212,9 +212,19 @@ grep -q '^controlled change: .*/app/config/.la-bundle-apply-spike (service app) 
 [ ! -e "$tmp/data/app/config/.la-bundle-apply-spike" ] || fail "8: the marker survived the revert"
 grep -q '^APPLY-SPIKE problems=0$' "$tmp/spike.out" && grep -q 'phase=apply3 .* rc=0' "$tmp/spike.out" ||
   fail "8: no clean summary"
-# and it notices a restart that should not happen
+# a real change since the last deploy is converged by the first apply, not a problem
 printf 'app deadbeef\n' >"$cd_/.config-hashes"
-rc=0; bash scripts/bundle/apply-spike.sh --out "$tmp/render" >"$tmp/spike.out" 2>&1 || rc=$?
+bash scripts/bundle/apply-spike.sh --out "$tmp/render" >"$tmp/spike.out" 2>&1 ||
+  { cat "$tmp/spike.out" >&2; fail "8: a restart on the converge apply was taken for a problem"; }
+grep -q '^converge restarts (config changed since the last deploy): 1$' "$tmp/spike.out" || fail "8: converge restart not reported"
+# and a restart on the second, no-change apply is noticed (the watched dir changes under it)
+cat >"$tmp/bin/docker-wrap" <<EOF
+#!/bin/bash
+case "\$*" in "compose up -d --remove-orphans --no-recreate") date +%N >"$tmp/data/app/config/runtime.tmp" ;; esac
+exec "$tmp/bin/docker" "\$@"
+EOF
+chmod +x "$tmp/bin/docker-wrap"; mkdir -p "$tmp/bin2"; ln -sf "$tmp/bin/docker-wrap" "$tmp/bin2/docker"
+rc=0; PATH="$tmp/bin2:$PATH" bash scripts/bundle/apply-spike.sh --out "$tmp/render" >"$tmp/spike.out" 2>&1 || rc=$?
 [ "$rc" -ne 0 ] && grep -q '^APPLY-SPIKE-PROBLEM: the no-change apply restarted' "$tmp/spike.out" ||
   { cat "$tmp/spike.out" >&2; fail "8: a restart on the no-change apply went unnoticed"; }
 pass "apply-spike: no-change apply, a controlled config change restarts only its service, the revert cleans up"
