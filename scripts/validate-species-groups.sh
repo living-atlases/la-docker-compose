@@ -29,12 +29,13 @@
 # Usage:
 #   scripts/validate-species-groups.sh [--groups FILE] [--namematching URL] [--reference FILE]
 #
-#   --groups        file to validate. Default: the namematching-service role's groups.json,
-#                   or groups-<variant>.json when SPECIES_GROUPS_VARIANT is set.
+#   --groups        file to validate. Default: the COL file la-compose installs
+#                   (roles/la-compose/files/species-groups/groups-col.json), or ALA's
+#                   groups.json with --groups ala.
 #   --namematching  base URL of the namematching service. Default: NAMEMATCHING_URL, else
 #                   the `namematching` entry of the deployment's e2e-targets.json.
-#   --reference     file whose group names are the contract. Default: the plain groups.json
-#                   next to --groups. Pass --reference '' to skip check 6.
+#   --reference     file whose group names are the contract. Default: ALA's groups.json in
+#                   the namematching-service role. Pass --reference '' to skip check 6.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -55,18 +56,14 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -z "$GROUPS_FILE" ]]; then
-  variant="${SPECIES_GROUPS_VARIANT:-}"
-  if [[ -n "$variant" && -f "$ROLE_FILES/groups-$variant.json" ]]; then
-    GROUPS_FILE="$ROLE_FILES/groups-$variant.json"
-  else
-    GROUPS_FILE="$ROLE_FILES/groups.json"
-  fi
-fi
+case "$GROUPS_FILE" in
+  "")  GROUPS_FILE="$REPO_ROOT/roles/la-compose/files/species-groups/groups-col.json" ;;
+  ala) GROUPS_FILE="$ROLE_FILES/groups.json" ;;
+esac
 [[ -f "$GROUPS_FILE" ]] || { echo "groups file not found: $GROUPS_FILE" >&2; exit 2; }
 
 if [[ "$REFERENCE" == "__default__" ]]; then
-  REFERENCE="$(dirname "$GROUPS_FILE")/groups.json"
+  REFERENCE="$ROLE_FILES/groups.json"
   [[ -f "$REFERENCE" ]] || REFERENCE=""
 fi
 

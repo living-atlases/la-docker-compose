@@ -1207,7 +1207,7 @@ EOF
                             echo "species groups file taken from \$GROUPS_SRC"
                             cd "${WORKSPACE}"
                             # Validate the file the deployment ACTUALLY installed, not the
-                            # variant we believe was selected: a wrong species_groups_variant
+                            # file we believe was selected: a wrong namematching_groups_file
                             # is exactly the mistake worth catching. --reference keeps the
                             # group names pinned to the role's own file, because the
                             # occurrence facet publishes them as species_group.<Name> i18n
