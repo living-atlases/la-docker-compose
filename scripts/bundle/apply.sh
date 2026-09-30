@@ -75,7 +75,9 @@ case "$PHASE" in
     step health health
     ;;
   down)
-    step down compose down --remove-orphans
+    # No service sets stop_grace_period, so the default 10s would SIGKILL the datastores
+    # and the cold start would time their crash recovery, which a new portal never does.
+    step down compose down --remove-orphans --timeout 120
     ;;
 esac
 timing total "$(( $(date +%s) - t0 ))"

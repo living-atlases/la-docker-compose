@@ -90,9 +90,9 @@ pass "live restores, pulls only missing images, runs up and the health wait, tim
 # 3. down
 : >"$tmp/docker-calls"
 apply --phase down || { cat "$tmp/apply.out" >&2; fail "down: failed"; }
-[ "$(cat "$tmp/docker-calls")" = 'compose down --remove-orphans' ] ||
+[ "$(cat "$tmp/docker-calls")" = 'compose down --remove-orphans --timeout 120' ] ||
   fail "down: unexpected docker calls: $(tr '\n' ';' <"$tmp/docker-calls")"
-pass "down only stops the stack and keeps the volumes"
+pass "down only stops the stack, gracefully, and keeps the volumes"
 
 # 4. health fails
 : >"$tmp/docker-calls"
