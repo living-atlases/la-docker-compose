@@ -3581,13 +3581,9 @@
 # Create directories for all services that HAVE a build tool in the description
 # Create directories for services
 
-# la_compose_render_only (playbooks/bundle-render.yml): render the deploy tree and nothing
-# else. Building and pulling images is the apply side's job, like the data artifacts above.
 - name: Include build-images tasks
   ansible.builtin.include_tasks: build-images.yml
-  when:
-    - not (la_compose_render_only | default(false) | bool)
-    - (build_images | default(true)) or ('branding' in services_enabled)
+  when: (build_images | default(true)) or ('branding' in services_enabled)
   tags:
     - docker-compose
     - build

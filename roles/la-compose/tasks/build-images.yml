@@ -19,6 +19,7 @@
   failed_when: false
   changed_when: false
   when:
+    - not (la_compose_render_only | default(false) | bool)
     - "'branding' in services_enabled"
 
 - name: Fail if docker buildx not available
@@ -31,6 +32,7 @@
       - Update Docker to 19.03 or later
       - On Linux, you may need to install docker-buildx plugin: https://github.com/docker/buildx
   when:
+    - not (la_compose_render_only | default(false) | bool)
     - "'branding' in services_enabled"
     - buildx_check.rc != 0
 
@@ -74,7 +76,10 @@
         chdir: "{{ docker_compose_data_dir }}"
       register: build_branding
       changed_when: true
+  # Bundle render: docker-bake.hcl and the targets above are rendered; the build is the apply
+  # side's (scripts/bundle/host-apply.sh runs the same bake, with the same prune-and-retry).
   when:
+    - not (la_compose_render_only | default(false) | bool)
     - "'branding' in services_enabled or (branding_render_list | default([]) | length > 0)"
 
 # A pinned tag (x:1.2.3, x@sha256:...) names the same image forever, so it is pulled only when
@@ -90,6 +95,7 @@
   register: compose_config_for_pull
   changed_when: false
   when:
+    - not (la_compose_render_only | default(false) | bool)
     - docker_registry | default('') != ''
   tags:
     - build
@@ -103,6 +109,7 @@
          | selectattr('value.image', 'search', '(:latest$)|(^[^:@]*$)|(/[^/:@]*$)')
          | map(attribute='key') | list }}
   when:
+    - not (la_compose_render_only | default(false) | bool)
     - docker_registry | default('') != ''
   tags:
     - build
@@ -124,6 +131,7 @@
   delay: 30
   changed_when: true
   when:
+    - not (la_compose_render_only | default(false) | bool)
     - docker_registry | default('') != ''
   tags:
     - build
@@ -141,6 +149,7 @@
   delay: 30
   changed_when: true
   when:
+    - not (la_compose_render_only | default(false) | bool)
     - docker_registry | default('') != ''
     - la_compose_pull_policy | default('missing') != 'always'
     - compose_mutable_tag_services | default([]) | length > 0

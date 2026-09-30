@@ -1,0 +1,40 @@
+---
+# Bundle render only (la_compose_render_only, playbooks/bundle-render.yml): write what
+# scripts/bundle/host-apply.sh needs to apply this host's bundle the way the Ansible deploy
+# does: the same config watch list (so both paths keep one .config-hashes), the recreate
+# policy, the pull policy and the health gate knobs. It travels inside the bundle.
+- name: "Bundle: the config watch list"
+  ansible.builtin.include_tasks: config-watch.yml
+
+- name: "Bundle: write the apply metadata"
+  ansible.builtin.copy:
+    dest: "{{ docker_compose_data_dir }}/.bundle-meta.json"
+    mode: '0644'
+    content: "{{ la_bundle_meta | to_nice_json }}\n"
+  vars:
+    # One expression, so the numbers and booleans stay numbers and booleans in the JSON
+    # (a leaf per template renders them as strings).
+    la_bundle_meta: >-
+      {{ {
+        'format': 1,
+        'inventory_hostname': inventory_hostname,
+        'compose_dir': docker_compose_data_dir,
+        'la_env': la_env | default('ci'),
+        'force_recreate': docker_force_recreate | default(false) | bool,
+        'recreate_drifted_running': docker_recreate_drifted | bool,
+        'allow_service_removal': allow_service_removal | default(false) | bool,
+        'pull': docker_registry | default('') != '',
+        'pull_policy': la_compose_pull_policy | default('missing'),
+        'branding_bake_targets': branding_bake_targets | default([]),
+        'health': {
+          'timeout': health_check_timeout | default(300) | int,
+          'interval': health_check_interval | default(5) | int,
+          'converge_rounds': health_converge_rounds | default(2) | int,
+          'converge_timeout': health_converge_timeout | default(600) | int,
+          'converge_settle_waits': health_converge_settle_waits | default(2) | int,
+          'budget': health_gate_budget | int,
+        },
+        'config_watch': config_watch | map('dict2items')
+                        | map('selectattr', 'key', 'in', ['service', 'path'])
+                        | map('items2dict') | list,
+      } }}

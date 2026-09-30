@@ -570,3 +570,63 @@
         - e2e/fixtures/bie-taxonomy/eml.xml
         - e2e/fixtures/dr-test/meta.xml
         - e2e/fixtures/dr-test/eml.xml
+
+
+# ── TC12: the bundle apply metadata (TASK-50 phase 5) ─────────────────────────────
+#
+# scripts/bundle/host-apply.sh applies a rendered bundle from .bundle-meta.json alone: the
+# host it was rendered for, the watch list it hashes into the same .config-hashes the Ansible
+# deploy writes, and the health gate knobs. Rendered here from the real role defaults: an
+# empty watch list would silently stop every config restart, and a non-numeric budget would
+# make `timeout` refuse to run the gate.
+- name: Unit test the bundle apply metadata
+  hosts: all
+  gather_facts: false
+  vars_files:
+    - ../../roles/la-compose/defaults/main.yml
+  tasks:
+    # set_fact, not play vars: the vars_files above outrank play vars.
+    - name: "[TC12] A host with three watched services"
+      ansible.builtin.set_fact:
+        data_dir: /data
+        services_enabled: [collectory, ala_hub, cas]
+        hub_instances: []
+        branding_bake_targets: [branding]
+
+    - name: "[TC12] A scratch compose dir"
+      ansible.builtin.tempfile:
+        state: directory
+      register: tc12_dir
+
+    - name: "[TC12] Write the metadata"
+      ansible.builtin.include_tasks: ../../roles/la-compose/tasks/bundle-meta.yml
+      vars:
+        docker_compose_data_dir: "{{ tc12_dir.path }}"
+
+    - name: "[TC12] Read it back"
+      ansible.builtin.slurp:
+        src: "{{ tc12_dir.path }}/.bundle-meta.json"
+      register: tc12_raw
+
+    - name: "[TC12] Assert what host-apply.sh relies on"
+      ansible.builtin.assert:
+        that:
+          - tc12.format == 1
+          - tc12.inventory_hostname == inventory_hostname
+          - tc12.compose_dir == tc12_dir.path
+          - tc12.health.budget is number and tc12.health.budget > tc12.health.timeout
+          - tc12.health.timeout == health_check_timeout | int
+          - tc12.recreate_drifted_running is boolean and tc12.recreate_drifted_running
+          - tc12.force_recreate is boolean and not tc12.force_recreate
+          - tc12.branding_bake_targets == ['branding']
+          - tc12.config_watch | map(attribute='service') | sort | list == ['biocache-hub', 'cas', 'collectory']
+          - tc12.config_watch | selectattr('path', 'equalto', '/data/collectory/config') | list | length == 1
+          - tc12.config_watch | map('list') | map('sort') | unique | list == [['path', 'service']]
+        msg: "FAIL TC12: {{ tc12 }}"
+      vars:
+        tc12: "{{ tc12_raw.content | b64decode | from_json }}"
+
+    - name: "[TC12] Clean up"
+      ansible.builtin.file:
+        path: "{{ tc12_dir.path }}"
+        state: absent

@@ -14,64 +14,11 @@
 # First deploy (no snapshot): nothing restarts — the containers just started
 # with the current config; the snapshot is written by the apply phase.
 
-- name: "Config-change: build the watch list (enabled services with bind-mounted config)"
-  ansible.builtin.set_fact:
-    # svc: services_enabled key (per-host gating) / service: compose service name
-    # (container la_<service>) / path: host config dir the container mounts.
-    #
-    # `path` is the HOST directory, always. namematching-service and
-    # sensitive-data-service mount host <data_dir>/ala-*-service/config onto
-    # /data/ala-*-server/config inside the container, and this list is hashed on the
-    # host: carrying the -server spelling here hashed a directory that does not
-    # exist, which is not an error and never changes, so neither service was ever
-    # restarted for a config change. That is how a corrected groups.json reached the
-    # disk in #383 while namematching kept serving the old species groups from
-    # memory. Comments cannot go inside the expression below -- Jinja rejects `#`.
-    hub_config_watch: >-
-      {%- set out = [] -%}
-      {%- for inst in hub_instances | default([]) if not inst.is_portal -%}
-        {%- if inst.use_records -%}
-          {%- set _ = out.append({'svc': 'ala_hub', 'service': 'biocache-hub' ~ inst.suffix,
-                                  'path': data_dir ~ '/' ~ inst.biocache_hub ~ '/config'}) -%}
-        {%- endif -%}
-        {%- if inst.use_species -%}
-          {%- set _ = out.append({'svc': 'ala_bie', 'service': 'bie-hub' ~ inst.suffix,
-                                  'path': data_dir ~ '/' ~ inst.bie_hub ~ '/config'}) -%}
-        {%- endif -%}
-        {%- if inst.use_regions -%}
-          {%- set _ = out.append({'svc': 'regions', 'service': 'regions' ~ inst.suffix,
-                                  'path': data_dir ~ '/' ~ inst.regions ~ '/config'}) -%}
-        {%- endif -%}
-      {%- endfor -%}
-      {{ out }}
-    config_watch: >-
-      {{
-        [
-          { 'svc': 'cas',                  'service': 'cas',                         'path': data_dir ~ '/cas/config' },
-          { 'svc': 'userdetails',          'service': 'userdetails',                 'path': data_dir ~ '/userdetails/config' },
-          { 'svc': 'apikey',               'service': 'apikey',                      'path': data_dir ~ '/apikey/config' },
-          { 'svc': 'cas_management',       'service': 'cas-management',              'path': data_dir ~ '/cas-management/config' },
-          { 'svc': 'collectory',           'service': 'collectory',                  'path': (collectory_data_dir | default(data_dir ~ '/collectory')) ~ '/config' },
-          { 'svc': 'species_lists',        'service': 'species-list',                'path': data_dir ~ '/specieslist-webapp/config' },
-          { 'svc': 'ala_bie',              'service': 'bie-hub',                     'path': data_dir ~ '/ala-bie-hub/config' },
-          { 'svc': 'bie_index',            'service': 'bie-index',                   'path': data_dir ~ '/bie-index/config' },
-          { 'svc': 'ala_hub',              'service': 'biocache-hub',                'path': data_dir ~ '/' ~ (biocache_hub | default('ala-hub')) ~ '/config' },
-          { 'svc': 'biocache_service',     'service': 'biocache-service',            'path': data_dir ~ '/biocache/config' },
-          { 'svc': 'logger',               'service': 'logger-service',              'path': data_dir ~ '/logger/config' },
-          { 'svc': 'images',               'service': 'image-service',               'path': data_dir ~ '/image-service/config' },
-          { 'svc': 'namematchingService',  'service': 'namematching-service',        'path': data_dir ~ '/ala-namematching-service/config' },
-          { 'svc': 'sensitiveDataService', 'service': 'sensitive-data-service',      'path': data_dir ~ '/ala-sensitive-data-service/config' },
-          { 'svc': 'alerts',               'service': 'alerts',                      'path': data_dir ~ '/alerts/config' },
-          { 'svc': 'regions',              'service': 'regions',                     'path': data_dir ~ '/regions/config' },
-          { 'svc': 'doi',                  'service': 'doi-service',                 'path': data_dir ~ '/doi-service/config' },
-          { 'svc': 'dataQuality',          'service': 'data-quality-filter-service', 'path': data_dir ~ '/data-quality-filter-service/config' },
-          { 'svc': 'spatial',              'service': 'spatial-hub',                 'path': data_dir ~ '/spatial-hub/config' },
-          { 'svc': 'spatial_service',      'service': 'spatial-service',             'path': data_dir ~ '/spatial-service/config' },
-          { 'svc': 'ecodata',              'service': 'ecodata',                     'path': data_dir ~ '/ecodata/config' },
-          { 'svc': 'biocollect',           'service': 'biocollect',                  'path': data_dir ~ '/biocollect/config' },
-        ] | selectattr('svc', 'in', services_enabled) | list
-        + (hub_config_watch | default([]))
-      }}
+# The watch list lives in config-watch.yml: the bundle render (bundle-meta.yml) writes the
+# same list for scripts/bundle/host-apply.sh, and both paths must hash exactly the same dirs
+# into the same .config-hashes, or whichever deploys next restarts everything or misses a change.
+- name: "Config-change: build the watch list"
+  ansible.builtin.include_tasks: config-watch.yml
   tags: [docker-compose, deploy, config-restart]
 
 # One line per service: "<service> <sha256-of-config-tree>". The hash covers

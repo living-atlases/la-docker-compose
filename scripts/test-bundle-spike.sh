@@ -14,7 +14,8 @@
 #   9. render.sh: one container per docker_compose host, named after its ansible_host, an
 #      overlay that points the host and its other aliases at it and blocks every other host
 #      (never ssh), the render with the data/volume tags skipped, a
-#      manifest per host, and the containers removed afterwards.
+#      manifest per host, and the containers removed afterwards;
+#  10. render.sh --export: each host's bundle (0600, root-only dir), helpers and host-state.
 # ~2s, no Docker, no root.
 set -eu
 cd "$(dirname "$0")/.."
@@ -194,4 +195,35 @@ grep -qx "cache=memory" "$tmp/docker-calls" || fail "render: the render may shar
 grep -q "BUNDLE-TIMING host=all step=render seconds=[0-9]* rc=0" "$tmp/render.out" || fail "render: no timing"
 { grep -q "^rm -f vm-1" "$tmp/docker-calls" && grep -q "^rm -f vm-2" "$tmp/docker-calls"; } || fail "render: containers left behind"
 pass "render.sh renders each docker_compose host in its own container and cleans up"
+
+# 10. render.sh --export: per inventory host, the bundle (0600, root-only dir), excluded.txt,
+# the helper scripts and the host-state allowlist (only "#Ansible:" cron jobs, only the
+# sysctl.d files the image did not have).
+cat >"$tmp/bin/docker" <<DK
+#!/bin/bash
+echo "\$*" >>"$tmp/docker-calls"
+case "\$*" in
+  exec*manifest.py*) echo "/data/x	abc	0o644	u:u" ;;
+  exec*capture.sh*) echo "BUNDLE-TIMING host=c step=capture seconds=0" ;;
+  "cp "*:*) echo "from \$2" >"\$3" ;;
+  exec\ *crontab*) printf '# not ours\n1 1 * * * theirs\n#Ansible: purge\n0 1 * * * purge\n' ;;
+  "run --rm --entrypoint ls "*) echo README.sysctl ;;
+  "exec "*" ls -1 /etc/sysctl.d") printf 'README.sysctl\n99-image.conf\n' ;;
+esac
+exit 0
+DK
+: >"$tmp/docker-calls"
+bash scripts/bundle/render.sh --out "$tmp/render" --inventory-args "-i inv.ini" --export >"$tmp/render.out" 2>&1 ||
+  { cat "$tmp/render.out" >&2; fail "export: failed"; }
+e=$tmp/render/export/h2.docker_compose
+[ -f "$e/bundle.tgz" ] && [ "$(stat -c %a "$e/bundle.tgz")" = 600 ] || fail "export: no 0600 bundle for the inventory host"
+[ "$(stat -c %a "$tmp/render/export")" = 700 ] || fail "export: the export dir is not root-only"
+grep -q "vm-2:/var/cache/la-bundle/bundle.tgz" "$e/bundle.tgz" || fail "export: the bundle came from the wrong container"
+[ -f "$e/excluded.txt" ] && [ -f "$e/recreate-drifted-services.sh" ] && [ -f "$e/wait-for-health.sh" ] ||
+  fail "export: excluded.txt or the helper scripts are missing"
+[ "$(cat "$e/host-state/crontab-root")" = "$(printf '#Ansible: purge\n0 1 * * * purge')" ] ||
+  fail "export: the crontab allowlist is wrong: $(cat "$e/host-state/crontab-root")"
+[ -f "$e/host-state/sysctl.d/99-image.conf" ] && [ ! -e "$e/host-state/sysctl.d/README.sysctl" ] ||
+  fail "export: the sysctl allowlist is wrong: $(ls "$e/host-state/sysctl.d")"
+pass "render.sh --export writes each host's bundle, helpers and host-state allowlist, root-only"
 echo "All checks passed."

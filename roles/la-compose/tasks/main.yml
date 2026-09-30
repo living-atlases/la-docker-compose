@@ -435,6 +435,12 @@
         - pre-deploy
       register: pre_deploy_result
 
+    # Bundle render only: the metadata scripts/bundle/host-apply.sh applies the bundle with.
+    - name: "Bundle: write the apply metadata"
+      ansible.builtin.include_tasks: bundle-meta.yml
+      when: la_compose_render_only | default(false) | bool
+      tags: [always]
+
     # Dump MySQL/Mongo/Postgres before anything mutates (container port of
     # ala-install's db-backup role). Default: on in production (la_env), off in
     # CI. Self-gating per host: only dumps datastores actually running here.

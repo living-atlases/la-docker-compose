@@ -199,9 +199,11 @@
       "match": [
         "scripts/bundle/**",
         "scripts/test-bundle-spike.sh",
-        "playbooks/bundle-render.yml"
+        "playbooks/bundle-render.yml",
+        "scripts/test-bundle-apply.sh",
+        "roles/la-compose/tasks/bundle-meta.yml"
       ],
-      "run": "bash scripts/test-bundle-spike.sh"
+      "run": "bash scripts/test-bundle-spike.sh && bash scripts/test-bundle-apply.sh"
     }
   ],
   "ignore": [

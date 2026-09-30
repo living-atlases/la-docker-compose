@@ -11,11 +11,17 @@
 # container by it) and resolve the other hosts' names to their real IPs (--add-host).
 #
 # Usage: render.sh --out DIR --inventory-args "-i a.ini -i b.ini" [--extra-vars JSON]
-#                  [--image TAG] [--keep]
+#                  [--image TAG] [--keep] [--export]
 # Needs: docker, ansible-playbook + ansible-inventory on PATH (with community.docker), run from
 # the repo root with ANSIBLE_ROLES_PATH set like the deploy.
 # Prints: BUNDLE-TIMING host=all step=render seconds=<s>, one step=capture line per host, and
-# writes DIR/<ansible_host>.render.manifest. The bundles stay inside the containers.
+# writes DIR/<ansible_host>.render.manifest.
+#
+# --export (TASK-50 phase 5) also writes, per host, what scripts/bundle/host-apply.sh needs, to
+# DIR/export/<inventory_hostname>/ (root-only: the bundle holds secrets; the caller deletes it):
+# bundle.tgz, excluded.txt, recreate-drifted-services.sh, wait-for-health.sh and host-state/,
+# the host state the render wrote outside the bundle: an ALLOWLIST (root's "#Ansible:" cron
+# jobs, the /etc/sysctl.d files the image did not have), never a diff of the whole container.
 set -euo pipefail
 
 OUT=""
@@ -23,6 +29,7 @@ INV_ARGS=""
 EXTRA_VARS="{}"
 IMAGE=la-render-spike:local
 KEEP=false
+EXPORT=false
 while [ $# -gt 0 ]; do
   case "$1" in
     --out) OUT="$2"; shift 2 ;;
@@ -30,6 +37,7 @@ while [ $# -gt 0 ]; do
     --extra-vars) EXTRA_VARS="$2"; shift 2 ;;
     --image) IMAGE="$2"; shift 2 ;;
     --keep) KEEP=true; shift ;;
+    --export) EXPORT=true; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -143,9 +151,28 @@ rc=0
 echo "BUNDLE-TIMING host=all step=render seconds=$(( $(date +%s) - start )) rc=$rc"
 [ "$rc" -eq 0 ] || { echo "BUNDLE-FAILED host=all step=render rc=$rc"; exit "$rc"; }
 
-while read -r _ ah; do
+export_host() {
+  local ih="$1" ah="$2" d="$OUT/export/$1"
+  (umask 077 && mkdir -p "$d/host-state/sysctl.d")
+  docker cp "$ah:/var/cache/la-bundle/bundle.tgz" "$d/bundle.tgz"
+  docker cp "$ah:/var/cache/la-bundle/excluded.txt" "$d/excluded.txt"
+  chmod 0600 "$d/bundle.tgz"
+  cp "$REPO/roles/la-compose/files/recreate-drifted-services.sh" "$REPO/scripts/wait-for-health.sh" "$d/"
+  docker exec "$ah" sh -c 'crontab -l 2>/dev/null || true' |
+    awk '/^#Ansible: /{name=$0; next} name!="" {print name; print; name=""}' >"$d/host-state/crontab-root"
+  [ -s "$d/host-state/crontab-root" ] || rm -f "$d/host-state/crontab-root"
+  local f
+  for f in $(comm -13 <(docker run --rm --entrypoint ls "$IMAGE" -1 /etc/sysctl.d | sort) \
+                      <(docker exec "$ah" ls -1 /etc/sysctl.d | sort)); do
+    case "$f" in *.conf) docker cp "$ah:/etc/sysctl.d/$f" "$d/host-state/sysctl.d/$f" ;; esac
+  done
+  echo "exported $ih: $(du -k "$d/bundle.tgz" | cut -f1) KB, host-state: $(ls "$d/host-state" "$d/host-state/sysctl.d" | grep -c '\.conf$\|^crontab-root$')"
+}
+
+while read -r ih ah; do
   docker cp "$HERE/capture.sh" "$ah:/tmp/capture.sh"
   docker cp "$HERE/manifest.py" "$ah:/tmp/manifest.py"
   docker exec "$ah" bash /tmp/capture.sh | grep '^BUNDLE-TIMING' | sed "s/host=[^ ]*/host=$ah(render)/"
   docker exec "$ah" python3 /tmp/manifest.py /var/cache/la-bundle/bundle.tgz >"$OUT/$ah.render.manifest"
+  if $EXPORT; then export_host "$ih" "$ah"; fi
 done <"$OUT/hosts"
