@@ -13,7 +13,9 @@
 #      recreation and no new .config-hashes;
 #   5. the service-consistency gate stops a removal unless allow_service_removal;
 #   6. `nginx -t` failing: no reload, the step fails;
-#   7. la-bundle-apply.sh runs every host, prefixes their output and fails if one fails.
+#   7. la-bundle-apply.sh runs every host, prefixes their output and fails if one fails;
+#   8. apply-spike.sh + add-marker.py end to end: a no-change apply, a controlled config
+#      change that restarts only its service, and the revert that deletes the marker.
 # ~3s, no Docker, no root.
 set -eu
 cd "$(dirname "$0")/.."
@@ -185,7 +187,8 @@ bash -c "\$*"
 EOF
 cat >"$tmp/bin/sudo" <<EOF
 #!/bin/bash
-exec "\$@" --state-dir "$tmp/state" --marker "$tmp/marker"
+[ "\$1" = bash ] && exec "\$@" --state-dir "$tmp/state" --marker "$tmp/marker"
+exec "\$@"
 EOF
 chmod +x "$tmp/bin/ssh" "$tmp/bin/sudo"
 printf 'h1 host-one\nh2 host-two\n' >"$tmp/hosts"
@@ -197,3 +200,21 @@ grep -q '^\[h1\] BUNDLE-TIMING .*step=total' "$tmp/ctl.out" || fail "7: host out
 grep -qx 'ssh host-one' "$tmp/ssh-calls" && grep -qx 'ssh host-two' "$tmp/ssh-calls" || fail "7: not every host was reached"
 ls /tmp/la-bundle.* >/dev/null 2>&1 && fail "7: a temp dir with the bundle was left behind in /tmp"
 pass "the controller applies every host, prefixes their output and fails when one fails"
+
+# 8. apply-spike.sh end to end (add-marker.py, then the revert), through the real controller
+rm -rf "$tmp/exp/h2" "$tmp/state"; rm -f "$cd_/.config-hashes"
+meta h1; echo 'key=v2' >"$tmp/data/app/config/app.properties"; bundle
+printf 'h1 host-one\n' >"$tmp/hosts"; mkdir -p "$tmp/render"; cp -r "$tmp/exp" "$tmp/render/export"; cp "$tmp/hosts" "$tmp/render/hosts"
+bash scripts/bundle/apply-spike.sh --out "$tmp/render" >"$tmp/spike.out" 2>&1 ||
+  { cat "$tmp/spike.out" >&2; fail "8: the spike reported problems"; }
+grep -q '^controlled change: .*/app/config/.la-bundle-apply-spike (service app) on h1$' "$tmp/spike.out" ||
+  fail "8: no controlled change on the watched dir"
+[ ! -e "$tmp/data/app/config/.la-bundle-apply-spike" ] || fail "8: the marker survived the revert"
+grep -q '^APPLY-SPIKE problems=0$' "$tmp/spike.out" && grep -q 'phase=apply3 .* rc=0' "$tmp/spike.out" ||
+  fail "8: no clean summary"
+# and it notices a restart that should not happen
+printf 'app deadbeef\n' >"$cd_/.config-hashes"
+rc=0; bash scripts/bundle/apply-spike.sh --out "$tmp/render" >"$tmp/spike.out" 2>&1 || rc=$?
+[ "$rc" -ne 0 ] && grep -q '^APPLY-SPIKE-PROBLEM: the no-change apply restarted' "$tmp/spike.out" ||
+  { cat "$tmp/spike.out" >&2; fail "8: a restart on the no-change apply went unnoticed"; }
+pass "apply-spike: no-change apply, a controlled config change restarts only its service, the revert cleans up"

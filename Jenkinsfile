@@ -60,10 +60,9 @@ def gatusGate(Map o) {
 // throwaway container on the agent (scripts/bundle/render.sh + playbooks/bundle-render.yml),
 // captures each deployed host's bundle, and compares the two by path and hash only
 // (manifest.py, compare-manifests.py): the bundles hold secrets and never leave their machine.
-def renderSpike() {
-    def hosts = env.TARGET_HOSTS.trim().split(/\s+/)
-    def ssh = 'ssh -o BatchMode=yes -o StrictHostKeyChecking=no'
-    def out = "${env.WORKSPACE}/bundle-render"
+// The render's inventory and extra vars: the same inventories and skip list the deploy uses,
+// so the rendered .bundle-meta.json carries the deploy's knobs.
+def renderArgs() {
     def inventoryArg = "-i ${env.INVENTORY_DIR}/lademo-inventory.ini"
     if (fileExists("${env.INVENTORY_DIR}/lademo-local-extras.ini")) {
         inventoryArg += " -i ${env.INVENTORY_DIR}/lademo-local-extras.ini"
@@ -79,7 +78,11 @@ def renderSpike() {
     if (env.TOPOLOGY_SKIP_SERVICES?.trim()) { skipList += env.TOPOLOGY_SKIP_SERVICES.tokenize(',') }
     skipList = skipList.collect { it.trim() }.findAll { it }.unique()
     def extraVars = groovy.json.JsonOutput.toJson([auto_deploy: false, skip_services: skipList])
+    return [inventoryArg: inventoryArg, extraVars: extraVars]
+}
 
+def runRender(String out, String more) {
+    def a = renderArgs()
     sh """
         set -eu
         rm -rf "${out}"
@@ -88,8 +91,15 @@ def renderSpike() {
         export ANSIBLE_HOST_KEY_CHECKING=False ANSIBLE_STDOUT_CALLBACK=yaml
         export ANSIBLE_CALLBACKS_ENABLED=ansible.posix.profile_tasks,ansible.posix.timer
         bash scripts/bundle/render.sh --out "${out}" --image la-render-spike:ci \
-            --inventory-args "${inventoryArg}" --extra-vars '${extraVars}'
+            --inventory-args "${a.inventoryArg}" --extra-vars '${a.extraVars}' ${more}
     """
+}
+
+def renderSpike() {
+    def hosts = env.TARGET_HOSTS.trim().split(/\s+/)
+    def ssh = 'ssh -o BatchMode=yes -o StrictHostKeyChecking=no'
+    def out = "${env.WORKSPACE}/bundle-render"
+    runRender(out, '')
     for (h in hosts) {
         sh """
             set -eu
@@ -101,6 +111,27 @@ def renderSpike() {
             python3 scripts/bundle/compare-manifests.py "${out}/${h}.render.manifest" "${out}/${h}.host.manifest" --label ${h}
         """
     }
+}
+
+// ----- Apply spike (opt-in via APPLY_SPIKE, TASK-50 phase 5) -----
+// The applier on the stack Ansible just deployed: render + export every host's bundle on the
+// agent, then scripts/bundle/apply-spike.sh: a no-change apply (nothing restarted, no running
+// container replaced), a controlled config change on the first host (only its service
+// restarts) and the revert. Then the total-green gate. The exported bundles hold secrets: they
+// are deleted whatever happens, and never archived.
+def applySpike() {
+    assertDisposableHosts(env.TARGET_HOSTS, env.CLEAN_HOSTS_ALLOW_REGEX)
+    def out = "${env.WORKSPACE}/bundle-apply"
+    try {
+        runRender(out, '--export')
+        sh "bash scripts/bundle/apply-spike.sh --out '${out}'"
+    } finally {
+        sh "rm -rf '${out}/export'"
+    }
+    gatusGate(label: 'Gatus total-green gate (after the bundle apply)', args: '--blocking --all-endpoints --timeout 420',
+        log: 'gatus-apply-gate.log', blocking: false,
+        failed: 'GATE-FAILED: Gatus reports unhealthy endpoints after the bundle apply - see the log above.',
+        ok: 'Gatus total green after the bundle apply.')
 }
 
 // ----- Bundle spike (opt-in via BUNDLE_SPIKE, TASK-50) -----
@@ -306,6 +337,11 @@ pipeline {
             description: 'MEASUREMENT (TASK-50, never fails the build, at most UNSTABLE): on the stack already deployed, capture a bundle (rendered compose dir + config bind sources) and time applying it without Ansible: live (restore, pull, up, health = redeploy floor), then down + cold (= new-portal floor, without the init steps). Prints BUNDLE-TIMING lines. Without FORCE_REDEPLOY it neither cleans nor redeploys: it runs against the stack the previous build left.'
         )
         booleanParam(
+            name: 'APPLY_SPIKE',
+            defaultValue: false,
+            description: 'TASK-50 phase 5 (never fails the build, at most UNSTABLE): render and export every host\'s bundle on the agent, then apply it WITHOUT Ansible (scripts/bundle/la-bundle-apply.sh) to the running stack: a no-change apply (no restart, no container replaced), a controlled config change on the first host (only its service restarts) and the revert, then the total-green gate. Prints BUNDLE-TIMING lines. Without FORCE_REDEPLOY it neither cleans nor redeploys.'
+        )
+        booleanParam(
             name: 'RENDER_SPIKE',
             defaultValue: false,
             description: 'MEASUREMENT (TASK-50 phase 4, never fails the build, at most UNSTABLE): render every docker_compose host into a throwaway container on the agent (playbooks/bundle-render.yml, no deploy, the real hosts are only read), then compare, by path and hash only, each rendered bundle with the one captured from the deployed host. Prints BUNDLE-TIMING and BUNDLE-COMPARE lines. Without FORCE_REDEPLOY it neither cleans nor redeploys.'
@@ -361,7 +397,7 @@ pipeline {
             // against the live stack, not to destroy it.
             // Same for a bundle-spike-only run (BUNDLE_SPIKE without FORCE_REDEPLOY): it measures
             // the stack the previous build left.
-            when { expression { (params.CLEAN_MACHINE || params.ONLY_CLEAN) && !(params.RUN_AIRFLOW_INGEST && !params.FORCE_REDEPLOY) && !((params.BUNDLE_SPIKE || params.RENDER_SPIKE) && !params.FORCE_REDEPLOY) } }
+            when { expression { (params.CLEAN_MACHINE || params.ONLY_CLEAN) && !(params.RUN_AIRFLOW_INGEST && !params.FORCE_REDEPLOY) && !((params.BUNDLE_SPIKE || params.RENDER_SPIKE || params.APPLY_SPIKE) && !params.FORCE_REDEPLOY) } }
             steps {
                 script {
                     assertDisposableHosts(env.TARGET_HOSTS, env.CLEAN_HOSTS_ALLOW_REGEX)
@@ -731,10 +767,10 @@ EOF
                     if (params.RUN_AIRFLOW_INGEST && !params.FORCE_REDEPLOY) {
                         env.DO_REDEPLOY = 'false'
                         echo 'Ingest-only run (RUN_AIRFLOW_INGEST, no FORCE_REDEPLOY): skipping redeploy + docker cleanup.'
-                    } else if ((params.BUNDLE_SPIKE || params.RENDER_SPIKE) && !params.FORCE_REDEPLOY) {
+                    } else if ((params.BUNDLE_SPIKE || params.RENDER_SPIKE || params.APPLY_SPIKE) && !params.FORCE_REDEPLOY) {
                         // Same guard, same reason: measure the running stack, never wipe it first.
                         env.DO_REDEPLOY = 'false'
-                        echo 'Spike-only run (BUNDLE_SPIKE/RENDER_SPIKE, no FORCE_REDEPLOY): skipping redeploy + docker cleanup.'
+                        echo 'Spike-only run (BUNDLE_SPIKE/RENDER_SPIKE/APPLY_SPIKE, no FORCE_REDEPLOY): skipping redeploy + docker cleanup.'
                     } else if (params.FORCE_REDEPLOY || (isManual && !isCron)) {
                         env.DO_REDEPLOY = 'true'
                         echo 'Force or Manual redeploy detected.'
@@ -1848,6 +1884,19 @@ ENVEOF
                 script {
                     catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
                         renderSpike()
+                    }
+                }
+            }
+        }
+
+        // See applySpike() above the pipeline. Before the bundle spike, which takes the stack down.
+        stage('Apply spike') {
+            when { expression { params.APPLY_SPIKE && params.AUTO_DEPLOY && !params.ONLY_CLEAN } }
+            options { timeout(time: 120, unit: 'MINUTES') }
+            steps {
+                script {
+                    catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
+                        applySpike()
                     }
                 }
             }
