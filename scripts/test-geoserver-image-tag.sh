@@ -4,6 +4,8 @@
 # for VMs deployed a different -- older -- GeoServer in docker. A GeoServer data dir
 # cannot be downgraded. The tag must follow geoserver_version (inventory first, then the
 # ala-install geoserver role default), with geoserver_image_tag as explicit override.
+# Likewise the plugins: the VM WAR install adds ala-install's geoserver_extension_urls
+# (pyramid, vectortiles); the container must ask kartoza for the same STABLE_EXTENSIONS.
 # Runs real ansible so variable precedence (role defaults < inventory < -e) is exercised.
 set -eu
 cd "$(dirname "$0")/.."
@@ -29,6 +31,11 @@ cat > "$tmp/play.yml" <<'EOF'
 EOF
 
 fail=0
+want_ext=$(python3 -c 'import re, yaml
+d = yaml.safe_load(open("ala-install/ansible/roles/geoserver/defaults/main.yml"))
+print(",".join(re.sub(r"^.*-([a-z0-9]+-plugin)\.zip$", r"\1", u) for u in d["geoserver_extension_urls"]))')
+[ -n "$want_ext" ] || { echo "[FAIL] no plugins in ala-install geoserver_extension_urls" >&2; exit 1; }
+
 run() {  # label, expected tag, inventory host vars, extra args...
   local label=$1 want=$2 hv=$3; shift 3
   printf 'localhost ansible_connection=local ansible_python_interpreter=%s la_compose_ala_install_dir=%s %s\n' \
@@ -39,6 +46,10 @@ run() {  # label, expected tag, inventory host vars, extra args...
   local got; got=$(sed -n 's/^ *image: *//p' "$tmp/out.yml")
   if [ "$got" = "kartoza/geoserver:$want" ]; then echo "[PASS] $label -> $got"
   else echo "[FAIL] $label: want kartoza/geoserver:$want, got $got"; fail=1; fi
+  local ext; ext=$(sed -n 's/^ *STABLE_EXTENSIONS: *"\(.*\)"$/\1/p' "$tmp/out.yml")
+  if [ "$ext" = "$want_ext" ]; then echo "[PASS] $label -> STABLE_EXTENSIONS=$ext"
+  else echo "[FAIL] $label: want STABLE_EXTENSIONS=$want_ext, got '$ext'"; fail=1; fi
+  python3 -c 'import sys,yaml; yaml.safe_load(open(sys.argv[1]))' "$tmp/out.yml" || { echo "[FAIL] $label: not valid YAML"; fail=1; }
 }
 
 run "ala-install default" "$ala_default" ""

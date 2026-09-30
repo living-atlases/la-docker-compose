@@ -34,6 +34,9 @@ services:
       # context fails to start (java.io.IOException: Permission denied) and only ROOT/ serves,
       # so /geoserver/web/ is 404 forever. Run tomcat as root so it can write its own data dir.
       RUN_AS_ROOT: "true"
+{% if geoserver_stable_extensions %}
+      STABLE_EXTENSIONS: "{{ geoserver_stable_extensions }}"
+{% endif %}
     networks:
       default: {}
       {{ docker_network | default('internal') }}:

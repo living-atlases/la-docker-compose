@@ -735,4 +735,9 @@ ala_upstream_fallbacks:
 # override. No hardcoded fallback: a GeoServer data dir cannot be downgraded, so a
 # missing ala-install checkout must fail the render, not silently pick an old image.
 la_compose_ala_install_dir: "{{ playbook_dir }}/../ala-install"
-geoserver_image_tag: "{{ geoserver_version | default((lookup('file', la_compose_ala_install_dir ~ '/ansible/roles/geoserver/defaults/main.yml') | from_yaml).geoserver_version) }}"
+la_compose_geoserver_role_defaults: "{{ lookup('file', la_compose_ala_install_dir ~ '/ansible/roles/geoserver/defaults/main.yml') | from_yaml }}"
+geoserver_image_tag: "{{ geoserver_version | default(la_compose_geoserver_role_defaults.geoserver_version) }}"
+# Same plugins as the VM WAR install (ala-install geoserver_extension_urls: pyramid and
+# vectortiles), as kartoza STABLE_EXTENSIONS names ("<name>-plugin", fetched at container
+# start). Without them a data dir from a VM loses its vector-tile GWC formats.
+geoserver_stable_extensions: "{{ geoserver_extension_urls | default(la_compose_geoserver_role_defaults.geoserver_extension_urls) | map('regex_replace', '^.*-([a-z0-9]+-plugin)\\.zip$', '\\1') | select('match', '^[a-z0-9]+-plugin$') | join(',') }}"
