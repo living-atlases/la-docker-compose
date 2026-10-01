@@ -16,6 +16,7 @@ const wms = (query: string) =>
 const WORLD = "srs=EPSG:4326&bbox=-180,-90,180,90&width=64&height=32";
 
 interface Layer {
+  id: number | string;
   name: string;
   displayname: string;
   enabled: boolean;
@@ -23,6 +24,7 @@ interface Layer {
 }
 interface Field {
   id: string;
+  spid: string;
   enabled: boolean;
   namesearch: boolean;
   intersect: boolean;
@@ -70,8 +72,12 @@ describe("Spatial stack (spatial-service, GeoServer, hub)", () => {
     expect(fields.length, "enabled fields").to.be.greaterThan(0);
   });
 
-  it("every enabled layer has a classification (no 'undefined / undefined' in the hub)", () => {
+  it("every layer the hub lists has a classification (no 'undefined / undefined')", () => {
+    // The hub lists a layer through its enabled fields: a layer whose fields are all disabled
+    // (e.g. one kept only for the gazetteer) is not shown, so its classification does not matter.
+    const listed = new Set(fields.map((f) => String(f.spid)));
     const missing = layers
+      .filter((l) => listed.has(String(l.id)))
       .filter((l) => !l.classification1 || !String(l.classification1).trim())
       .map((l) => `${l.name} (${l.displayname})`);
     expect(missing, "layers without classification1").to.deep.eq([]);
