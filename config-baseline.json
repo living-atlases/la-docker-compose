@@ -396,7 +396,9 @@
       "skin.homeUrl": "https://l-a.site",
       "spatialHubUrl": "https://spatial.l-a.site/",
       "spatialService.remote": "https://nectar-spatial-staging.ala.org.au/spatial-service",
-      "spatialService.url": "https://spatial.l-a.site/ws"
+      "spatialService.url": "https://spatial.l-a.site/ws",
+      "userdetails.api.url": "https://auth.l-a.site/userdetails/",
+      "userdetails.web.url": "https://auth.l-a.site/userdetails/"
     }
   }
 }
