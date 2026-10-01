@@ -8,7 +8,8 @@
 #   3. an inventory change, or a local change in the branding checkout, renders again;
 #   4. refused before any render: --limit/--tags, a VM playbook (hybrid line), a data hub;
 #   5. only the newest --keep renders are kept;
-#   6. a failed apply is the script's exit code.
+#   6. a failed apply is the script's exit code;
+#   7. without docker access, a clear error before anything runs.
 # ~2s, no Docker, no Ansible.
 set -eu
 cd "$(dirname "$0")/.."
@@ -38,6 +39,7 @@ esac; done
 exec env ANSIBLE_ROLES_PATH=/lad/roles ANSIBLE_LOG_PATH=/logs/run-$RANDOM.log sh -c "ansible-playbook -u ubuntu -i lademo-inventory.ini -i lademo-local-extras.ini -i ../hub1-inventories/hub1-inventory.ini -i lademo-local-passwords.ini $play $limit --extra-vars '$extra' --extra-vars 'target=all'"
 AW
 chmod +x "$inv/ansiblew"
+printf '#!/bin/sh\nexit ${DOCKER_RC:-0}\n' >"$tmp/bin/docker"
 cat >"$tmp/bin/ansible-inventory" <<'EOF'
 #!/bin/sh
 echo '{"_meta": {"hostvars": {"h1": {"branding_source": "../lademo-branding"}}}}'
@@ -101,3 +103,9 @@ pass "only the newest --keep renders are kept"
 rc=0; APPLY_RC=3 fd "${std[@]}" || rc=$?
 [ "$rc" = 3 ] && grep -q '^FAST-DEPLOY step=total .* rc=3$' "$tmp/out" || fail "6: rc=$rc"
 pass "a failed apply is the exit code"
+
+# 7. no docker access: a clear message before anything else
+rc=0; DOCKER_RC=1 fd "${std[@]}" || rc=$?
+[ "$rc" -ne 0 ] && grep -q '^FAST-DEPLOY-FAILED: no docker here' "$tmp/out" || fail "7: no docker went unnoticed"
+[ -s "$tmp/calls" ] && fail "7: rendered or applied without docker"
+pass "without docker access it says how to fix it, before anything runs"

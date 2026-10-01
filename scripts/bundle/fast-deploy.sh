@@ -46,6 +46,13 @@ RENDER="${LA_BUNDLE_RENDER:-$HERE/render.sh}"
 APPLY="${LA_BUNDLE_APPLY:-$HERE/la-bundle-apply.sh}"
 t0=$(date +%s)
 
+# The render needs a docker daemon (one throwaway container per server). In the la-toolkit
+# that is the host's, through /var/run/docker.sock and the docker group's gid (DOCKER_GID).
+if ! docker version >/dev/null 2>&1; then
+  echo "FAST-DEPLOY-FAILED: no docker here: mount /var/run/docker.sock and set DOCKER_GID to the gid of the host's docker group (la-toolkit docker-compose.yml)"
+  exit 1
+fi
+
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
