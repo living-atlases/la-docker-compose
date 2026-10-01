@@ -29,6 +29,25 @@
   when: geoserver_health.stdout == "healthy"
   block:
 
+    # GeoServer control-flow (the plugin ships in the kartoza image): concurrency limits per
+    # request type / user / IP, e.g. for a workshop (a whole room behind one NAT IP):
+    #   geoserver_controlflow = {"timeout": 60, "ows.global": 100, "ows.wms.getmap": 16, "user": 6, "ip": 40}
+    # GeoServer re-reads the file when it changes, no restart needed. Unset: the data dir's own
+    # file (if any) is left alone.
+    - name: "Geoserver init: control-flow rules (geoserver_controlflow)"
+      ansible.builtin.copy:
+        dest: "{{ data_dir }}/geoserver_data_dir/controlflow.properties"
+        content: |
+          # Managed by la-docker-compose (geoserver_controlflow). Edit the inventory, not this file.
+          {% for k, v in geoserver_controlflow | dictsort %}
+          {{ k }}={{ v }}
+          {% endfor %}
+        mode: "0644"
+      become: true
+      when: geoserver_controlflow | default({}) | length > 0
+      tags:
+        - geoserver-init
+
     - name: "Geoserver init: Ensure host staging dir exists"
       ansible.builtin.file:
         path: "{{ docker_compose_data_dir }}/geoserver-init"

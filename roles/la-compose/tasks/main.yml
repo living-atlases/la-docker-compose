@@ -402,6 +402,37 @@
       tags:
         - docker-compose
 
+    # A portal that keeps these overrides in its inventory instead of editing them on the host:
+    #   spatial_hub_local_config_file = {{ inventory_dir }}/files/spatial-hub/application-local-config.yml
+    # replaces the placeholder above on every run (e.g. spatial-hub presetWMSServers / baselayers,
+    # keys the role templates do not generate), so a rebuilt host gets them too.
+    - name: "Install application-local-config.yml from the inventory (<key>_local_config_file)"
+      ansible.builtin.template:
+        src: "{{ lookup('vars', item.key ~ '_local_config_file') }}"
+        dest: "{{ item.path }}/application-local-config.yml"
+        owner: "{{ docker_container_uid }}"
+        group: "{{ docker_container_gid }}"
+        mode: '0644'
+      become: true
+      loop:
+        - { svc: 'logger',          key: 'logger',          path: "{{ data_dir }}/logger/config" }
+        - { svc: 'alerts',          key: 'alerts',          path: "{{ data_dir }}/alerts/config" }
+        - { svc: 'images',          key: 'images',          path: "{{ data_dir }}/image-service/config" }
+        - { svc: 'doi',             key: 'doi',             path: "{{ data_dir }}/doi-service/config" }
+        - { svc: 'regions',         key: 'regions',         path: "{{ data_dir }}/regions/config" }
+        - { svc: 'dataQuality',     key: 'data_quality',    path: "{{ data_dir }}/data-quality-filter-service/config" }
+        - { svc: 'spatial_service', key: 'spatial_service', path: "{{ data_dir }}/spatial-service/config" }
+        - { svc: 'spatial',         key: 'spatial_hub',     path: "{{ data_dir }}/spatial-hub/config" }
+        - { svc: 'ecodata',         key: 'ecodata',         path: "{{ data_dir }}/ecodata/config" }
+        - { svc: 'biocollect',      key: 'biocollect',      path: "{{ data_dir }}/biocollect/config" }
+      when:
+        - item.svc in services_enabled
+        - lookup('vars', item.key ~ '_local_config_file', default='') | length > 0
+      loop_control:
+        label: "{{ item.path }}"
+      tags:
+        - docker-compose
+
     # spatial-hub / spatial-service run 3.x Spring Boot images that use Logback, but the
     # ala-install roles only ship a legacy log4j.properties; Logback aborts boot on a non-.xml
     # logging.config ("Unexpected filename extension") — the crash-loop reason. Ship a minimal

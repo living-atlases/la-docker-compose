@@ -37,18 +37,26 @@ if [ "$(code "${GS}/rest/workspaces/ALA")" != "200" ]; then
 fi
 
 echo "== geoserver-init: datastore LayersDB (PostGIS -> layersdb) =="
-if [ "$(code "${GS}/rest/workspaces/ALA/datastores/LayersDB")" != "200" ]; then
-  gs -XPOST -H "Content-type: text/xml" -d \
-"<dataStore><name>LayersDB</name><connectionParameters>\
-<host>{{ layers_db_hostname | default('postgres') }}</host>\
+LAYERSDB_HOST="{{ layers_db_hostname | default('postgres') }}"
+LAYERSDB_XML="<dataStore><name>LayersDB</name><connectionParameters>\
+<host>${LAYERSDB_HOST}</host>\
 <port>{{ layers_db_port | default('5432') }}</port>\
 <database>{{ layers_db_name | default('layersdb') }}</database>\
 <schema>public</schema>\
 <user>{{ layers_db_username | default('layers') }}</user>\
 <passwd>{{ layers_db_password }}</passwd>\
 <dbtype>postgis</dbtype>\
-</connectionParameters></dataStore>" \
-    "${GS}/rest/workspaces/ALA/datastores"
+</connectionParameters></dataStore>"
+if [ "$(code "${GS}/rest/workspaces/ALA/datastores/LayersDB")" != "200" ]; then
+  gs -XPOST -H "Content-type: text/xml" -d "${LAYERSDB_XML}" "${GS}/rest/workspaces/ALA/datastores"
+else
+  # A data dir migrated from a VM keeps the VM's store, pointing at host=localhost: inside the
+  # container that is not PostGIS, and every Objects/Points request fails. Repoint it.
+  cur_host=$(gs "${GS}/rest/workspaces/ALA/datastores/LayersDB.xml" | sed -n 's|.*<entry key="host">\([^<]*\)</entry>.*|\1|p' | head -1)
+  if [ -n "${cur_host}" ] && [ "${cur_host}" != "${LAYERSDB_HOST}" ]; then
+    echo "LayersDB host ${cur_host} -> ${LAYERSDB_HOST}"
+    gs -XPUT -H "Content-type: text/xml" -d "${LAYERSDB_XML}" "${GS}/rest/workspaces/ALA/datastores/LayersDB"
+  fi
 fi
 
 echo "== geoserver-init: styles =="
