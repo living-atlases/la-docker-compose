@@ -15,7 +15,13 @@ services:
     # "SCRAM authentication requires libpq version 10 or above" and it crash-loops. md5 is
     # understood by every consumer (modern JDBC drivers and the old libpq). pg_hba is also
     # switched to md5 in init-databases.yml (the named volume persists scram across builds).
-    command: ["postgres", "-c", "password_encryption=md5"]
+    # postgres_settings: extra server settings per host, e.g. a PostGIS-heavy spatial host:
+    #   postgres_settings={"shared_buffers": "4GB", "effective_cache_size": "16GB", "work_mem": "32MB"}
+    command: ["postgres", "-c", "password_encryption=md5"{% for k, v in postgres_settings | default({}) | dictsort %}, "-c", "{{ k }}={{ v }}"{% endfor %}]
+{% if postgres_shm_size | default('') %}
+    # /dev/shm for parallel query workers (docker's default 64m is too small for them).
+    shm_size: {{ postgres_shm_size }}
+{% endif %}
     volumes:
       - la_postgres-data:/var/lib/postgresql/data
     environment:
