@@ -231,19 +231,20 @@ for key, case in CASES.items():
     # overrides. The image puts them in ENV JAVA_OPTS, which the service replaces.
     require(prefix, f"-Dspring.config.additional-location=/data/{artifact}/config/",
             "config overrides would not be read")
-    require(prefix, "-Dspring.config.name=application,application-local-config",
+    require(prefix, ",application-local-config",
             "application-local-config would not be read")
 
     # The per-service name the role generates. Without it Spring reads the two stock
     # names and silently ignores <name>.properties -- the bug the `command:` overrides
     # existed to work around.
     if case.get("extra_config"):
+        # application-local-config goes LAST so the operator's overrides beat the generated file
         require(prefix,
-                f"-Dspring.config.name=application,application-local-config,{case['extra_config']}",
-                "the role-generated per-service config would not be read")
+                f"-Dspring.config.name=application,{case['extra_config']},application-local-config",
+                "the role-generated per-service config would not be read, or would override application-local-config")
     else:
-        reject(prefix, "-Dspring.config.name=application,application-local-config,",
-               "it declares no extra_config_name")
+        require(prefix, "-Dspring.config.name=application,application-local-config",
+                "it declares no extra_config_name")
 
     # Only where the desc asks for it; everyone else keeps the JVM default. An
     # inventory <key>_stack_size wins over the desc.

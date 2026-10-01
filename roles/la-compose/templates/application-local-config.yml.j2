@@ -12,7 +12,7 @@
 # HOW THE OVERRIDE WORKS
 #   This service's container starts Spring Boot with:
 #       -Dspring.config.additional-location=/data/<service>/config/
-#       -Dspring.config.name=application,application-local-config,...
+#       -Dspring.config.name=application,<generated-config>,application-local-config
 #   Spring loads `application-local-config` AFTER the generated config, so any
 #   property you set here OVERRIDES the generated value. Use standard Spring YAML.
 #
