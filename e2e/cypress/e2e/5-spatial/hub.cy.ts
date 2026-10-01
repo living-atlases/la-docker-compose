@@ -1,5 +1,5 @@
 import { serviceUrl } from "../../support/services";
-import { apiOk, pageRenders, skipIfMissing } from "../../support/checks";
+import { apiOk, linkedAssetsLoad, pageRenders, skipIfMissing } from "../../support/checks";
 
 // Spatial hub — heavy on client-side JS (Leaflet map). In this deployment '/' is CAS-gated,
 // so the map assertion runs only under ENABLE_AUTH_TESTS (after cy.login). The default no-auth
@@ -34,5 +34,8 @@ describe("Spatial hub", () => {
     // (Tiles from openstreetmap.org are a bonus, not asserted: CI may lack outbound access.)
     cy.get("#map.leaflet-container", { timeout: 30000 }).should("be.visible");
     cy.get("#map .leaflet-map-pane", { timeout: 30000 }).should("exist");
+    // The portal's own layout files (spatial_hub_extra_assets, served by nginx in a jar install):
+    // with the session cookie the hub page is reachable, so every css/js it links must load.
+    linkedAssetsLoad(serviceUrl("spatial", "/"));
   });
 });

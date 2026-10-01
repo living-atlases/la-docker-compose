@@ -100,13 +100,17 @@ export function linkedAssetsLoad(pageUrl: string): void {
     expect(resp.status, `GET ${pageUrl}`).to.be.lessThan(400);
     // Comments out: an <!--[if lt IE 9]> html5.js shim is never fetched by a browser.
     const html = String(resp.body).replace(/<!--[\s\S]*?-->/g, "");
-    const host = new URL(pageUrl).host;
+    // Resolve against the page actually served: a gated page redirects (e.g. to the CAS/OIDC
+    // login) and its relative links belong to that host, not to pageUrl's.
+    const last = (resp.redirects || []).slice(-1)[0];
+    const finalUrl = last ? last.replace(/^\d+: /, "") : pageUrl;
+    const host = new URL(finalUrl).host;
     const assets = [
       ...html.matchAll(/<link[^>]+rel=["']stylesheet["'][^>]*href=["']([^"']+)["']/gi),
       ...html.matchAll(/<link[^>]+href=["']([^"']+)["'][^>]*rel=["']stylesheet["']/gi),
       ...html.matchAll(/<script[^>]+src=["']([^"']+)["']/gi),
     ]
-      .map((m) => new URL(m[1].replace(/&amp;/g, "&"), pageUrl).toString())
+      .map((m) => new URL(m[1].replace(/&amp;/g, "&"), finalUrl).toString())
       .filter((a) => new URL(a).host === host);
     expect(assets.length, `${pageUrl} links stylesheets/scripts of its own`).to.be.greaterThan(0);
     [...new Set(assets)].forEach((asset) => {
