@@ -106,6 +106,6 @@ pass "a failed apply is the exit code"
 
 # 7. no docker access: a clear message before anything else
 rc=0; DOCKER_RC=1 fd "${std[@]}" || rc=$?
-[ "$rc" -ne 0 ] && grep -q '^FAST-DEPLOY-FAILED: no docker here' "$tmp/out" || fail "7: no docker went unnoticed"
+[ "$rc" -ne 0 ] && grep -q '^FAST-DEPLOY-FAILED: no docker here: .*uncomment the /var/run/docker.sock volume.*DOCKER_GID=$(getent group docker' "$tmp/out" || fail "7: no docker went unnoticed, or no how-to"
 [ -s "$tmp/calls" ] && fail "7: rendered or applied without docker"
 pass "without docker access it says how to fix it, before anything runs"

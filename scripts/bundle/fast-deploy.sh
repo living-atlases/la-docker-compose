@@ -47,9 +47,10 @@ APPLY="${LA_BUNDLE_APPLY:-$HERE/la-bundle-apply.sh}"
 t0=$(date +%s)
 
 # The render needs a docker daemon (one throwaway container per server). In the la-toolkit
-# that is the host's, through /var/run/docker.sock and the docker group's gid (DOCKER_GID).
+# that is the host's, through /var/run/docker.sock and the docker group's gid (DOCKER_GID),
+# both opt-in in its docker-compose.yml.
 if ! docker version >/dev/null 2>&1; then
-  echo "FAST-DEPLOY-FAILED: no docker here: mount /var/run/docker.sock and set DOCKER_GID to the gid of the host's docker group (la-toolkit docker-compose.yml)"
+  echo "FAST-DEPLOY-FAILED: no docker here: in the la-toolkit's docker-compose.yml uncomment the /var/run/docker.sock volume and restart it with DOCKER_GID=\$(getent group docker | cut -d: -f3) docker compose up -d"
   exit 1
 fi
 
