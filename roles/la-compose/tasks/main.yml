@@ -433,6 +433,31 @@
       tags:
         - docker-compose
 
+    # The portal's own hub layout and the files it loads (spatial_hub_external_views), kept in the
+    # inventory instead of only on the host:
+    #   spatial_hub_views_src = {{ inventory_dir }}/files/spatial-hub/views
+    #   spatial_hub_assets_src = {{ inventory_dir }}/files/spatial-hub/assets
+    # Copied over what is there (files added by hand on the host are kept).
+    - name: "Install spatial-hub views / assets from the inventory (spatial_hub_views_src / _assets_src)"
+      ansible.builtin.copy:
+        src: "{{ item.src }}/"
+        dest: "{{ item.dest }}/"
+        owner: "{{ docker_container_uid }}"
+        group: "{{ docker_container_gid }}"
+        mode: '0644'
+        directory_mode: '0755'
+      become: true
+      loop:
+        - { src: "{{ spatial_hub_views_src | default('') }}", dest: "{{ data_dir }}/spatial-hub/views" }
+        - { src: "{{ spatial_hub_assets_src | default('') }}", dest: "{{ spatial_hub_extra_assets_dir | default(data_dir ~ '/spatial-hub/assets') }}" }
+      when:
+        - "'spatial' in services_enabled"
+        - item.src | length > 0
+      loop_control:
+        label: "{{ item.dest }}"
+      tags:
+        - docker-compose
+
     # spatial-hub / spatial-service run 3.x Spring Boot images that use Logback, but the
     # ala-install roles only ship a legacy log4j.properties; Logback aborts boot on a non-.xml
     # logging.config ("Unexpected filename extension") — the crash-loop reason. Ship a minimal

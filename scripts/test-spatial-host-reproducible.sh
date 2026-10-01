@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Three things a spatial host needed by hand after a migration, now driven from the inventory:
+# Things a spatial host needed by hand after a migration, now driven from the inventory:
 #  - <key>_local_config_file installs a service's application-local-config.yml from the inventory;
+#  - spatial_hub_views_src / spatial_hub_assets_src copy the hub layout and its files;
 #  - geoserver_controlflow writes the data dir's controlflow.properties;
 #  - geoserver-init repoints a migrated LayersDB store (host=localhost) to the postgres container,
 #    and leaves a correct one alone.
@@ -23,9 +24,10 @@ def walk(ts):
         yield t
         yield from walk(t.get('block'))
 want = {"Install application-local-config.yml from the inventory (<key>_local_config_file)",
+        "Install spatial-hub views / assets from the inventory (spatial_hub_views_src / _assets_src)",
         "Geoserver init: control-flow rules (geoserver_controlflow)"}
 got = [t for f in ('main.yml', 'init-geoserver.yml') for t in walk(yaml.safe_load(open(f'{d}/{f}'))) if t.get('name') in want]
-assert len(got) == 2, [t['name'] for t in got]
+assert len(got) == 3, [t['name'] for t in got]
 for t in got: t.pop('become', None)
 yaml.safe_dump(got, open(out, 'w'), sort_keys=False)
 EOF
@@ -35,6 +37,11 @@ mkdir -p "$tmp/inv/files" "$tmp/data/spatial-hub/config" "$tmp/data/spatial-serv
 printf 'startup:\n  baselayers: {default: osm}\n' > "$tmp/inv/files/hub-local.yml"
 echo 'old: placeholder' > "$tmp/data/spatial-hub/config/application-local-config.yml"
 echo 'hand: edit' > "$tmp/data/spatial-service/config/application-local-config.yml"
+mkdir -p "$tmp/inv/files/views/layouts" "$tmp/inv/files/assets/css" "$tmp/data/spatial-hub/assets"
+echo '<html/>' > "$tmp/inv/files/views/layouts/portal-x.gsp"
+echo 'png' > "$tmp/inv/files/assets/icon_contextual-layer.png"
+echo 'a{}' > "$tmp/inv/files/assets/css/x.css"
+echo 'keep' > "$tmp/data/spatial-hub/assets/hand.txt"
 cat > "$tmp/play.yml" <<EOF
 - hosts: all
   gather_facts: false
@@ -49,12 +56,16 @@ printf 'localhost ansible_connection=local ansible_python_interpreter=%s\n' "$(c
 "$ANSIBLE_PLAYBOOK" -i "$tmp/inv/hosts.ini" "$tmp/play.yml" \
   -e '{"services_enabled": ["spatial", "spatial_service", "geoserver"]}' \
   -e "spatial_hub_local_config_file={{ inventory_dir }}/files/hub-local.yml" \
+  -e "spatial_hub_views_src={{ inventory_dir }}/files/views" -e "spatial_hub_assets_src={{ inventory_dir }}/files/assets" \
   -e '{"geoserver_controlflow": {"ows.wms.getmap": 16, "ip": 40, "user.ows.wps.execute": "1000/d;30s"}}' \
   > "$tmp/log" 2>&1 || { ko "playbook failed"; tail -30 "$tmp/log"; exit 1; }
 cmp -s "$tmp/inv/files/hub-local.yml" "$tmp/data/spatial-hub/config/application-local-config.yml" \
   && ok "spatial_hub_local_config_file replaces the placeholder" || ko "hub local config not installed"
 grep -qx 'hand: edit' "$tmp/data/spatial-service/config/application-local-config.yml" \
   && ok "unset spatial_service_local_config_file leaves the host file alone" || ko "spatial-service file touched"
+[ -f "$tmp/data/spatial-hub/views/layouts/portal-x.gsp" ] && [ -f "$tmp/data/spatial-hub/assets/css/x.css" ] \
+  && [ -f "$tmp/data/spatial-hub/assets/icon_contextual-layer.png" ] && ok "views/assets copied from the inventory" || ko "views/assets not copied"
+[ -f "$tmp/data/spatial-hub/assets/hand.txt" ] && ok "host-only asset kept" || ko "host-only asset removed"
 cf="$tmp/data/geoserver_data_dir/controlflow.properties"
 if [ "$(grep -v '^#' "$cf" | tr '\n' ' ')" = "ip=40 ows.wms.getmap=16 user.ows.wps.execute=1000/d;30s " ]; then
   ok "controlflow.properties from geoserver_controlflow"; else ko "controlflow: $(cat "$cf")"; fi
