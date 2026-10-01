@@ -317,20 +317,34 @@
     - spatial-hub
     - docker-compose
 
-# Derive branding_version from a content hash of the synced source so the image
-# tag changes only when the branding actually changes. This gives docker compose
-# a deterministic signal to recreate the run-once branding-init container (which
-# repopulates the la_branding-assets volume); identical source => identical tag
-# => bake and recreate are no-ops (idempotent).
+# Derive branding_version from a content hash of what the image is built from, so the
+# tag changes only when the branding actually changes. This gives docker compose a
+# deterministic signal to recreate the run-once branding-init container (which
+# repopulates the la_branding-assets volume), and lets the build be skipped when the
+# image with that tag is already there (build-images.yml, scripts/bundle/host-apply.sh):
+# identical inputs => identical tag => no bake, no recreate.
+#
+# The inputs: the synced source, the role's Dockerfile and nginx.conf (the synchronize
+# above deletes the copies the previous run left, so they must be hashed from the role)
+# and the build arguments docker-bake.hcl passes. Leave one out and a change to it would
+# keep the old tag and, with the build skipped, never reach the image.
 - name: Compute branding source content hash
   ansible.builtin.shell: >-
     set -o pipefail;
-    find "{{ docker_compose_data_dir }}/dockerfiles/branding{{ inst.suffix }}/" -type f
+    { find "{{ docker_compose_data_dir }}/dockerfiles/branding{{ inst.suffix }}/" -type f
     -not -path '*/node_modules/*' -not -path '*/.git/*'
     -not -path '*/public/*' -not -path '*/dist/*'
-    -print0 | sort -z | xargs -0 sha1sum | sha1sum | cut -c1-12
+    -print0 | sort -z | xargs -0 sha1sum | sed "s|{{ docker_compose_data_dir }}/dockerfiles/branding{{ inst.suffix }}/||";
+    echo "{{ branding_build_inputs }}"; } | sha1sum | cut -c1-12
   args:
     executable: /bin/bash
+  vars:
+    branding_build_inputs: >-
+      {{ lookup('ansible.builtin.file', 'docker/branding/Dockerfile') | hash('sha1') }}
+      {{ lookup('ansible.builtin.file', 'docker/branding/nginx.conf') | hash('sha1') }}
+      node={{ branding_node_version | default('18') }}
+      source={{ branding_build_source | default('local') }}
+      {{ (inst_branding_source ~ '@' ~ (branding_git_ref | default('HEAD'))) if branding_is_git_url | default(false) else '' }}
   register: branding_src_hash
   changed_when: false
   when: inst_branding_enabled | bool

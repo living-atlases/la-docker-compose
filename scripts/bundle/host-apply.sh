@@ -23,8 +23,8 @@
 #             touching existing dirs' owners/modes (--no-overwrite-dir: apps chown their own
 #             dirs at runtime)
 #   volumes   create the external volumes that are missing (la-volumes: driver local, no opts)
-#   branding  docker buildx bake the branding targets, every time, as build-images.yml does
-#             (the branding tag is the git ref, HEAD by default, so it cannot tell a change)
+#   branding  docker buildx bake the branding targets when an image with the tag the render
+#             computed (a hash of its sources and build inputs) is missing, as build-images.yml
 #   pull      pinned tags only when missing, mutable tags always (as build-images.yml)
 #   predeploy drop compose state metadata, `down` only with force_recreate, restart unhealthy la_*
 #   gate      abort if `up --remove-orphans` would delete a running service (allow_service_removal)
@@ -193,6 +193,16 @@ branding() {
   local targets
   targets=$(meta branding_bake_targets | python3 -c 'import json,sys; print(" ".join(json.load(sys.stdin)))')
   [ -n "$targets" ] || { echo "no branding to bake"; return 0; }
+  # The tags hash everything the images are built from (stage-branding-source.yml): when they
+  # are all here, a bake would rebuild the same images. As build-images.yml.
+  local img missing=""
+  for img in $(meta branding_images | python3 -c 'import json,sys; print(" ".join(json.load(sys.stdin)))'); do
+    docker image inspect "$img" >/dev/null 2>&1 || missing="$missing $img"
+  done
+  if [ -z "$missing" ] && [ "$(meta branding_images)" != "[]" ]; then
+    echo "branding images up to date: $(meta branding_images)"; return 0
+  fi
+  echo "baking branding, missing:${missing:- (no tags in the meta)}"
   # A cache DB pointing at snapshots that are gone fails every build: drop it, build again.
   # shellcheck disable=SC2086
   (cd "$COMPOSE_DIR" && docker buildx bake -f docker-bake.hcl $targets) || {

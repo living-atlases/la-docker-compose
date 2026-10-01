@@ -7,7 +7,8 @@
 #      with the role's knobs, writes .config-hashes and times every step;
 #   2. a second apply restarts only the service whose watched config changed, deletes the file
 #      the previous bundle wrote and this one dropped, keeps a file under an excluded path,
-#      merges root's crontab by its "#Ansible:" names and keeps the other lines;
+#      merges root's crontab by its "#Ansible:" names and keeps the other lines, and does not
+#      rebake a branding image whose content-hash tag is already there;
 #   3. a bundle rendered for another host fails before anything on the host changes;
 #   4. a `compose up` that fails fails the step (errexit inside a step), with no drift
 #      recreation and no new .config-hashes;
@@ -46,6 +47,8 @@ case "\$*" in
   "compose up -d --remove-orphans"*) exit \${UP_RC:-0} ;;
   "volume inspect la_app-data") [ -f "$tmp/vol-exists" ]; exit ;;
   "volume create"*) touch "$tmp/vol-exists" ;;
+  "image inspect branding-builder:abc123") [ -f "$tmp/img-exists" ]; exit ;;
+  "buildx bake"*) touch "$tmp/img-exists" ;;
   "ps --filter name=^la_nginx\$ --filter status=running -q") echo abc123 ;;
   "exec la_nginx nginx -t") exit \${NGINX_T_RC:-0} ;;
   "inspect -f {{.State.StartedAt}} la_app") echo 2020-01-01T00:00:00Z ;;
@@ -70,7 +73,7 @@ meta() { # $1 = inventory_hostname, $2 = allow_service_removal
   cat >"$cd_/.bundle-meta.json" <<EOF
 {"format": 1, "inventory_hostname": "$1", "compose_dir": "$cd_", "la_env": "ci",
  "force_recreate": false, "recreate_drifted_running": true, "allow_service_removal": ${2:-false},
- "pull": true, "pull_policy": "missing", "branding_bake_targets": ["branding"],
+ "pull": true, "pull_policy": "missing", "branding_bake_targets": ["branding"], "branding_images": ["branding-builder:abc123"],
  "health": {"timeout": 720, "interval": 5, "converge_rounds": 4, "converge_timeout": 900,
             "converge_settle_waits": 2, "budget": 60},
  "config_watch": [{"service": "app", "path": "$tmp/data/app/config"},
@@ -131,13 +134,15 @@ printf '#Ansible: purge\n0 2 * * * new-purge\n' >"$tmp/exp/h1/host-state/crontab
 apply || { cat "$tmp/apply.out" >&2; fail "second apply failed"; }
 grep -qx 'key=v2' "$tmp/data/app/config/app.properties" || fail "2: the changed config was not restored"
 grep -qx 'compose restart app' "$tmp/docker-calls" || fail "2: the changed service was not restarted"
+grep -q 'buildx bake' "$tmp/docker-calls" && fail "2: rebaked a branding image whose tag is already there"
+grep -q '^branding images up to date' "$tmp/apply.out" || fail "2: the branding skip is not reported"
 [ "$(grep -c '^compose restart' "$tmp/docker-calls")" = 1 ] || fail "2: restarted more than the changed service"
 [ -f "$tmp/data/app/config/old.properties" ] && fail "2: the dropped file is still there"
 [ -f "$tmp/data/big/blob" ] || fail "2: deleted a file under an excluded path"
 grep -qx '5 5 \* \* \* my-own-job' "$tmp/crontab" || fail "2: lost a crontab line that is not ours"
 grep -qx '0 2 \* \* \* new-purge' "$tmp/crontab" && ! grep -q old-purge "$tmp/crontab" ||
   fail "2: the #Ansible job was not replaced: $(cat "$tmp/crontab")"
-pass "second apply: restarts only the changed service, drops removed files, keeps excluded ones, merges cron"
+pass "second apply: restarts only the changed service, drops removed files, keeps excluded ones, merges cron, no rebake"
 
 # 3. wrong host
 cp "$tmp/data/app/config/app.properties" "$tmp/before"

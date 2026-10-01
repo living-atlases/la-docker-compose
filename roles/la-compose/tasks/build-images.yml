@@ -52,6 +52,40 @@
   when:
     - "'branding' in services_enabled or (branding_render_list | default([]) | length > 0)"
 
+# The branding tag is a hash of everything the image is built from (stage-branding-source.yml),
+# so an image with that tag already present is the image a build would produce: skip the bake.
+# It took ~90 s per deploy on a CI host even with the build cache warm (#446).
+# branding_rebuild=true forces it.
+- name: Branding images this render needs
+  ansible.builtin.set_fact:
+    branding_images: >-
+      {%- set out = [] -%}
+      {%- for b in (branding_render_list | default([])) -%}
+        {%- set _ = out.append('branding-builder' ~ b.suffix ~ ':' ~ b.version) -%}
+      {%- endfor -%}
+      {{ out }}
+  when:
+    - "'branding' in services_enabled or (branding_render_list | default([]) | length > 0)"
+  tags:
+    - branding
+    - docker-compose
+
+- name: Check whether the branding images are already built
+  ansible.builtin.command:
+    argv: "{{ ['docker', 'image', 'inspect'] + branding_images }}"
+  register: branding_images_present
+  failed_when: false
+  changed_when: false
+  become: true
+  when:
+    - not (la_compose_render_only | default(false) | bool)
+    - "'branding' in services_enabled or (branding_render_list | default([]) | length > 0)"
+    - branding_images | default([]) | length > 0
+    - not (branding_rebuild | default(false) | bool)
+  tags:
+    - branding
+    - docker-compose
+
 # BuildKit's cache DB lives in docker's data-root (/var/lib/docker/buildkit), but with the
 # containerd snapshotter the layers it points at live in /var/lib/containerd. Anything that empties
 # the image store without clearing that DB — moving /var/lib/containerd to its own volume, as the
@@ -77,10 +111,12 @@
       register: build_branding
       changed_when: true
   # Bundle render: docker-bake.hcl and the targets above are rendered; the build is the apply
-  # side's (scripts/bundle/host-apply.sh runs the same bake, with the same prune-and-retry).
+  # side's (scripts/bundle/host-apply.sh runs the same bake, with the same prune-and-retry and
+  # the same skip when the images are there).
   when:
     - not (la_compose_render_only | default(false) | bool)
     - "'branding' in services_enabled or (branding_render_list | default([]) | length > 0)"
+    - (branding_images_present.rc | default(1)) != 0
 
 # A pinned tag (x:1.2.3, x@sha256:...) names the same image forever, so it is pulled only when
 # it is missing: `docker compose pull` re-resolved ~40 manifests per host on every run, 4.4 min

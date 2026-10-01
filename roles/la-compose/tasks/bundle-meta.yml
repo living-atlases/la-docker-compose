@@ -26,6 +26,7 @@
         'pull': docker_registry | default('') != '',
         'pull_policy': la_compose_pull_policy | default('missing'),
         'branding_bake_targets': branding_bake_targets | default([]),
+        'branding_images': branding_images | default([]),
         'health': {
           'timeout': health_check_timeout | default(300) | int,
           'interval': health_check_interval | default(5) | int,

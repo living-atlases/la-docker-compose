@@ -592,6 +592,7 @@
         services_enabled: [collectory, ala_hub, cas]
         hub_instances: []
         branding_bake_targets: [branding]
+        branding_images: ['branding-builder:0123456789ab']
 
     - name: "[TC12] A scratch compose dir"
       ansible.builtin.tempfile:
@@ -619,6 +620,7 @@
           - tc12.recreate_drifted_running is boolean and tc12.recreate_drifted_running
           - tc12.force_recreate is boolean and not tc12.force_recreate
           - tc12.branding_bake_targets == ['branding']
+          - tc12.branding_images == ['branding-builder:0123456789ab']
           - tc12.config_watch | map(attribute='service') | sort | list == ['biocache-hub', 'cas', 'collectory']
           - tc12.config_watch | selectattr('path', 'equalto', '/data/collectory/config') | list | length == 1
           - tc12.config_watch | map('list') | map('sort') | unique | list == [['path', 'service']]
