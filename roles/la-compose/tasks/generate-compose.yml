@@ -79,6 +79,19 @@
     - always
     - docker-compose
 
+# Operator override for single names, applied on top of the list the generator computed from the
+# placement. Needed when ONE host must see a name differently from the rest of the stack: e.g. the
+# stack's `datos.gbif.es` is the docker branding, but a service that fetches its banner from it
+# must get the branding the BROWSER loads its assets from. Inventory:
+#   docker_extra_hosts_override={"datos.gbif.es": "193.146.75.109"}
+- name: Apply docker_extra_hosts_override
+  ansible.builtin.set_fact:
+    docker_extra_hosts_dict: "{{ docker_extra_hosts_dict | combine(docker_extra_hosts_override) }}"
+  when: docker_extra_hosts_override | default({}) | length > 0
+  tags:
+    - always
+    - docker-compose
+
 # Cross-host shared-vhost members (hub.l-a.site-style: ONE hostname split by
 # PATH across DIFFERENT physical hosts): which local members publish a port for
 # their siblings, and which remote members this host proxies to. Split out so
