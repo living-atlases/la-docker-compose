@@ -165,6 +165,8 @@ services:
      'biocache-service':       [download_dir | default(data_dir ~ '/biocache-download')],
      'spatial-service':        [data_dir ~ '/ala/runtime/files'],
      'biocollect':             [biocollect_pwa_app_path | default('/data/biocollect/mobile-app')],
+     'spatial-hub':            ([spatial_hub_extra_assets_dir | default(data_dir ~ '/spatial-hub/assets')]
+                                if (spatial_hub_extra_assets | default([]) | length > 0) else []),
    } %}
 {% set nginx_alias_mounted = [] %}
 {% for alias_service, alias_dirs in nginx_alias_dirs | dictsort %}

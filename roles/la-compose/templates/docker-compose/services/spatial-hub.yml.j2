@@ -83,6 +83,12 @@ services:
       # runs and is EMPTY on the spatial-hub host — the subpath mount would then start against an empty
       # dir and the layout would 500. The staging copy makes this work single-host AND cross-host.
       - {{ data_dir }}/spatial-hub/views:/data/spatial-hub/views:ro
+{% elif spatial_hub_external_views | default(false) | bool %}
+      # A portal's own layout (skin.layout=<name> -> {{ data_dir }}/spatial-hub/views/layouts/<name>.gsp)
+      # and the files it loads with <asset:*> tags, as on a VM install. The hub cannot copy the assets
+      # into a jar, so list the ones the layout loads in spatial_hub_extra_assets and nginx serves them.
+      - {{ data_dir }}/spatial-hub/views:/data/spatial-hub/views:ro
+      - {{ spatial_hub_extra_assets_dir | default(data_dir ~ '/spatial-hub/assets') }}:/data/spatial-hub/assets:ro
 {% endif %}
 {% include '_i18n_volumes.yml.j2' %}
     restart: unless-stopped
