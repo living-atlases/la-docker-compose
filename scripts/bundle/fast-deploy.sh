@@ -58,7 +58,10 @@ json.dump({"argv": sys.argv[1:], "env": {k: v for k, v in os.environ.items() if 
           open(os.environ["LA_FAST_DEPLOY_RECORD"], "w"))
 SHIM
 chmod +x "$work/shim/ansible-playbook"
-(cd "$INV_DIR" && LA_FAST_DEPLOY_RECORD="$work/line.json" PATH="$work/shim:$PATH" ./ansiblew --nodryrun "$@" >/dev/null)
+# --nodryrun once: the toolkit's line already carries it, and docopt rejects a repeated flag.
+aw_args=()
+for a in "$@"; do [ "$a" = --nodryrun ] || aw_args+=("$a"); done
+(cd "$INV_DIR" && LA_FAST_DEPLOY_RECORD="$work/line.json" PATH="$work/shim:$PATH" ./ansiblew --nodryrun "${aw_args[@]}" >/dev/null)
 [ -s "$work/line.json" ] || { echo "FAST-DEPLOY-FAILED: ansiblew ran no ansible-playbook with: $*"; exit 1; }
 
 # 2. Its parts, and what v1 refuses.

@@ -29,6 +29,7 @@ git -C "$tmp/inv/lademo-branding" init -q && echo a >"$tmp/inv/lademo-branding/a
 cat >"$inv/ansiblew" <<'AW'
 #!/bin/bash
 extra=""; limit=""; play="/lad/playbooks/site.yml"
+[ "$(printf '%s\n' "$@" | grep -c '^--nodryrun$')" = 1 ] || { echo "docopt: --nodryrun repeated" >&2; exit 1; }
 for a in "$@"; do case "$a" in
   --extra=*) extra="${a#--extra=}" ;; --limit=*) limit="--limit ${a#--limit=}" ;;
   --vm) play="/lad/playbooks/site.yml /ai/ansible/collectory.yml" ;;
@@ -57,7 +58,7 @@ export PATH="$tmp/bin:$PATH" LA_BUNDLE_RENDER=$tmp/render.sh LA_BUNDLE_APPLY=$tm
 
 fd() { : >"$tmp/calls"
   bash scripts/bundle/fast-deploy.sh --inventory-dir "$inv" --cache-dir "$tmp/cache" "$@" >"$tmp/out" 2>&1; }
-std=(-- --alainstall=/ai --ladocker=/lad "--extra=auto_deploy=true skip_services=sds-static-home" --user ubuntu all)
+std=(-- --alainstall=/ai --nodryrun --ladocker=/lad "--extra=auto_deploy=true skip_services=sds-static-home" --user ubuntu all)
 
 # 1. first run
 fd "${std[@]}" || { cat "$tmp/out" >&2; fail "1: failed"; }
