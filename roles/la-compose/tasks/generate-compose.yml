@@ -3437,6 +3437,12 @@
     - spatial-service
     - docker-compose
 
+- name: "Credentials: refuse well-known default passwords (see assert-no-default-credentials.yml)"
+  ansible.builtin.include_tasks: assert-no-default-credentials.yml
+  tags:
+    - always
+    - safety
+
 - name: Generate geoserver.yml
   ansible.builtin.template:
     src: docker-compose/services/geoserver.yml.j2

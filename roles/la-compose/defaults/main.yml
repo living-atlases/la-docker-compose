@@ -533,6 +533,16 @@ nginx_listen_ipv6: false
 # no silent override. Set in the inventory ([all:vars] la_env=production).
 la_env: ci
 
+# Credentials that templates default to a public value when the inventory leaves them out.
+# assert-no-default-credentials.yml warns about every one still on its default and, when
+# la_require_non_default_credentials is true, fails the deploy. `service` is the key in
+# services_enabled; `value` the fallback the template would use.
+la_insecure_default_credentials:
+  - { var: geoserver_password, value: geoserver, service: geoserver, label: "GeoServer admin" }
+  - { var: cas_db_password, value: password, service: cas, label: "CAS database" }
+  - { var: airflow_admin_password, value: admin, service: pipelines, label: "Airflow admin" }
+la_require_non_default_credentials: "{{ (la_env | default('ci')) == 'production' }}"
+
 # Whether this run may (re)configure and restart the Docker daemon. site.yml
 # sets it automatically: true on a first install (no live la_* stack), false on
 # a redeploy over a running stack — because the `docker` role's daemon.json
