@@ -188,7 +188,7 @@ grep -q "^h1.gatus ansible_connection=community.docker.docker ansible_docker_hos
 grep -q "^prod-x ansible_connection=community.docker.docker ansible_docker_host=la-render-blocked" "$tmp/overlay.seen" ||
   fail "render: a host outside the render is not blocked"
 ! grep -q "^run -d --name prod.example" "$tmp/docker-calls" || fail "render: a container was started for a non docker_compose host"
-grep -q "^playbook playbooks/bundle-render.yml -i inv.ini -i .*render-overlay.ini --limit docker_compose --skip-tags docker-volumes,nameindex" "$tmp/docker-calls" ||
+grep -q "^playbook playbooks/bundle-render.yml -i inv.ini -i .*render-overlay.ini --limit docker_compose --skip-tags docker-volumes,nameindex --extra-vars auto_deploy=false --extra-vars la_compose_render_only=true$" "$tmp/docker-calls" ||
   fail "render: wrong playbook invocation: $(grep ^playbook "$tmp/docker-calls")"
 grep -qx "cache=memory" "$tmp/docker-calls" || fail "render: the render may share the deploy's fact cache"
 { [ -s "$tmp/render/vm-1.render.manifest" ] && [ -s "$tmp/render/vm-2.render.manifest" ]; } || fail "render: no manifest per host"

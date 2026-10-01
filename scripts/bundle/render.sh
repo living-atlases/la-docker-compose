@@ -10,8 +10,11 @@
 # Containers are named after each host's ansible_host (the synchronize module finds the
 # container by it) and resolve the other hosts' names to their real IPs (--add-host).
 #
-# Usage: render.sh --out DIR --inventory-args "-i a.ini -i b.ini" [--extra-vars JSON]
-#                  [--image TAG] [--keep] [--export]
+# Usage: render.sh --out DIR --inventory-args "-i a.ini -i b.ini" [--extra-vars JSON|k=v]...
+#                  [--user SSH_USER] [--image TAG] [--keep] [--export]
+# --extra-vars may repeat. auto_deploy=false and la_compose_render_only=true always go last:
+# extra vars beat play vars, and a caller's auto_deploy=true (the toolkit's deploy line has
+# it) must never turn a render into a deploy.
 # Needs: docker, ansible-playbook + ansible-inventory on PATH (with community.docker), run from
 # the repo root with ANSIBLE_ROLES_PATH set like the deploy.
 # Prints: BUNDLE-TIMING host=all step=render seconds=<s>, one step=capture line per host, and
@@ -26,7 +29,8 @@ set -euo pipefail
 
 OUT=""
 INV_ARGS=""
-EXTRA_VARS="{}"
+EXTRA_VARS=()
+SSH_USER=""
 IMAGE=la-render-spike:local
 KEEP=false
 EXPORT=false
@@ -34,7 +38,8 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --out) OUT="$2"; shift 2 ;;
     --inventory-args) INV_ARGS="$2"; shift 2 ;;
-    --extra-vars) EXTRA_VARS="$2"; shift 2 ;;
+    --extra-vars) EXTRA_VARS+=(--extra-vars "$2"); shift 2 ;;
+    --user) SSH_USER="$2"; shift 2 ;;
     --image) IMAGE="$2"; shift 2 ;;
     --keep) KEEP=true; shift ;;
     --export) EXPORT=true; shift ;;
@@ -90,7 +95,7 @@ done <"$OUT/hosts"
 # The facts the render reads from the real machines (IP, memory, CPUs): a read-only `setup`,
 # its own run, so nothing it discovers (the host's python) leaks into the render.
 # shellcheck disable=SC2086
-ANSIBLE_CACHE_PLUGIN=memory ansible docker_compose $INV_ARGS -m ansible.builtin.setup \
+ANSIBLE_CACHE_PLUGIN=memory ansible docker_compose $INV_ARGS ${SSH_USER:+-u "$SSH_USER"} -m ansible.builtin.setup \
   -a 'gather_subset=hardware,network' --tree "$OUT/facts" >/dev/null ||
   { echo "BUNDLE-FAILED host=all step=facts: could not read the real hosts' facts" >&2; exit 1; }
 python3 - "$OUT" <<'PY' >"$OUT/host-facts"
@@ -147,7 +152,8 @@ start=$(date +%s)
 rc=0
 # shellcheck disable=SC2086
 (cd "$REPO" && ansible-playbook playbooks/bundle-render.yml $INV_ARGS -i "$overlay" --limit docker_compose \
-   --skip-tags docker-volumes,nameindex --extra-vars "$EXTRA_VARS") || rc=$?
+   --skip-tags docker-volumes,nameindex "${EXTRA_VARS[@]}" \
+   --extra-vars auto_deploy=false --extra-vars la_compose_render_only=true) || rc=$?
 echo "BUNDLE-TIMING host=all step=render seconds=$(( $(date +%s) - start )) rc=$rc"
 [ "$rc" -eq 0 ] || { echo "BUNDLE-FAILED host=all step=render rc=$rc"; exit "$rc"; }
 

@@ -144,6 +144,14 @@ grep -qx '0 2 \* \* \* new-purge' "$tmp/crontab" && ! grep -q old-purge "$tmp/cr
   fail "2: the #Ansible job was not replaced: $(cat "$tmp/crontab")"
 pass "second apply: restarts only the changed service, drops removed files, keeps excluded ones, merges cron, no rebake"
 
+# 3a. a host Ansible never deployed
+mv "$cd_/docker-compose.yml" "$tmp/dc.yml"
+rc=0; apply || rc=$?
+mv "$tmp/dc.yml" "$cd_/docker-compose.yml"
+[ "$rc" -ne 0 ] && grep -q 'never deployed with Ansible' "$tmp/apply.out" || { cat "$tmp/apply.out" >&2; fail "3a: applied to a host Ansible never deployed"; }
+[ -s "$tmp/docker-calls" ] && fail "3a: docker was called on a host Ansible never deployed"
+pass "a host Ansible never deployed is refused before anything changes"
+
 # 3. wrong host
 cp "$tmp/data/app/config/app.properties" "$tmp/before"
 meta h2; echo 'key=v3' >"$tmp/data/app/config/app.properties"; bundle

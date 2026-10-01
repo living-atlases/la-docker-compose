@@ -209,9 +209,10 @@
         "scripts/test-bundle-spike.sh",
         "playbooks/bundle-render.yml",
         "scripts/test-bundle-apply.sh",
-        "roles/la-compose/tasks/bundle-meta.yml"
+        "roles/la-compose/tasks/bundle-meta.yml",
+        "scripts/test-fast-deploy.sh"
       ],
-      "run": "bash scripts/test-bundle-spike.sh && bash scripts/test-bundle-apply.sh"
+      "run": "bash scripts/test-bundle-spike.sh && bash scripts/test-bundle-apply.sh && bash scripts/test-fast-deploy.sh"
     }
   ],
   "ignore": [

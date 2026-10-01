@@ -92,6 +92,10 @@ print(json.dumps(v) if isinstance(v,(list,dict)) else ("true" if v is True else 
   { echo "this bundle was rendered for $(meta inventory_hostname), not $EXPECT_HOST"; fail check 1; }
 COMPOSE_DIR=$(meta compose_dir)
 [ "$meta_path" = "$COMPOSE_DIR/.bundle-meta.json" ] || { echo "meta at $meta_path, compose dir $COMPOSE_DIR"; fail check 1; }
+# v1 is a redeploy: databases, users and the post-up init are still Ansible's, so a host the
+# Ansible deploy never reached gets a stack with empty datastores. Refuse it.
+[ -f "$COMPOSE_DIR/docker-compose.yml" ] ||
+  { echo "no $COMPOSE_DIR/docker-compose.yml: this host was never deployed with Ansible, which the first deploy still needs"; fail check 1; }
 
 compose() { (cd "$COMPOSE_DIR" && docker compose "$@"); }
 retry() {

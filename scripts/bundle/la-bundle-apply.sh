@@ -7,7 +7,7 @@
 # v1 scope: redeploy of a portal Ansible deployed before (see host-apply.sh for what is still
 # Ansible's). All hosts go at once: on a redeploy every datastore is already up.
 #
-# Usage: la-bundle-apply.sh --export-dir DIR/export --hosts DIR/hosts [--ssh-opts "..."]
+# Usage: la-bundle-apply.sh --export-dir DIR/export --hosts DIR/hosts [--ssh-opts "..."] [--ssh-user U]
 #          --hosts: "<inventory_hostname> <ssh target>" per line (render.sh writes DIR/hosts)
 # Prints each host's output prefixed with "[<inventory_hostname>]", then one
 # "BUNDLE-APPLY host=<h> rc=<n>" line per host; exits non-zero if any host failed.
@@ -21,6 +21,7 @@ while [ $# -gt 0 ]; do
     --export-dir) EXPORT_DIR="$2"; shift 2 ;;
     --hosts) HOSTS="$2"; shift 2 ;;
     --ssh-opts) SSH_OPTS="$2"; shift 2 ;;
+    --ssh-user) SSH_OPTS="$SSH_OPTS -l $2"; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done

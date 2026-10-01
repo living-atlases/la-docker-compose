@@ -572,6 +572,8 @@ EOF
                     bash scripts/test-bundle-spike.sh
                     # TASK-50 phase 5 applier: host-apply/la-bundle-apply against shims, ~3s.
                     bash scripts/test-bundle-apply.sh
+                    # la-toolkit fast deploy entry point (TASK-31), ~2s.
+                    bash scripts/test-fast-deploy.sh
                     # Data hubs under a path (hub.l-a.site/records) must serve and probe there.
                     bash scripts/test-hub-context-path.sh
                     # The post-ingest hub restart must cover data hubs too, not only the portal.
