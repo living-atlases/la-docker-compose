@@ -155,6 +155,16 @@ print(int(d))
 PY
 }
 
+# totalRecords from biocache-service for an arbitrary query (a data hub's data_hub_uid:dhN).
+count_biocache_query() {  # count_biocache_query <biocache-ws-url> <query>
+  afi env U="$1" Q="$2" python3 - <<'PY' 2>/dev/null || echo -1
+import os, json, urllib.parse, urllib.request
+u = f"{os.environ['U']}/occurrences/search?q={urllib.parse.quote(os.environ['Q'])}&pageSize=0"
+with urllib.request.urlopen(u, timeout=30) as r:
+    print(int(json.load(r)["totalRecords"]))
+PY
+}
+
 # Solr admin helpers, used by the reindex harness to assert the alias actually moved.
 solr_admin_json() {  # solr_admin_json <query-string> — echoes raw JSON
   af curl -s --max-time 60 "${SOLR_URL:-http://solr:8983/solr}/admin/collections?$1&wt=json"

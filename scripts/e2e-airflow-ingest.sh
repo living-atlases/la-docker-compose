@@ -196,6 +196,109 @@ case "$dr_http" in
        exit 2 ;;
 esac
 
+# --- 0b. data hubs: put the dataset in every hub the deployment serves ------------
+# A data hub front-end (hub.l-a.site...) queries records-ws with qc=data_hub_uid:dhN. The
+# portal's data_hub_uid is stamped at INDEX time from collectory's dataHub membership, so a
+# collectory with no hubs (a fresh one has none) indexes every record without it and each
+# hub shows "No records found": no map, no species, no regions, and the basemap spec had
+# nothing to look at. So before the ingest: make sure each hub uid the manifest names
+# exists, and that our dataResource is a member. collectory assigns uids itself (dh1, dh2…,
+# creation is POST with no uid), so a missing dhN is made by creating hubs in order until
+# it exists. Membership is memberDataResources, a JSON list encoded AS A STRING.
+# Never fatal on its own: a hub that cannot be seeded is reported at the end with the
+# verdict, the main ingest still runs.
+TARGETS_JSON="${TARGETS_JSON:-/data/docker-compose/e2e-targets.json}"
+HUB_UIDS=""
+HUB_SEED_RC=0
+if [[ -f "$TARGETS_JSON" && -n "$collectory_key" ]]; then
+  # The program goes in a variable: a heredoc cannot sit inside $( ) when the closing
+  # parenthesis has to come after it.
+  IFS= read -r -d '' HUB_SEED_PY <<'PY' || true
+import json, os, re, subprocess, sys
+
+ws, key = os.environ["COLLECTORY_WS_URL"], os.environ["COLLECTORY_KEY"]
+pipes, dr = os.environ["PIPELINES_CONTAINER"], os.environ["DR_UID"]
+
+
+def req(method, path, body=None):
+    """(status, headers, body) through la-pipelines' curl: the one that can reach collectory."""
+    cmd = ["docker", "exec", pipes, "curl", "-s", "-i", "--max-time", "60", "-X", method,
+           "-H", "Authorization: " + key, "-H", "Content-Type: application/json"]
+    if body is not None:
+        cmd += ["-d", json.dumps(body)]
+    out = subprocess.run(cmd + [ws + path], capture_output=True, text=True).stdout.replace("\r", "")
+    head, _, rest = out.partition("\n\n")
+    while head.startswith("HTTP/") and " 100 " in head.split("\n")[0]:   # 100 Continue
+        head, _, rest = rest.partition("\n\n")
+    lines = head.split("\n")
+    status = int(lines[0].split()[1]) if lines and lines[0].startswith("HTTP/") else 0
+    hdrs = {l.split(":", 1)[0].lower(): l.split(":", 1)[1].strip() for l in lines[1:] if ":" in l}
+    return status, hdrs, rest
+
+
+def members(uid):
+    st, _, body = req("GET", "/dataHub/" + uid)
+    if st != 200:
+        return st, None
+    return st, {m["uid"] for m in json.loads(body).get("memberDataResources", [])}
+
+
+targets = json.load(open(os.environ["TARGETS_JSON"]))
+wanted = sorted({m.group(1) for h in targets.get("hubs", [])
+                 for m in [re.search(r"data_hub_uid:(dh\d+)", h.get("queryContext") or "")] if m},
+                key=lambda u: int(u[2:]))
+if not wanted:
+    print("HUBS:")
+    sys.exit(0)
+
+for uid in wanted:
+    st, have = members(uid)
+    tries = 0
+    while have is None and tries < 20:
+        tries += 1
+        st, hdrs, _ = req("POST", "/dataHub", {"name": "LA E2E Test Hub %d" % tries, "acronym": "LAE2EHUB"})
+        new = re.search(r"/dataHub/(dh\d+)", hdrs.get("location", ""))
+        if not new:
+            print("ERROR: could not create a dataHub in collectory (HTTP %s, %s)" % (st, hdrs))
+            sys.exit(2)
+        print("collectory: created dataHub %s" % new.group(1))
+        st, have = members(uid)
+    if have is None:
+        print("ERROR: collectory never produced dataHub %s" % uid)
+        sys.exit(2)
+    if dr not in have:
+        st, _, _ = req("POST", "/dataHub/" + uid,
+                       {"memberDataResources": json.dumps(sorted(have | {dr}))})
+        st, have = members(uid)
+        if not have or dr not in have:
+            print("ERROR: dataHub %s update did not take (HTTP %s); members now %s" % (uid, st, have))
+            sys.exit(2)
+        print("collectory: dataHub %s now has dataResource %s" % (uid, dr))
+    else:
+        print("collectory: dataHub %s already has dataResource %s" % (uid, dr))
+
+# The index stamp reads the dataResource side: hubMembership must name every hub.
+st, _, body = req("GET", "/dataResource/" + dr)
+seen = {h["uid"] for h in json.loads(body).get("hubMembership", [])} if st == 200 else set()
+missing = [u for u in wanted if u not in seen]
+if missing:
+    print("ERROR: dataResource %s hubMembership lacks %s (HTTP %s)" % (dr, missing, st))
+    sys.exit(2)
+print("HUBS:" + " ".join(wanted))
+PY
+  hub_out=$(COLLECTORY_WS_URL="${collectory_ws%/}" COLLECTORY_KEY="$collectory_key" \
+    PIPELINES_CONTAINER="$PIPELINES_CONTAINER" DR_UID="$DR_UID" TARGETS_JSON="$TARGETS_JSON" \
+    python3 -c "$HUB_SEED_PY" 2>&1) || HUB_SEED_RC=$?
+  printf '%s\n' "$hub_out" | sed 's/^/[hubs] /'
+  if [[ "$HUB_SEED_RC" -eq 0 ]]; then
+    HUB_UIDS=$(printf '%s\n' "$hub_out" | sed -nE 's/^HUBS:[[:space:]]*(.*)$/\1/p' | tail -1)
+  else
+    err "could not seed the data hubs in collectory (the hubs will show no records)"
+  fi
+else
+  log "no data hubs to seed (no manifest at ${TARGETS_JSON}, or no collectory key)"
+fi
+
 # --- 1. get the DwCA (committed fixture, or a prebuilt archive) ------------------
 # DWCA_ZIP lets a caller ingest a real archive instead of the 8-record fixture --
 # scripts/fetch-medium-dwca.sh prints a path suitable for it. The 8 records prove a
@@ -268,5 +371,14 @@ log "indexed records — Solr(${SOLR_COLLECTION})=${solr_n}  biocache-service=${
 rc=0
 [[ "$solr_n" =~ ^[0-9]+$ && "$solr_n" -ge "$EXPECTED_MIN" ]] || { err "Solr has too few records ($solr_n)"; rc=1; }
 [[ "$bio_n"  =~ ^[0-9]+$ && "$bio_n"  -ge "$EXPECTED_MIN" ]] || { err "biocache-service has too few records ($bio_n)"; rc=1; }
+# Each seeded hub must now return the dataset through the very query its front-end sends.
+# This is what proves the membership reached the INDEX, not just collectory.
+for hub in $HUB_UIDS; do
+  hub_n=$(count_biocache_query "$BIOCACHE_WS" "data_hub_uid:${hub}")
+  log "data hub ${hub}: biocache-service=${hub_n} records (expected ≥ ${EXPECTED_MIN})"
+  [[ "$hub_n" =~ ^[0-9]+$ && "$hub_n" -ge "$EXPECTED_MIN" ]] \
+    || { err "data hub ${hub} sees too few records (${hub_n}); data_hub_uid was not stamped at index time"; rc=1; }
+done
+[[ "$HUB_SEED_RC" -eq 0 ]] || rc=1
 [[ "$rc" -eq 0 ]] && log "PASS — ingestion e2e verified ($DR_UID)"
 finish "$rc"
