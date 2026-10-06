@@ -74,6 +74,9 @@ services:
     # needs auth. chainguard/minio is the maintained public build; it ships `mc`, so the
     # healthcheck below is unchanged. Only :latest is published.
     image: chainguard/minio:latest
+    # The image runs as nonroot (65532) but the minio-data volume outlives CLEAN_MACHINE and is
+    # root-owned from the official image, so nonroot dies on /data/.minio.sys (file access denied).
+    user: "0:0"
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: minioadmin
