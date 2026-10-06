@@ -1310,6 +1310,25 @@
     - config
     - docker-compose
 
+- name: Pick the species group files that match the name index we load
+  # Our inventories fetch a COL-derived index (custom_namematching_url), where ALA's default
+  # groups.json resolves `Osteichthyes` to a clade that contains Aves and Mammalia and tags
+  # every bird "Fishes" (scripts/validate-species-groups.sh, e2e species-groups.cy.ts). The
+  # role no longer picks a variant (ala-install a81a0b76 replaced species_groups_variant with
+  # namematching_groups_file / biocache_groups_file), so the file is ours to provide.
+  # An inventory that sets namematching_groups_file / biocache_groups_file (gbif.es keeps its
+  # own) wins over the shipped COL file; resolved here, not in the include_role vars, which
+  # would override the inventory. biocache follows namematching unless told otherwise: both
+  # resolve the same group names against the same index.
+  ansible.builtin.set_fact:
+    la_species_groups_file: "{{ namematching_groups_file | default(role_path ~ '/files/species-groups/groups-col.json') }}"
+    la_biocache_groups_file: "{{ biocache_groups_file | default(namematching_groups_file | default(role_path ~ '/files/species-groups/groups-col.json')) }}"
+  tags:
+    - namematching-service
+    - biocache-service
+    - config
+    - docker-compose
+
 - name: Run biocache-service properties generation
   ansible.builtin.include_role:
     name: biocache3-properties
@@ -1322,6 +1341,8 @@
     # session against a name that does not resolve. Same shape as index_*_url above.
     biocache_db_host: "{{ 'la_cassandra' if (cassandra_docker_local | default(true)) else biocache_db_host_ext }}"
     nginx_vhost_fast_mode: true
+    # same groups as namematching: the names must match what it writes to species_group
+    biocache_groups_file: "{{ la_biocache_groups_file }}"
   when:
     - "'biocache_service' in services_enabled"
     - "service_aliases.get('biocache-service-clusterdb') is defined"
@@ -1499,14 +1520,8 @@
     nginx_vhost_fast_mode: true
     namematching_user: "{{ docker_default_user }}"
     namematching_search_config_dir: /data/ala-namematching-server/config
-    # The species group files must match the taxonomy of the index we actually load. Our
-    # inventories fetch it through custom_namematching_url, so nameindex_to_use says
-    # `custom` and tells the role nothing about what is inside — and the artefact is
-    # COL-derived (its taxonConceptIDs resolve in ChecklistBank, e.g. 5BSG3 = Vulpes
-    # vulpes, where a GBIF-backbone build would carry numeric keys). Without this the role
-    # installs the ALA-taxonomy defaults and every bird also comes back tagged "Fishes".
-    # Verify with scripts/validate-species-groups.sh.
-    species_groups_variant: col
+    # Species group files: see the set_fact above (COL groups unless the inventory says otherwise).
+    namematching_groups_file: "{{ la_species_groups_file }}"
     # docker-local: nginx proxies to the app container via the compose service-name
     # alias (docker DNS), not 127.0.0.1 (which is nginx itself).
     namematching_service_upstream_host: "namematching-service"

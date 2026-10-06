@@ -580,6 +580,8 @@ EOF
                     bash scripts/test-refresh-biocache-fields.sh
                     # The e2e ingest must put its dataset in every data hub, or the hubs show no records.
                     bash scripts/test-e2e-hub-seed.sh
+                    # The species group files must be passed under the names ala-install reads today.
+                    bash scripts/test-species-groups-files.sh
 
                     # `JAVA_OPTS: ${<SERVICE>_JAVA_OPTS}` REPLACES the image's own ENV
                     # rather than adding to it, so a -D missing from .env is simply not

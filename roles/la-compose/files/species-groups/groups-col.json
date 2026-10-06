@@ -1,0 +1,154 @@
+[{
+  "name": "Animals",
+  "rank": "kingdom",
+  "included": ["Animalia"],
+  "excluded": []
+},
+  {
+    "name": "Mammals",
+    "rank": "classs",
+    "included": ["Mammalia"],
+    "excluded": [],
+    "parent": "Animals"
+  },
+  {
+    "name": "Birds",
+    "rank": "classs",
+    "included": ["Aves"],
+    "excluded": [],
+    "parent": "Animals"
+  },
+  {
+    "name": "Reptiles",
+    "rank": "classs",
+    "included": ["Reptilia"],
+    "excluded": [],
+    "parent": "Animals"
+  },
+  {
+    "name": "Amphibians",
+    "rank": "classs",
+    "included": ["Amphibia"],
+    "excluded": [],
+    "parent": "Animals"
+  },
+  {
+    "name": "Fishes",
+    "rank": "classs",
+    "included": ["Agnatha", "Chondrichthyes", "Actinopterygii", "Sarcopterygii"],
+    "excluded": [],
+    "parent": "Animals"
+  },
+  {
+    "name": "Molluscs",
+    "rank": "phylum",
+    "included": ["Mollusca"],
+    "excluded": [],
+    "parent": "Animals"
+  },
+  {
+    "name": "Arthropods",
+    "rank": "phylum",
+    "included": ["Arthropoda"],
+    "excluded": [],
+    "parent": "Animals"
+  },
+  {
+    "name": "Crustaceans",
+    "rank": "classs",
+    "included": ["Branchiopoda", "Remipedia", "Copepoda", "Thecostraca", "Ostracoda", "Malacostraca"],
+    "excluded": [],
+    "parent": "Arthropods"
+  },
+  {
+    "name": "Insects",
+    "rank": "classs",
+    "included": ["Insecta"],
+    "excluded": [],
+    "parent": "Arthropods"
+  },
+  {
+    "name": "Plants",
+    "rank": "kingdom",
+    "included": ["Plantae"],
+    "excluded": []
+  },
+  {
+    "name": "Bryophytes",
+    "rank": "phylum",
+    "included": [
+      "Bryophyta",
+      "Marchantiophyta",
+      "Anthocerotophyta"
+    ],
+    "excluded": [],
+    "parent": "Plants"
+  },
+  {
+    "name": "Conifers, Cycads",
+    "rank": "classs",
+    "included": ["Pinopsida", "Cycadopsida"],
+    "excluded": [],
+    "parent": "Plants"
+  },
+  {
+    "name": "Ferns and allies",
+    "rank": "classs",
+    "included": ["Polypodiopsida", "Lycopodiopsida"],
+    "excluded": [],
+    "parent": "Plants"
+  },
+  {
+    "name": "Flowering plants",
+    "rank": "classs",
+    "included": ["Magnoliopsida", "Liliopsida"],
+    "excluded": [],
+    "parent": "Plants"
+  },
+  {
+    "name": "Monocots",
+    "rank": "classs",
+    "included": ["Liliopsida"],
+    "excluded": [],
+    "parent": "Flowering plants"
+  },
+  {
+    "name": "Dicots",
+    "rank": "classs",
+    "included": ["Magnoliopsida"],
+    "excluded": [],
+    "parent": "Flowering plants"
+  },
+  {
+    "name": "Fungi",
+    "rank": "kingdom",
+    "included": ["Fungi"],
+    "excluded": []
+  },
+  {
+    "name": "Chromista",
+    "rank": "kingdom",
+    "included": ["Chromista"],
+    "excluded": []
+  },
+  {
+    "name": "Protozoa",
+    "rank": "kingdom",
+    "included": ["Protozoa"],
+    "excluded": []
+  },
+  {
+    "name": "Bacteria",
+    "rank": "kingdom",
+    "included": ["Bacteria"],
+    "excluded": []
+  },
+  {
+    "name": "Algae",
+    "rank": "phylum",
+    "included": ["Bacillariophyta", "Chlorophyta", "Cyanidiophyta", "Prasinophyta", "Rhodophyta",
+      "Cryptista", "Ochrophyta", "Sagenista", "Cercozoa", "Euglenozoa", "Cyanobacteriota"
+    ],
+    "excluded": []
+  }
+]
