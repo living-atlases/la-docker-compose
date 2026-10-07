@@ -79,6 +79,19 @@
     - always
     - docker-compose
 
+# Must precede the gatus merge further down, which aliases onto the local nginx every
+# monitored name missing from this dict, and the override below: the apex takes the
+# generator's address for branding_url, not a per-host override of it, and an override
+# naming the apex itself still wins. Same gate as the branding-home vhost task.
+- name: Map the branding-as-home apex on hosts that do not serve branding
+  ansible.builtin.include_tasks: branding-home-extra-host.yml
+  when:
+    - "'branding' not in group_names"
+    - "'branding' not in (physical_server_groups | default([]))"
+  tags:
+    - always
+    - docker-compose
+
 # Operator override for single names, applied on top of the list the generator computed from the
 # placement. Needed when ONE host must see a name differently from the rest of the stack: e.g. the
 # stack's `datos.gbif.es` is the docker branding, but a service that fetches its banner from it

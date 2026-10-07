@@ -1,0 +1,33 @@
+---
+# Point the branding-as-home apex (branding_home_url, e.g. l-a.site) at the host that
+# serves it, on every host that does not.
+#
+# The branding-home vhost is rendered only where branding runs, next to branding_url,
+# so both names live on the same nginx. The per-host extra_hosts list the inventory
+# ships maps branding_url to that host but has never carried the apex: on the other
+# hosts nothing pinned it. The gatus merge in generate-compose.yml then saw a monitored
+# name missing from extra_hosts, took it for local and aliased it onto the local nginx,
+# which has no such server_name. On the CI cluster host3 answered l-a.site from the
+# airflow.l-a.site server block: green while airflow was up, red when it was not, and
+# never a measure of the branding host.
+#
+# Reuses branding_url's address: same vhost owner by construction. An entry the
+# generator already wrote for the apex is kept, and docker_extra_hosts_override is
+# applied after this, so it wins too.
+#
+# Included from generate-compose.yml only on hosts that do not serve branding, so this
+# file stays free of group_names and molecule/unit can include it with fixtures.
+- name: Map the branding-as-home apex to the host that serves branding
+  ansible.builtin.set_fact:
+    docker_extra_hosts_dict: >-
+      {{ docker_extra_hosts_dict
+         | combine({branding_home_url: docker_extra_hosts_dict[branding_url]}) }}
+  when:
+    - branding_as_home | default(true) | bool
+    - branding_home_url | default('') | length > 0
+    - branding_url | default('') | length > 0
+    - branding_url in docker_extra_hosts_dict
+    - branding_home_url not in docker_extra_hosts_dict
+  tags:
+    - always
+    - docker-compose

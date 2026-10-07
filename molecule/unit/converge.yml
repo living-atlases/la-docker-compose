@@ -404,6 +404,16 @@
       auth.l-a.site: 172.16.16.114
       records.l-a.site: 172.16.16.114
       species.l-a.site: 172.16.16.8
+    # TC9d: host3 of the default 3-host CI cluster. It serves airflow and species and
+    # runs gatus; branding (and the l-a.site apex with it) is on host1.
+    tc9d_local_aliases:
+      - airflow.l-a.site
+      - gatus.l-a.site
+      - species.l-a.site
+    tc9d_host3_extra_hosts:
+      auth.l-a.site: 172.16.16.114
+      branding.l-a.site: 172.16.16.114
+      images.l-a.site: 172.16.16.115
 
   tasks:
 
@@ -451,6 +461,115 @@
       vars:
         tc9_snapshot_task: "Snapshot the server names this host's nginx actually serves"
         tc9_merge_task: "Extract monitored hostnames into nginx_docker_internal_aliases"
+
+# TC9d: the branding-as-home apex (l-a.site) is served next to branding on host1, but
+# the inventory's extra_hosts never carried it. On host3, the gatus host, the merge above
+# took it for local and aliased it onto host3's nginx, which answered from the
+# airflow.l-a.site server block: a check that measured airflow, not branding. The real
+# task file is included here, so the test cannot drift from what the render runs.
+# docker_extra_hosts_dict is reset with set_fact before each case: the included
+# set_fact outranks include vars, so a vars: fixture would be shadowed after case one.
+    - name: "[TC9d] Remote branding: reset the fixture"
+      ansible.builtin.set_fact:
+        docker_extra_hosts_dict: "{{ tc9d_host3_extra_hosts }}"
+
+    - name: "[TC9d] Remote branding: map the apex"
+      ansible.builtin.include_tasks: ../../roles/la-compose/tasks/branding-home-extra-host.yml
+      vars:
+        branding_url: branding.l-a.site
+        branding_home_url: l-a.site
+        branding_as_home: true
+
+    - name: "[TC9d] Run the gatus merge over the apex endpoint"
+      ansible.builtin.set_fact:
+        tc9d_aliases: >-
+          {{ tc9d_local_aliases
+             | union([((item.content | b64decode | from_yaml).endpoints | first).group]
+                     if ((item.content | b64decode | from_yaml).endpoints | first).group
+                        not in (docker_extra_hosts_dict | default({}))
+                     else [])
+             | unique }}
+      loop:
+        - content: "{{ {'endpoints': [{'name': 'https://l-a.site/root', 'group': 'l-a.site'}]} | to_yaml | b64encode }}"
+
+    - name: "[TC9d] Assert the apex points at the branding host and is not aliased locally"
+      ansible.builtin.assert:
+        that:
+          - docker_extra_hosts_dict['l-a.site'] == '172.16.16.114'
+          - "'l-a.site' not in tc9d_aliases"
+        msg: >
+          FAIL TC9d: on a host without branding the apex maps to
+          {{ docker_extra_hosts_dict['l-a.site'] | default('nothing') }} and the nginx
+          aliases are {{ tc9d_aliases | sort }}. Without the extra_hosts entry gatus
+          resolves l-a.site to the local nginx, which has no such server_name.
+
+    - name: "[TC9d] Apex already mapped: reset the fixture"
+      ansible.builtin.set_fact:
+        docker_extra_hosts_dict: "{{ tc9d_host3_extra_hosts | combine({'l-a.site': '10.0.0.9'}) }}"
+
+    - name: "[TC9d] Apex already mapped: include"
+      ansible.builtin.include_tasks: ../../roles/la-compose/tasks/branding-home-extra-host.yml
+      vars:
+        branding_url: branding.l-a.site
+        branding_home_url: l-a.site
+        branding_as_home: true
+
+    - name: "[TC9d] Assert an apex the generator mapped is kept"
+      ansible.builtin.assert:
+        that:
+          - docker_extra_hosts_dict['l-a.site'] == '10.0.0.9'
+        msg: "FAIL TC9d: an existing l-a.site entry was overwritten with {{ docker_extra_hosts_dict['l-a.site'] }}"
+
+    - name: "[TC9d] branding_as_home off: reset the fixture"
+      ansible.builtin.set_fact:
+        docker_extra_hosts_dict: "{{ tc9d_host3_extra_hosts }}"
+
+    - name: "[TC9d] branding_as_home off: include"
+      ansible.builtin.include_tasks: ../../roles/la-compose/tasks/branding-home-extra-host.yml
+      vars:
+        branding_url: branding.l-a.site
+        branding_home_url: l-a.site
+        branding_as_home: false
+
+    - name: "[TC9d] Assert no apex entry without branding-as-home"
+      ansible.builtin.assert:
+        that:
+          - "'l-a.site' not in docker_extra_hosts_dict"
+        msg: "FAIL TC9d: l-a.site was mapped although branding_as_home is false"
+
+    - name: "[TC9d] Branding owner unknown: reset the fixture"
+      ansible.builtin.set_fact:
+        docker_extra_hosts_dict: "{{ tc9d_host3_extra_hosts | dict2items | rejectattr('key', 'eq', 'branding.l-a.site') | items2dict }}"
+
+    - name: "[TC9d] Branding owner unknown: include"
+      ansible.builtin.include_tasks: ../../roles/la-compose/tasks/branding-home-extra-host.yml
+      vars:
+        branding_url: branding.l-a.site
+        branding_home_url: l-a.site
+        branding_as_home: true
+
+    - name: "[TC9d] Assert no apex entry when branding_url has no address"
+      ansible.builtin.assert:
+        that:
+          - "'l-a.site' not in docker_extra_hosts_dict"
+        msg: "FAIL TC9d: l-a.site was mapped although branding.l-a.site has no extra_hosts entry"
+
+    - name: "[TC9d] Assert generate-compose.yml maps the apex before override, validation and gatus merge"
+      ansible.builtin.assert:
+        that:
+          - tc9_generate_compose.find(tc9d_include) > 0
+          - tc9_generate_compose.find(tc9d_include) < tc9_generate_compose.find(tc9d_override_task)
+          - tc9_generate_compose.find(tc9d_include) < tc9_generate_compose.find(tc9d_validate_task)
+          - tc9_generate_compose.find(tc9d_include) < tc9_generate_compose.find(tc9d_merge_task)
+        msg: >
+          FAIL TC9d: branding-home-extra-host.yml is not included, or runs after
+          docker_extra_hosts_override, the IPv4 validation or the gatus merge. After the
+          merge the apex is already aliased onto the local nginx.
+      vars:
+        tc9d_include: "ansible.builtin.include_tasks: branding-home-extra-host.yml"
+        tc9d_override_task: "- name: Apply docker_extra_hosts_override"
+        tc9d_validate_task: "- name: Validate docker_extra_hosts_dict contains only literal IPv4 addresses"
+        tc9d_merge_task: "- name: Extract monitored hostnames into nginx_docker_internal_aliases"
 
 # ── TC10: the bie legacy-collection migration must never eat a populated index ──────
 #
