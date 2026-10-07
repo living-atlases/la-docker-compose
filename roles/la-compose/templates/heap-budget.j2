@@ -24,7 +24,7 @@
 {%- set overhead = docker_jvm_overhead_mb | default(512) | int -%}
 {%- set opts = service_java_opts_dict | default({}) -%}
 {%- set ns = namespace(heap=0, rows=[]) -%}
-{%- for key in (services_enabled | default([])) | reject('in', skip_services | default([])) if key in opts -%}
+{%- for key in (services_enabled | default([])) | reject('in', la_skip_services | default(skip_services | default([]))) if key in opts -%}
 {%-   set x = namespace(xmx='') -%}
 {%-   for tok in opts[key].split(' ') if tok.startswith('-Xmx') -%}{%- set x.xmx = tok[4:] -%}{%- endfor -%}
 {%-   set m = mb(x.xmx) | int -%}

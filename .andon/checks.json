@@ -213,6 +213,19 @@
         "scripts/test-fast-deploy.sh"
       ],
       "run": "bash scripts/test-bundle-spike.sh && bash scripts/test-bundle-apply.sh && bash scripts/test-fast-deploy.sh"
+    },
+    {
+      "match": [
+        "roles/la-compose/defaults/main.yml",
+        "roles/la-compose/tasks/setup-facts.yml",
+        "roles/la-compose/tasks/setup-hub-facts.yml",
+        "roles/la-compose/tasks/generate-compose.yml",
+        "roles/la-compose/templates/docker-compose/base.yml.j2",
+        "roles/la-compose/templates/docker-compose/infrastructure/nginx.yml.j2",
+        "roles/la-compose/templates/heap-budget.j2",
+        "scripts/test-skip-services.sh"
+      ],
+      "run": "VENV_MOLECULE=.venv-molecule bash scripts/test-skip-services.sh"
     }
   ],
   "ignore": [

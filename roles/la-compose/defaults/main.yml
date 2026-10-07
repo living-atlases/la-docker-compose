@@ -293,6 +293,14 @@ hub_alias_hosts: []
 # p.ej. ['sds-static-home','sensitive-data-service']. Vacío = desplegar todo.
 # Se pasa por ansiblew -e o por el parámetro SKIP_SERVICES de Jenkins. No tocar inventarios.
 skip_services: []
+# skip_services as a list, whatever form it came in. Read this, never skip_services: from
+# the toolkit it arrives as an extra var string ("sds-static-home" or "a,b"), extra vars
+# outrank set_fact so it cannot be normalized in place, and `reject('in', <string>)` is a
+# substring test that also drops every service whose name is part of it ('sds' in
+# 'sds-static-home'). A default is templated when read, so it sees the extra var.
+la_skip_services: >-
+  {{ (skip_services.split(',') | map('trim') | reject('equalto', '') | list)
+     if skip_services is string else (skip_services | default([]) | list) }}
 
 # Data hubs to skip on this run, by their la_hubs pkg name (e.g. ['lademohub2']).
 # Same spirit as skip_services: an operator switch for a constrained host, never a

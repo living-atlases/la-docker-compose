@@ -600,6 +600,11 @@ EOF
                     # (the lookup returns a dict on 2.17, a string on 2.20). ~10s.
                     VENV_MOLECULE="$VENV_MOL" bash scripts/test-heap-budget.sh
 
+                    # skip_services in every form a caller sends it: the toolkit's extra var
+                    # string "sds-static-home" dropped 'sds' too (substring match, the set_fact
+                    # normalize never beat the extra var). ansible-playbook on localhost, ~10s.
+                    VENV_MOLECULE="$VENV_MOL" bash scripts/test-skip-services.sh
+
                     # Ingest-only data artifacts (shapefiles: 29 min from S3 in #426/#427, all hosts
                     # idle; SDS layers: 30 min from ALA) are fetched from upstream in the background
                     # into a host cache outside /data, and unpacked before `up`. Local HTTP server, ~40s.

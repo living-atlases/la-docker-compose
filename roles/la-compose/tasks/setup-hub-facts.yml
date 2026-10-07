@@ -199,8 +199,8 @@
                                              ('bie-hub', 'bie_hub_hostname', 'bie_hub_context_path'),
                                              ('regions', 'regions_hostname', 'regions_context_path'),
                                              ('branding', 'branding_url', 'branding_path')] -%}
-        {%- if svc_key not in (skip_services | default([]))
-               and svc_desc_key[svc_key] not in (skip_services | default([])) -%}
+        {%- if svc_key not in (la_skip_services | default(skip_services | default([])))
+               and svc_desc_key[svc_key] not in (la_skip_services | default(skip_services | default([]))) -%}
           {%- set candidates = (groups[svc_key] | default([])) | reject('in', hub_alias_hosts | default([])) | list -%}
           {%- if candidates | length > 0 -%}
             {%- set alias = candidates[0] -%}

@@ -99,26 +99,18 @@
 # --- skip_services (flag temporal) ---------------------------------------
 # Permite omitir servicios en tiempo de ejecución sin tocar inventarios.
 # Acepta nombres de grupo de inventario (p.ej. 'sensitive-data-service') o
-# claves de docker_services_desc (p.ej. 'sensitiveDataService').
-- name: Normalize skip_services (allow comma-separated string)
-  ansible.builtin.set_fact:
-    skip_services: >-
-      {{ (skip_services.split(',') | map('trim') | list)
-         if (skip_services is string) else (skip_services | default([])) }}
-  tags:
-    - always
-    - docker-compose
-
+# claves de docker_services_desc (p.ej. 'sensitiveDataService'). Normalizado en
+# la_skip_services (defaults/main.yml): string o lista, nunca comparar con el string.
 - name: Apply skip_services to services_enabled
   ansible.builtin.set_fact:
     services_enabled: >-
       {{ services_enabled
-         | reject('in', skip_services)
+         | reject('in', la_skip_services)
          | reject('in', docker_services_desc | dict2items
-             | selectattr('value.group', 'in', skip_services)
+             | selectattr('value.group', 'in', la_skip_services)
              | map(attribute='key') | list)
          | list }}
-  when: skip_services | length > 0
+  when: la_skip_services | length > 0
   tags:
     - always
     - docker-compose

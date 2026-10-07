@@ -659,12 +659,12 @@
   ansible.builtin.set_fact:
     cluster_services: >-
       {{ cluster_services
-         | reject('in', skip_services | default([]))
+         | reject('in', la_skip_services | default(skip_services | default([])))
          | reject('in', docker_services_desc | dict2items
-             | selectattr('value.group', 'in', skip_services | default([]))
+             | selectattr('value.group', 'in', la_skip_services | default(skip_services | default([])))
              | map(attribute='key') | list)
          | list }}
-  when: skip_services | default([]) | length > 0
+  when: la_skip_services | default(skip_services | default([])) | length > 0
   tags: [always, only, docker-compose, build]
 
 - name: Set services to build on this host
@@ -3575,7 +3575,7 @@
     group: "{{ docker_compose_usergid }}"
   when:
     - "'sds-static-home' in group_names or 'sds-static-home' in (physical_server_groups | default([]))"
-    - "'sds-static-home' not in (skip_services | default([]))"
+    - "'sds-static-home' not in (la_skip_services | default(skip_services | default([])))"
   tags:
     - sds-static-home
     - docker-compose
@@ -3615,7 +3615,7 @@
         proxy_pass: "http://la_sds_static_home:8080/"
   when:
     - "'sds-static-home' in group_names or 'sds-static-home' in (physical_server_groups | default([]))"
-    - "'sds-static-home' not in (skip_services | default([]))"
+    - "'sds-static-home' not in (la_skip_services | default(skip_services | default([])))"
     - sds_static_home_hostname is defined
     - webserver_nginx | default(true) | bool
   tags:

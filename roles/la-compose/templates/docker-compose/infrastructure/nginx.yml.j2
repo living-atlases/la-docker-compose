@@ -157,7 +157,7 @@ services:
    while everything upstream looked fine. Cross-check a new key against how
    generate-compose.yml refers to the service before adding it. Duplicate keys pointing at
    the same directory are harmless: the dedup below emits one mount. #}
-{% set nginx_serving_groups = (group_names | union(physical_server_groups | default([]))) | reject('in', skip_services | default([])) | list %}
+{% set nginx_serving_groups = (group_names | union(physical_server_groups | default([]))) | reject('in', la_skip_services | default(skip_services | default([]))) | list %}
 {% set nginx_alias_dirs = {
      'sensitive-data-service': [data_dir ~ '/sds'],
      'sds-static-home':        [data_dir ~ '/sds'],
