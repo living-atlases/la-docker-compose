@@ -81,6 +81,48 @@ for ft in Objects:geoserver.objects.xml Distributions:geoserver.distributions.xm
   fi
 done
 
+echo "== geoserver-init: fallback layers (listed by the layers database, not published by GeoServer) =="
+# The layers database lists a layer through its field, and the portal's layer tree and WMS calls
+# ask GeoServer for ALA:<name>. The upstream layersdb.sql seeds contextual layers (and a data dir
+# restored without its GeoServer config has others) whose GeoServer layer does not exist, so the
+# hub lists a layer that answers LayerNotDefined. Each such layer is published here as a SQL view
+# over the objects table (the same table, and the same technique, as ALA:Objects): its own
+# polygons, drawn by the LayersDB store. A layer that GeoServer already publishes, from a
+# shapefile store or anything else, is never touched. fallback-layers.txt is "<name> <fid>" lines
+# written by the playbook from the layers database; missing or empty means nothing to do.
+if [ -f "${DIR}/fallback-layers.txt" ]; then
+  while read -r lname lfid; do
+    [ -n "${lname}" ] && [ -n "${lfid}" ] || continue
+    case "${lname}${lfid}" in *[!A-Za-z0-9_]*) echo "FALLBACK skipped (unsafe name): ${lname} ${lfid}"; continue ;; esac
+    if [ "$(code "${GS}/rest/layers/ALA:${lname}")" = "200" ]; then continue; fi
+    cat > "${DIR}/fallback-${lname}.xml" <<XML
+<featureType>
+  <name>${lname}</name>
+  <nativeName>${lname}</nativeName>
+  <title>${lname}</title>
+  <srs>EPSG:4326</srs>
+  <nativeBoundingBox><minx>-180.0</minx><maxx>180.0</maxx><miny>-90.0</miny><maxy>90.0</maxy></nativeBoundingBox>
+  <latLonBoundingBox><minx>-180.0</minx><maxx>180.0</maxx><miny>-90.0</miny><maxy>90.0</maxy></latLonBoundingBox>
+  <projectionPolicy>FORCE_DECLARED</projectionPolicy>
+  <enabled>true</enabled>
+  <metadata>
+    <entry key="JDBC_VIRTUAL_TABLE">
+      <virtualTable>
+        <name>${lname}</name>
+        <sql>select pid, name, the_geom from objects where fid = '${lfid}'</sql>
+        <escapeSql>false</escapeSql>
+        <geometry><name>the_geom</name><type>Geometry</type><srid>4326</srid></geometry>
+      </virtualTable>
+    </entry>
+  </metadata>
+</featureType>
+XML
+    gs -XPOST -H "Content-type: text/xml" -T "${DIR}/fallback-${lname}.xml" \
+      "${GS}/rest/workspaces/ALA/datastores/LayersDB/featuretypes"
+    echo "FALLBACK layer ALA:${lname} (${lfid}): $(code "${GS}/rest/layers/ALA:${lname}")"
+  done < "${DIR}/fallback-layers.txt"
+fi
+
 echo "== geoserver-init: assign default styles to layers =="
 gs -XPUT -H 'Content-type: text/xml' -d '<layer><defaultStyle><name>distributions_style</name><workspace>ALA</workspace></defaultStyle></layer>' "${GS}/rest/layers/ALA:Objects"
 gs -XPUT -H 'Content-type: text/xml' -d '<layer><defaultStyle><name>distributions_style</name><workspace>ALA</workspace></defaultStyle></layer>' "${GS}/rest/layers/ALA:Distributions"

@@ -100,6 +100,33 @@
       tags:
         - geoserver-init
 
+    # The layers the layers database lists, for the init script's fallback layers (see there). Asked
+    # of the local la_postgres: on a topology where the database is on another host this finds
+    # nothing and the step is skipped, never failed. geoserver_publish_missing_layers: false turns
+    # the whole thing off.
+    - name: "Geoserver init: List the contextual layers the layers database knows"
+      ansible.builtin.shell: >-
+        docker exec -u postgres la_postgres psql -tA -F ' ' -d {{ layers_db_name | default('layersdb') }}
+        -c "select l.name, f.id from layers l join fields f on f.spid::text = l.id::text
+        where l.type = 'Contextual' and l.enabled and f.enabled
+        and l.name ~ '^[A-Za-z0-9_]+$' and f.id ~ '^[A-Za-z0-9_]+$' order by l.name"
+      register: geoserver_db_layers
+      become: true
+      changed_when: false
+      failed_when: false
+      when: geoserver_publish_missing_layers | default(true) | bool
+      tags:
+        - geoserver-init
+
+    - name: "Geoserver init: Stage the fallback layer list"
+      ansible.builtin.copy:
+        content: "{{ (geoserver_db_layers.stdout_lines | default([])) | join('\n') }}\n"
+        dest: "{{ docker_compose_data_dir }}/geoserver-init/fallback-layers.txt"
+        mode: "0644"
+      become: true
+      tags:
+        - geoserver-init
+
     - name: "Geoserver init: Render init script"
       ansible.builtin.template:
         src: geoserver-init.sh.j2
