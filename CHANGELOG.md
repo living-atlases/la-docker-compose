@@ -10,9 +10,195 @@ edit by hand, write the notes in the annotated tag instead.
 
 ## Unreleased
 
+Nothing yet.
+
+<a name="v1.11.2"></a>
+
+## v1.11.2 - 2026-10-07
+
+**toolkit deploys keep sds again; UNSTABLE on #460 (cbf5f44), not green**
+
+NOT a green tag. Validated on cbf5f44 by build #460 (UNSTABLE, FORCE_REDEPLOY=true,
+CLEAN_MACHINE=false, APPLY_SPIKE=true, 127 min), cut now because every deploy from the
+la-toolkit to a portal with SDS was dropping the sds service. What #460 proved: the
+full redeploy, all 137 Gatus endpoints healthy through the total-green gate (before and
+after the bundle apply), Data checks 14/14, and the fast-deploy apply spike with
+APPLY-SPIKE problems=0 (no-change apply, controlled change, revert). What kept it
+UNSTABLE, none of it from these commits: Jenkins restarted at 21:15 CEST while the
+ingest e2e was waiting for its Airflow run, so that step ended with exit code -1; and
+two Cypress specs, 11-maps basemap (no CARTO watermark, the known failure of earlier
+builds) and the biocache occurrence search, which ran after the interrupted ingest. Not
+validated here: a CLEAN_MACHINE=true run since v1.11.0, and a fully green rerun (next).
+
+Why this tag now
+- fix(skip-services): the la-toolkit passes skip_services as an extra var string
+  ("sds-static-home"). Extra vars outrank set_fact, so the role never normalized it to a
+  list, and reject('in', <string>) is a substring test: 'sds' in 'sds-static-home'
+  removed the sds service from every toolkit deploy (the CI passes a JSON list, so it
+  never saw it). la_skip_services, in the role defaults, is the list whatever form
+  skip_services came in, and every consumer reads it. scripts/test-skip-services.sh
+  runs the real filter through ansible-playbook. Found by the first fast deploy from a
+  real toolkit (la-toolkit TASK-31): the bundle applier's removal gate refused to drop
+  the running sds on host 3.
+
+Also since v1.11.1
+- fix(gatus): the branding-as-home apex (l-a.site) maps to the branding host on the
+  other nodes; Gatus on host 3 was measuring airflow's vhost, not the branding.
+- fix(geoserver): spatial-service external uploads pass the URL checks.
+
+### Commits (3 since v1.11.1)
+
+#### Fixes
+
+- **skip-services**: the toolkit's string skip_services dropped every service named inside it ([cbf5f44](https://github.com/living-atlases/la-docker-compose/commit/cbf5f44221b43f9814379cad16569ead8eb39476))
+- **geoserver**: allow spatial-service external uploads through the URL checks ([4dfd473](https://github.com/living-atlases/la-docker-compose/commit/4dfd4733e2062dd545b0ac9d22bb66bb88974baa))
+- **gatus**: map the branding-as-home apex to the branding host on the other nodes ([314cf13](https://github.com/living-atlases/la-docker-compose/commit/314cf132691c84892167711aa2e251f0b3652c1f))
+
+<a name="v1.11.1"></a>
+
+## v1.11.1 - 2026-10-07
+
+**green on #458 (a97fe5f), CLEAN_MACHINE=false**
+
+Fixes since v1.11.0:
+- e2e seeds the data hubs the deployment serves, so hub front-ends have records
+- species groups: groups-col.json shipped and wired through namematching_groups_file / biocache_groups_file
+- config-restart finds the container through compose (la_namematching_service was never restarted)
+- GeoServer: minimal SQL-view layers for contextual layers the layers DB lists and GeoServer lacks
+
+Validated on an existing stack (no clean machine); a CLEAN_MACHINE=true run is still pending.
+
+### Commits (6 since v1.11.0)
+
+#### Features
+
+- **geoserver**: publish a minimal SQL-view layer for every contextual layer the layers database lists and GeoServer lacks, so the hub's layer tree no longer answers LayerNotDefined ([16d3b3c](https://github.com/living-atlases/la-docker-compose/commit/16d3b3c206f76fd8701f96d7185f6ec4a8b03b89))
+
+#### Fixes
+
+- **config-restart**: keep the comment out of the shell body, a leading comment with an apostrophe broke ansible's argument splitting and failed every deploy (#457); run the real task in the test ([a97fe5f](https://github.com/living-atlases/la-docker-compose/commit/a97fe5fef844f9145397b3162a421329e0967366))
+- **config-restart**: find the container through compose, la_namematching_service was never la_<service> so its restart was always skipped ([1abcfc5](https://github.com/living-atlases/la-docker-compose/commit/1abcfc51f27509acce344acdc9001c676178f316))
+- **species-groups**: ship groups-col.json and pass namematching_groups_file/biocache_groups_file, species_groups_variant is a no-op since ala-install a81a0b76 ([de1360e](https://github.com/living-atlases/la-docker-compose/commit/de1360e519718fdc58a4e3823ff5d1355de10c1d))
+
+#### Tests and CI
+
+- **e2e**: seed the data hubs the deployment serves, so a hub front-end has records to show ([25b8d9d](https://github.com/living-atlases/la-docker-compose/commit/25b8d9d2c8ed05664bf91dba190adb9e718bdeb4))
+
 #### Other changes
 
+- **jenkins**: indent the geoserver fallback test line ([7eb40a7](https://github.com/living-atlases/la-docker-compose/commit/7eb40a74d34fc25191386e42a85da921d63c0748))
+
+<a name="v1.11.0"></a>
+
+## v1.11.0 - 2026-10-06
+
+**Airflow overlay works again: minio/minio is gone from Docker Hub**
+
+NOT a green tag. Validated on 43fc961 by build #454 (UNSTABLE, CLEAN_MACHINE=false
+with redeploy, 78 min), cut on purpose because every deploy that has to pull the
+MinIO image was broken without it. What #454 proved: la_airflow and MinIO up and
+healthy, the e2e ingest indexed 2072 records, and all 137 Gatus endpoints healthy
+through the total-green gate. What kept it UNSTABLE, both non-blocking: the species
+groups baseline (19 failures, the known COL backbone issue, Osteichthyes swallowing
+birds, reptiles and amphibians) and one Cypress spec (11-maps/basemap.cy.ts, the
+testhub records hub does not hand its map a tile URL). Not validated here: a
+CLEAN_MACHINE=true run on this commit (#453, the last one, failed on the MinIO
+permissions this tag fixes).
+
+Why this tag now
+- fix(airflow): minio/minio no longer exists on Docker Hub (pull access denied) and
+  quay.io/minio/minio needs auth, so the NO-AWS Airflow overlay never started on a
+  host without the image cached. The overlay now uses chainguard/minio (ships mc, so
+  the healthcheck is unchanged) and runs it as root: the minio-data volume outlives
+  CLEAN_MACHINE and is root-owned, the image's nonroot user died on it.
+  With Airflow down the ingest e2e skipped, the index stayed empty, the three Data
+  checks went red, and l-a.site answered 502 (its internal alias lands on the first
+  nginx vhost, airflow's).
+
+Since v1.10.1
+- feat(bundle): fast-deploy.sh, render a portal without deploying it and apply a
+  rendered bundle without Ansible (TASK-50 phases 4 and 5).
+- feat(spatial-hub): portal layout views/assets from the inventory; spatial host
+  config from the inventory (<svc>_local_config_file); GeoServer image tag follows
+  geoserver_version, same plugins as the VM install, thread stack 2m.
+- feat(security): warn about, and in production refuse, services on a well-known
+  default password.
+- feat(hosts): docker_extra_hosts_override to change single names of extra_hosts.
+- fix(spring): application-local-config is loaded last, so operator overrides beat
+  the role-generated config.
+- feat(postgres): postgres_settings and postgres_shm_size per host.
+- Heap budget warning, per-service heap for namematching and SDS, healthcheck
+  binary probe cached by image ID, pinned image tags pulled only when missing.
+- test(config-baseline): spatial namematching, oidc discovery and favicon URLs.
+
+### Commits (47 since v1.10.1)
+
+<details>
+<summary>All 47 commits, by type</summary>
+
+#### Features
+
+- **hosts**: docker_extra_hosts_override to change single names of the generated extra_hosts ([2b9ee85](https://github.com/living-atlases/la-docker-compose/commit/2b9ee85e496803a20e7190e75f2737272f13d97a))
+- **security**: warn about, and in production refuse, services on a well-known default password ([14c5345](https://github.com/living-atlases/la-docker-compose/commit/14c5345f34a99d3eb793c46a713d60246a1eb1ad))
+- **bundle**: fast-deploy.sh, the entry point for the la-toolkit (TASK-50, la-toolkit TASK-31) ([d31fcd6](https://github.com/living-atlases/la-docker-compose/commit/d31fcd637fc6428f524ac46cb678e05e872ca933))
+- **branding**: build the branding image only when its tag is missing ([0876449](https://github.com/living-atlases/la-docker-compose/commit/0876449d6b707ecd1fb06362c78e824502fa2f16))
+- **postgres**: postgres_settings and postgres_shm_size per host ([296946c](https://github.com/living-atlases/la-docker-compose/commit/296946ca99ac25aa0ccdfb5a9535d28028c00a50))
+- **spatial-hub**: portal layout views/assets (spatial_hub_external_views, spatial_hub_extra_assets) ([b49c7c0](https://github.com/living-atlases/la-docker-compose/commit/b49c7c097407c08b205b828a0122228ebd32cb80))
+- **bundle**: apply a rendered bundle without Ansible (TASK-50 phase 5) ([1281613](https://github.com/living-atlases/la-docker-compose/commit/12816137a25f03ef757c81adef5428ec7bf513f9))
+- **bundle**: render a portal without deploying it (TASK-50 phase 4 spike) ([d25dc5e](https://github.com/living-atlases/la-docker-compose/commit/d25dc5e9948b1b2e06a45747c715b7f18035f458))
+- **health**: cache the healthcheck binary probe by image ID ([13f7aaf](https://github.com/living-atlases/la-docker-compose/commit/13f7aaf42685f6523f5b83c879237700bac9e08b))
+- **pull**: pinned image tags are pulled only when missing ([487d656](https://github.com/living-atlases/la-docker-compose/commit/487d656316bbf84b25024fd297de7f8d8bdb0480))
+
+#### Fixes
+
+- **airflow**: run chainguard/minio as root, the persisted minio-data volume is root-owned ([43fc961](https://github.com/living-atlases/la-docker-compose/commit/43fc96176acefe22c93d09cde2a5310f151d8912))
+- **airflow**: minio/minio is gone from Docker Hub, use chainguard/minio ([f773f9f](https://github.com/living-atlases/la-docker-compose/commit/f773f9f057e1af052c37f735dc0c8c1cfcebae4e))
+- **spring**: application-local-config loaded last so operator overrides beat the role-generated config ([84fcf90](https://github.com/living-atlases/la-docker-compose/commit/84fcf902be4ce8f33c7662a222d29626e3ceae7e))
+- **bundle**: fast-deploy.sh's no-docker message says how to enable the toolkit's opt-in socket ([0423ebc](https://github.com/living-atlases/la-docker-compose/commit/0423ebc2eaea61d204a06443a63236728d886fac))
+- **bundle**: fast-deploy.sh says how to give it docker before anything runs ([48d02c8](https://github.com/living-atlases/la-docker-compose/commit/48d02c841d073262784817b1b339d07476ad7cc2))
+- **bundle**: fast-deploy.sh passes --nodryrun to ansiblew once ([bd1304b](https://github.com/living-atlases/la-docker-compose/commit/bd1304b2e495d5a40eac71ca9d48d88f4e09f999))
+- **geoserver**: default thread stack 2m (256k SIGSEGVs on GetCapabilities) ([4df5cec](https://github.com/living-atlases/la-docker-compose/commit/4df5cecb11c13178846c4b1415c6f57e5ed01696))
+- **geoserver**: same plugins as the VM install (STABLE_EXTENSIONS) ([dfc115d](https://github.com/living-atlases/la-docker-compose/commit/dfc115d829d1e8e89bb477441c239167fc765f9a))
+- **geoserver**: image tag follows ala-install geoserver_version ([531f182](https://github.com/living-atlases/la-docker-compose/commit/531f182868c92a0022bfcc813f15d36fc396f862))
+- **bundle-render**: umask 027 for every python in the render image, numeric owners ([3c5ef99](https://github.com/living-atlases/la-docker-compose/commit/3c5ef99c9bc0ea2b388ef57e42ad43f7536104ce))
+- **bundle-render**: load the ansible package's collections first ([9f05cb3](https://github.com/living-atlases/la-docker-compose/commit/9f05cb32f0de8a9d1eea4e2af9d77013827e91e5))
+- **bundle-render**: never reach a real host, same facts and umask as the VM ([6675301](https://github.com/living-atlases/la-docker-compose/commit/66753016a98ef60d38f2a8e89bb0edca76a87a08))
+- **bundle-spike**: give the datastores 120s to stop on down ([a25fb04](https://github.com/living-atlases/la-docker-compose/commit/a25fb04c336bdd92eb3e4d2bafd0683f9346560f))
+- **ci**: move the Gatus gates and the bundle spike out of the pipeline block ([4ee19ff](https://github.com/living-atlases/la-docker-compose/commit/4ee19ffe41ae4c11fbaecc05dd76934019ce7f73))
+- **logging**: silence Grails NavigableMap deprecation WARNs in ala-hub, lists, logger ([b953b48](https://github.com/living-atlases/la-docker-compose/commit/b953b484f868eb6d7a79a9954ba7502f6aa3963b))
+- **heap**: namematching and SDS honour their <service>_max_memory ([d5574f6](https://github.com/living-atlases/la-docker-compose/commit/d5574f6263667f09fdc6e7e82ddc2e4b6f709a9a))
+- **setup-molecule**: parse the versions with forced colour in the environment ([184da94](https://github.com/living-atlases/la-docker-compose/commit/184da94c5e69a083ab6448784c028eb1bab4c03a))
+- **heap-budget**: accept the rendered budget as a dict or a string ([0d1e27d](https://github.com/living-atlases/la-docker-compose/commit/0d1e27d2874b979468e3369e2554df3fdf6cc861))
+
+#### Tests and CI
+
+- **config-baseline**: spatial namematching, oidc discovery and favicon urls from the ala-install template bump ([b546747](https://github.com/living-atlases/la-docker-compose/commit/b54674779736dd180acaae88c673ad74cfdf0a94))
+- e2e spatial: classification check only for layers the hub lists (an enabled field) ([40765ae](https://github.com/living-atlases/la-docker-compose/commit/40765aee6c178ad946911e18a5ff3b902c35c2b3))
+- e2e: spatial stack spec (GeoServer, LayersDB areas, gazetteer, intersect, hub assets) ([2966a01](https://github.com/living-atlases/la-docker-compose/commit/2966a01431e51db23a79a48571d440a8a14d9ebb))
+- **config-baseline**: spatial userdetails urls from ala-install e7cb29c3 ([cbbf8be](https://github.com/living-atlases/la-docker-compose/commit/cbbf8be4474c405678ffcc02419f3e3800993460))
+- **spatial-hub**: portal menu/view/config files survive the role (ala-install spatial_hub_*_json/yml) ([f32548d](https://github.com/living-atlases/la-docker-compose/commit/f32548dbf5a402aec94abef67d68d25f1e5d60db))
+- **bundle**: converge first, then the no-change apply; the gate always runs ([204cfae](https://github.com/living-atlases/la-docker-compose/commit/204cfaec7bee57b7d888bffa33c84b36c6a2307a))
+- **config-baseline**: regions map.minimal.url from the carto basemap change ([e1102df](https://github.com/living-atlases/la-docker-compose/commit/e1102df7d43d874776b8754332e1862e609b22a3))
+- **bundle**: APPLY_SPIKE stage, the applier on the deployed stack (TASK-50 phase 5) ([683df10](https://github.com/living-atlases/la-docker-compose/commit/683df1069a6547101507ecbede61815adf1498b1))
+- **e2e**: keep the CARTO key out of the basemap spec's command log ([88871ec](https://github.com/living-atlases/la-docker-compose/commit/88871ecf85a15938c37f4a4855d9ad4896647f9c))
+- **e2e**: catch the CARTO "API KEY REQUIRED" watermark on the hub maps ([e95d231](https://github.com/living-atlases/la-docker-compose/commit/e95d231c7b05e8511cadf88030026aeb67c21f25))
+- **bundle-spike**: time a deploy without Ansible in the critical path (TASK-50) ([44b0660](https://github.com/living-atlases/la-docker-compose/commit/44b0660e3bdf7aab75d3f87a0d72d64ff4e05ed3))
+- **ansible**: test with the Ansible that deploys, the one ala-install supports ([f104046](https://github.com/living-atlases/la-docker-compose/commit/f1040465a821b9bd2ca395f6b594ea85fdaad9e7))
+- **heap-budget**: the budget is now rendered and parsed in two tasks ([aa41ee3](https://github.com/living-atlases/la-docker-compose/commit/aa41ee35cf4dcc7b17e93cc814516b78882cbde6))
+
+#### Maintenance
+
+- bump ala-install (spatial-service userdetails url YAML) ([88302f0](https://github.com/living-atlases/la-docker-compose/commit/88302f0457dd4698de78cc827eb52fdfd8f63b11))
+
+#### Other changes
+
+- bump ala-install: spatial template vars ([181351f](https://github.com/living-atlases/la-docker-compose/commit/181351fab0328594711ea93bf5285263830a14fe))
+- spatial-hub views/assets from the inventory (spatial_hub_views_src / spatial_hub_assets_src) ([9a5e7ec](https://github.com/living-atlases/la-docker-compose/commit/9a5e7ec9476f6eff7a625b1e110c2a365141fd7d))
+- Spatial host config from the inventory: <svc>_local_config_file, geoserver_controlflow, LayersDB repoint ([ccb51be](https://github.com/living-atlases/la-docker-compose/commit/ccb51beaf5ac57e4ddd92fdffed98f7f87171350))
+- v1.10.1 ([0e77e6a](https://github.com/living-atlases/la-docker-compose/commit/0e77e6a4bc611b4e1753fe21b7b7da4bd3b2bda7))
 - Heap budget: warn when a host's JVM heaps do not fit in its RAM ([faf0a16](https://github.com/living-atlases/la-docker-compose/commit/faf0a16c654ab92c49f250e5705af805f06c6bac))
+
+</details>
 
 <a name="v1.10.1"></a>
 
