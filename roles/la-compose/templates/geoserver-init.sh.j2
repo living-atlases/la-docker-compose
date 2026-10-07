@@ -59,6 +59,21 @@ else
   fi
 fi
 
+echo "== geoserver-init: URL check for spatial-service external uploads =="
+# spatial-service publishes a shapefile/GeoTIFF with PUT .../external.shp|external.geotiff and the
+# file's path in the body. Since GeoServer 2.27 a file: URL in that body goes through the URL checks
+# (Security > URL checks); they are on by default and, with no rule, refuse everything, so every
+# spatial_add_layer / layer upload fails with 400 "Failed to locate the input file file:///...".
+# A bare path skips the check (RESTUtils.handleEXTERNALUpload tries new File(body) first) but
+# spatial-service sends file://. Allow only the two directories the stack shares (URL.toString()
+# renders file:///x as file:/x, hence the optional slashes). Never touches rules already there.
+URLCHECK="{{ geoserver_url_check_name | default('la-compose-data') }}"
+if [ "$(code "${GS}/rest/urlchecks/${URLCHECK}")" != "200" ]; then
+  gs -XPOST -H "Content-type: text/xml" \
+    -d "<regexUrlCheck><name>${URLCHECK}</name><description>spatial-service external uploads (managed by la-docker-compose)</description><enabled>true</enabled><regex>{{ geoserver_url_check_regex | default('file:/{1,3}data/(spatial-data|geoserver_data_dir)/(?!.*\.\.).*') }}</regex></regexUrlCheck>" \
+    "${GS}/rest/urlchecks"
+fi
+
 echo "== geoserver-init: styles =="
 for s in distributions_style envelope_style alastyles points_style; do
   if [ "$(code "${GS}/rest/styles/${s}")" != "200" ]; then
