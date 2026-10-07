@@ -51,4 +51,23 @@ grep -q 'compose restart' "$tmp/calls" && bad "restarted a service that has no c
 sed -i 's/2020-01-01T00:00:00Z/2099-01-01T00:00:00Z/' "$tmp/bin/docker"; : > "$tmp/calls"
 out=$(run namematching-service)
 [ "$out" = "SKIP recreated-by-compose-up" ] && ok "a container recreated by compose up is left alone" || bad "recreated: $out"
+
+# The task itself must survive Ansible's argument splitting: a free-form shell body whose first
+# line is a comment with an apostrophe died with "unbalanced jinja2 block or quotes" in #457,
+# which no shell-level test sees. Run the real task, no docker on PATH => "SKIP no-container".
+if command -v ansible-playbook >/dev/null 2>&1; then
+  cat > "$tmp/pb.yml" <<PB
+- hosts: localhost
+  connection: local
+  gather_facts: false
+  vars: {docker_compose_data_dir: /tmp, config_changed_services: [la_x], config_preup_epoch: 1}
+  tasks:
+    - ansible.builtin.include_tasks: $PWD/roles/la-compose/tasks/config-restart-apply.yml
+PB
+  res=$(ANSIBLE_BECOME=false ansible-playbook "$tmp/pb.yml" 2>&1)
+  grep -q 'failed at splitting arguments' <<<"$res" && bad "ansible cannot split the restart task" || ok "ansible parses the restart task"
+  grep -q 'SKIP no-container' <<<"$res" && ok "and runs it" || bad "restart task did not run"
+else
+  echo "skip ansible-playbook not installed"
+fi
 echo "== $pass passed, $fail failed"; [ "$fail" -eq 0 ]

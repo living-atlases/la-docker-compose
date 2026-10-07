@@ -47,12 +47,12 @@
 # Restart changed services one task-iteration at a time. Guard per service:
 # skip if the container is gone (nothing to restart) or was started after the
 # pre-up timestamp (compose up already recreated it with the new config).
+# The container id comes from compose, not from the name la_<service>: namematching's
+# container is la_namematching_service, so the guessed name never existed and its
+# restart was skipped on every deploy (a corrected groups.json sat on disk while the
+# service kept the old groups in memory).
 - name: "Config-apply: restart services whose config changed"
   ansible.builtin.shell: |
-    # The container id comes from compose, not from the name la_<service>: namematching's
-    # container is la_namematching_service, so the guessed name never existed and its
-    # restart was skipped on every deploy (a corrected groups.json sat on disk while the
-    # service kept the old groups in memory).
     cid=$(docker compose ps -q "{{ item }}" 2>/dev/null | head -1)
     [ -n "$cid" ] || { echo "SKIP no-container"; exit 0; }
     started=$(docker inspect -f '{{ '{{' }}.State.StartedAt{{ '}}' }}' "$cid" 2>/dev/null) || {
