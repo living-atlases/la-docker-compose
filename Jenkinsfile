@@ -584,7 +584,7 @@ EOF
                     bash scripts/test-species-groups-files.sh
                     # The restart-on-config-change must find a container whose name is not la_<service>.
                     bash scripts/test-config-restart-container-name.sh
-bash scripts/test-geoserver-fallback-layers.sh
+                    bash scripts/test-geoserver-fallback-layers.sh
 
                     # `JAVA_OPTS: ${<SERVICE>_JAVA_OPTS}` REPLACES the image's own ENV
                     # rather than adding to it, so a -D missing from .env is simply not
