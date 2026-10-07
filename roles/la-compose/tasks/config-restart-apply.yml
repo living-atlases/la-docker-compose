@@ -49,7 +49,13 @@
 # pre-up timestamp (compose up already recreated it with the new config).
 - name: "Config-apply: restart services whose config changed"
   ansible.builtin.shell: |
-    started=$(docker inspect -f '{{ '{{' }}.State.StartedAt{{ '}}' }}' "la_{{ item }}" 2>/dev/null) || {
+    # The container id comes from compose, not from the name la_<service>: namematching's
+    # container is la_namematching_service, so the guessed name never existed and its
+    # restart was skipped on every deploy (a corrected groups.json sat on disk while the
+    # service kept the old groups in memory).
+    cid=$(docker compose ps -q "{{ item }}" 2>/dev/null | head -1)
+    [ -n "$cid" ] || { echo "SKIP no-container"; exit 0; }
+    started=$(docker inspect -f '{{ '{{' }}.State.StartedAt{{ '}}' }}' "$cid" 2>/dev/null) || {
       echo "SKIP no-container"; exit 0; }
     started_epoch=$(date -d "$started" +%s)
     if [ "$started_epoch" -gt "{{ config_preup_epoch }}" ]; then

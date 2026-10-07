@@ -288,7 +288,10 @@ restart() {
       # Last line wins, as the role's dict() of the snapshot.
       old=$(awk -v s="$svc" '$1==s {v=$2} END {print v}' "$COMPOSE_DIR/.config-hashes")
       [ -n "$old" ] && [ "$old" != "$h" ] || continue
-      if ! started=$(docker inspect -f '{{.State.StartedAt}}' "la_$svc" 2>/dev/null); then
+      # The id comes from compose, not from the name la_$svc: namematching's container is
+      # la_namematching_service, so the guessed name never existed (see config-restart-apply.yml).
+      cid=$(compose ps -q "$svc" 2>/dev/null | head -1)
+      if [ -z "$cid" ] || ! started=$(docker inspect -f '{{.State.StartedAt}}' "$cid" 2>/dev/null); then
         echo "$svc: SKIP no-container"; continue
       fi
       if [ "$(date -d "$started" +%s)" -gt "$preup" ]; then echo "$svc: SKIP recreated-by-compose-up"; continue; fi

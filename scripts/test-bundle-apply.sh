@@ -51,7 +51,8 @@ case "\$*" in
   "buildx bake"*) touch "$tmp/img-exists" ;;
   "ps --filter name=^la_nginx\$ --filter status=running -q") echo abc123 ;;
   "exec la_nginx nginx -t") exit \${NGINX_T_RC:-0} ;;
-  "inspect -f {{.State.StartedAt}} la_app") echo 2020-01-01T00:00:00Z ;;
+  "compose ps -q app") echo cid-app ;;
+  "inspect -f {{.State.StartedAt}} cid-app") echo 2020-01-01T00:00:00Z ;;
   "inspect -f {{.State.StartedAt}} "*) exit 1 ;;
 esac
 exit 0
