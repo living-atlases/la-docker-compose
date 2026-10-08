@@ -12,6 +12,36 @@ edit by hand, write the notes in the annotated tag instead.
 
 Nothing yet.
 
+<a name="v1.11.3"></a>
+
+## v1.11.3 - 2026-10-08
+
+**fast deploy output a person can read**
+
+- The fast deploy ends with a plain "Fast deploy finished in N min N s."
+  line, and its FAST-DEPLOY and per-host BUNDLE-TIMING lines also give
+  the time in minutes (seconds= stays, for the scripts that parse it).
+- The apply NOTE says the regular Deploy does what the fast deploy skips
+  (database users and grants, schema migrations, the post-up init).
+- Local backlog ids removed from code, comments, script output and the
+  Jenkinsfile.
+
+Output and comment changes only: the deploy and render paths behave as
+in v1.11.2. Checked locally with test-fast-deploy.sh (a new check for
+the readable total), test-bundle-apply.sh, test-bundle-spike.sh and
+test-branding-submodules.sh. NOT yet validated by a Jenkins build: the
+last green build, #461, ran on v1.11.2 (818055c) with Gatus 137/137.
+
+### Commits (2 since v1.11.2)
+
+#### Documentation
+
+- **changelog**: v1.11.0, v1.11.1 and v1.11.2 ([818055c](https://github.com/living-atlases/la-docker-compose/commit/818055cb247b8a83454c09c0f87d6f54c9c3dda3))
+
+#### Maintenance
+
+- no local backlog ids in code, output or CI; fast deploy times in minutes ([0f89d03](https://github.com/living-atlases/la-docker-compose/commit/0f89d03edc0a2ad989a92a00321a3d434e321b96))
+
 <a name="v1.11.2"></a>
 
 ## v1.11.2 - 2026-10-07
