@@ -1,0 +1,5 @@
+Addendum to v1.11.2 (the tag message is immutable once pushed):
+The two gaps named in the tag are closed.
+- #461 (818055c = v1.11.2 + CHANGELOG): SUCCESS, Gatus 137/137, APPLY-SPIKE problems=0 (the fully green rerun).
+- #463 (same code, FORCE_REDEPLOY=true, CLEAN_MACHINE=true, 100 min): SUCCESS, the first clean-machine run since v1.11.0. Gatus total-green 137/137 and Data checks 14/14; Cypress 84 tests, 82 passing, 0 failing, 2 pending (the login-gated hub page in stack.cy.ts and one other); GeoServer fallback layers enp_4326, mcp_demo_aus_states, mcp_demo_ccaa, mcp_demo_regions published (200); airflow ingest PASS with data hub dh1 = 2072 records; species-groups baseline 0 failures, 11 warnings.
+- #462 (same code) failed in Unit tests, before any deploy: health gate converge-by-retry Case 1 timed out on a loaded agent (its 12s budget, container restart took ~67s). Not a product failure; rerun as #463 passed. The test is timing-sensitive and a candidate for wider timeouts.
