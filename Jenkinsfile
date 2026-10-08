@@ -314,6 +314,16 @@ pipeline {
             description: 'Set spatial_service_bootstrap5=true (spatial-service 3.2+ admin pages use the Bootstrap 5 branding at <branding>/bs5).'
         )
         booleanParam(
+            name: 'RUN_E2E_SPATIAL',
+            defaultValue: true,
+            description: 'Run the spatial-hub Playwright e2e (read-only smoke subset + real CAS login) against the deployed spatial hub. Report-only unless E2E_BLOCKING.'
+        )
+        string(
+            name: 'E2E_SPATIAL_REF',
+            defaultValue: 'test/e2e-playwright',
+            description: 'Branch or tag of living-atlases/spatial-hub whose e2e/ directory is run by RUN_E2E_SPATIAL.'
+        )
+        booleanParam(
             name: 'RUN_E2E',
             defaultValue: true,
             description: 'Run post-deploy verification (Gatus health gate + Cypress smoke). Report-only.'
@@ -1885,6 +1895,53 @@ ENVEOF
                     '''
                     junit allowEmptyResults: true, testResults: 'e2e/results-fresh/*.xml'
                     archiveArtifacts artifacts: 'e2e/cypress/screenshots/**, e2e/cypress/videos/**, e2e/logs/**', allowEmptyArchive: true
+                }
+            }
+        }
+
+        // ----- spatial-hub Playwright e2e against the deployed hub (real CAS login) -----
+        // The credentials are the same the Cypress stage uses: the CAS admin e-mail and the
+        // plaintext password the generator leaves in the inventory's local-passwords.ini.
+        // Passed by name, never echoed (set +x). The specs live in spatial-hub (e2e/), cloned
+        // at E2E_SPATIAL_REF; E2E_REMOTE=1 restricts them to the read-only smoke subset.
+        stage('E2E Spatial (Playwright)') {
+            when { expression { params.RUN_E2E && params.RUN_E2E_SPATIAL && env.DO_REDEPLOY == 'true' && params.AUTO_DEPLOY && !params.ONLY_CLEAN } }
+            steps {
+                script {
+                    def body = {
+                        sh """
+                            set -eu
+                            set +x
+                            rm -rf spatial-e2e 2>/dev/null || docker run --rm -v "${WORKSPACE}:/w" alpine rm -rf /w/spatial-e2e
+                            mkdir -p spatial-e2e
+                            git clone -q --depth 1 --branch "${params.E2E_SPATIAL_REF}" https://github.com/living-atlases/spatial-hub.git spatial-e2e/src
+                            # The hub URL comes from the same manifest Cypress uses (cp'd by the stage above).
+                            BASE_URL="\$(python3 -c 'import json,sys; t=json.load(open("e2e/e2e-targets.json")); print(t["services"]["spatial"].rstrip("/"))')"
+                            echo "Spatial hub under test: \$BASE_URL"
+                            PWFILE="${INVENTORY_DIR}/lademo-local-passwords.ini"
+                            if [ -f "\$PWFILE" ]; then
+                                export E2E_USER="\$(sed -nE 's/^[[:space:]]*cas_first_admin_email[[:space:]]*=[[:space:]]*([^[:space:]]+).*/\\1/p' "\$PWFILE" | head -1)"
+                                export E2E_PASSWORD="\$(sed -nE 's/.*random password:[[:space:]]*([^[:space:]]+).*/\\1/p' "\$PWFILE" | head -1)"
+                            else
+                                echo "WARN: \$PWFILE not found; the login specs will fail"
+                            fi
+                            # Image tag = the @playwright/test version pinned in the spatial-hub lockfile.
+                            docker run --rm --ipc=host -v "${WORKSPACE}/spatial-e2e/src/e2e:/e2e" -w /e2e \\
+                                -e BASE_URL="\$BASE_URL" -e E2E_REMOTE=1 -e CI=1 -e E2E_USER -e E2E_PASSWORD \\
+                                mcr.microsoft.com/playwright:v1.64.0-noble \\
+                                sh -c 'rc=0; npm ci && npx playwright test --project=api --project=browser --reporter=list || rc=\$?; chown -R $(stat -c %u:%g /e2e) /e2e; exit \$rc'
+                        """
+                    }
+                    if (params.E2E_BLOCKING) {
+                        body()
+                    } else {
+                        catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') { body() }
+                    }
+                }
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'spatial-e2e/src/e2e/test-results/**, spatial-e2e/src/e2e/playwright-report/**', allowEmptyArchive: true
                 }
             }
         }
