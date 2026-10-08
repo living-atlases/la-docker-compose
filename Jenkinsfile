@@ -64,11 +64,12 @@ def gatusGate(Map o) {
 // so the rendered .bundle-meta.json carries the deploy's knobs.
 // Temporary spatial test overrides (build parameters SPATIAL_HUB_VERSION / SPATIAL_SERVICE_VERSION /
 // SPATIAL_SERVICE_BS5): deploy a spatial-hub / spatial-service image tag that is not the inventory's
+// (only the image tag: spatial_*_version must stay a real version, the roles compare it with version())
 // (e.g. es-dev-<sha> pushed to Docker Hub) without touching the inventories. Empty = no override.
 def spatialOverrideVars() {
     def v = [:]
-    if (params.SPATIAL_HUB_VERSION?.trim()) { v.spatial_hub_version = params.SPATIAL_HUB_VERSION.trim() }
-    if (params.SPATIAL_SERVICE_VERSION?.trim()) { v.spatial_service_version = params.SPATIAL_SERVICE_VERSION.trim() }
+    if (params.SPATIAL_HUB_VERSION?.trim()) { v.spatial_hub_image_tag = params.SPATIAL_HUB_VERSION.trim() }
+    if (params.SPATIAL_SERVICE_VERSION?.trim()) { v.spatial_service_image_tag = params.SPATIAL_SERVICE_VERSION.trim() }
     if (params.SPATIAL_SERVICE_BS5) { v.spatial_service_bootstrap5 = true }
     return v
 }
