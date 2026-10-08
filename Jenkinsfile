@@ -1929,7 +1929,7 @@ ENVEOF
                             docker run --rm --ipc=host -v "${WORKSPACE}/spatial-e2e/src/e2e:/e2e" -w /e2e \\
                                 -e BASE_URL="\$BASE_URL" -e E2E_REMOTE=1 -e CI=1 -e E2E_USER -e E2E_PASSWORD \\
                                 mcr.microsoft.com/playwright:v1.64.0-noble \\
-                                sh -c 'rc=0; npm ci && npx playwright test --project=api --project=browser --reporter=list || rc=\$?; chown -R $(stat -c %u:%g /e2e) /e2e; exit \$rc'
+                                sh -c 'rc=0; npm ci && npx playwright test --project=api --project=browser --reporter=list || rc=\$?; chown -R \$(stat -c %u:%g /e2e) /e2e; exit \$rc'
                         """
                     }
                     if (params.E2E_BLOCKING) {
