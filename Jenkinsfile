@@ -62,6 +62,17 @@ def gatusGate(Map o) {
 // (manifest.py, compare-manifests.py): the bundles hold secrets and never leave their machine.
 // The render's inventory and extra vars: the same inventories and skip list the deploy uses,
 // so the rendered .bundle-meta.json carries the deploy's knobs.
+// Temporary spatial test overrides (build parameters SPATIAL_HUB_VERSION / SPATIAL_SERVICE_VERSION /
+// SPATIAL_SERVICE_BS5): deploy a spatial-hub / spatial-service image tag that is not the inventory's
+// (e.g. es-dev-<sha> pushed to Docker Hub) without touching the inventories. Empty = no override.
+def spatialOverrideVars() {
+    def v = [:]
+    if (params.SPATIAL_HUB_VERSION?.trim()) { v.spatial_hub_version = params.SPATIAL_HUB_VERSION.trim() }
+    if (params.SPATIAL_SERVICE_VERSION?.trim()) { v.spatial_service_version = params.SPATIAL_SERVICE_VERSION.trim() }
+    if (params.SPATIAL_SERVICE_BS5) { v.spatial_service_bootstrap5 = true }
+    return v
+}
+
 def renderArgs() {
     def inventoryArg = "-i ${env.INVENTORY_DIR}/lademo-inventory.ini"
     if (fileExists("${env.INVENTORY_DIR}/lademo-local-extras.ini")) {
@@ -77,7 +88,7 @@ def renderArgs() {
     if (params.SKIP_SERVICES?.trim()) { skipList += params.SKIP_SERVICES.tokenize(',') }
     if (env.TOPOLOGY_SKIP_SERVICES?.trim()) { skipList += env.TOPOLOGY_SKIP_SERVICES.tokenize(',') }
     skipList = skipList.collect { it.trim() }.findAll { it }.unique()
-    def extraVars = groovy.json.JsonOutput.toJson([auto_deploy: false, skip_services: skipList])
+    def extraVars = groovy.json.JsonOutput.toJson([auto_deploy: false, skip_services: skipList] + spatialOverrideVars())
     return [inventoryArg: inventoryArg, extraVars: extraVars]
 }
 
@@ -285,6 +296,21 @@ pipeline {
             // Add a token back here (or via the build param) to skip a service if it turns CI red.
             defaultValue: 'sds-static-home',
             description: 'Comma-separated inventory groups to skip (temporary: immature/crash-looping services). Empty to deploy everything.'
+        )
+        string(
+            name: 'SPATIAL_HUB_VERSION',
+            defaultValue: '',
+            description: 'Temporary test: spatial-hub image tag to deploy instead of the inventory one (e.g. es-dev-4cd95db). Empty = inventory.'
+        )
+        string(
+            name: 'SPATIAL_SERVICE_VERSION',
+            defaultValue: '',
+            description: 'Temporary test: spatial-service image tag to deploy instead of the inventory one (e.g. es-dev-c67bc61). Empty = inventory.'
+        )
+        booleanParam(
+            name: 'SPATIAL_SERVICE_BS5',
+            defaultValue: false,
+            description: 'Set spatial_service_bootstrap5=true (spatial-service 3.2+ admin pages use the Bootstrap 5 branding at <branding>/bs5).'
         )
         booleanParam(
             name: 'RUN_E2E',
@@ -1152,10 +1178,12 @@ EOF
                     if (params.SKIP_SERVICES?.trim()) { skipList += params.SKIP_SERVICES.tokenize(',') }
                     if (env.TOPOLOGY_SKIP_SERVICES?.trim()) { skipList += env.TOPOLOGY_SKIP_SERVICES.tokenize(',') }
                     skipList = skipList.collect { it.trim() }.findAll { it }.unique()
-                    if (skipList) {
-                        skipArg = " --extra-vars '" + groovy.json.JsonOutput.toJson([skip_services: skipList]) + "'"
-                        echo "Skipping services: ${skipList}"
+                    def extraMap = (skipList ? [skip_services: skipList] : [:]) + spatialOverrideVars()
+                    if (spatialOverrideVars()) { echo "Spatial overrides: ${spatialOverrideVars()}" }
+                    if (extraMap) {
+                        skipArg = " --extra-vars '" + groovy.json.JsonOutput.toJson(extraMap) + "'"
                     }
+                    if (skipList) { echo "Skipping services: ${skipList}" }
 
                     sh """
                         set -eu
@@ -1438,8 +1466,10 @@ EOF
                     if (params.SKIP_SERVICES?.trim()) { skipList += params.SKIP_SERVICES.tokenize(',') }
                     if (env.TOPOLOGY_SKIP_SERVICES?.trim()) { skipList += env.TOPOLOGY_SKIP_SERVICES.tokenize(',') }
                     skipList = skipList.collect { it.trim() }.findAll { it }.unique()
-                    if (skipList) {
-                        skipArg = " --extra-vars '" + groovy.json.JsonOutput.toJson([skip_services: skipList]) + "'"
+                    def extraMap = (skipList ? [skip_services: skipList] : [:]) + spatialOverrideVars()
+                    if (spatialOverrideVars()) { echo "Spatial overrides: ${spatialOverrideVars()}" }
+                    if (extraMap) {
+                        skipArg = " --extra-vars '" + groovy.json.JsonOutput.toJson(extraMap) + "'"
                     }
                     sh """
                         set -eu
