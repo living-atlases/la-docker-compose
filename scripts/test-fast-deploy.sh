@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/bundle/fast-deploy.sh (la-toolkit TASK-31) against a shimmed generated ansiblew,
+# scripts/bundle/fast-deploy.sh (the la-toolkit's fast deploy) against a shimmed generated ansiblew,
 # render.sh, la-bundle-apply.sh and ansible-inventory:
 #   1. the deploy line comes from ansiblew itself: absolute inventories (hubs included), the
 #      ssh user and the extra vars reach the render; the applier gets the ssh user; the render
@@ -109,3 +109,12 @@ rc=0; DOCKER_RC=1 fd "${std[@]}" || rc=$?
 [ "$rc" -ne 0 ] && grep -q '^FAST-DEPLOY-FAILED: no docker here: .*uncomment the /var/run/docker.sock volume.*DOCKER_GID=$(getent group docker' "$tmp/out" || fail "7: no docker went unnoticed, or no how-to"
 [ -s "$tmp/calls" ] && fail "7: rendered or applied without docker"
 pass "without docker access it says how to fix it, before anything runs"
+
+# 8. times for people: minutes past one minute, and a closing line
+eval "$(grep '^human()' scripts/bundle/fast-deploy.sh)"
+[ "$(human 1826)" = "30 min 26 s" ] && [ "$(human 59)" = "59 s" ] && [ "$(human 60)" = "1 min 0 s" ] ||
+  fail "8: human() gives '$(human 1826)', '$(human 59)', '$(human 60)'"
+fd "${std[@]}" >/dev/null || true
+grep -q '^FAST-DEPLOY step=total seconds=[0-9]* ([0-9]* s) rc=0$' "$tmp/out" &&
+  grep -q '^Fast deploy finished in [0-9]* s\.$' "$tmp/out" || { cat "$tmp/out" >&2; fail "8: no readable total"; }
+pass "times read in minutes, and the run ends with a plain finished line"

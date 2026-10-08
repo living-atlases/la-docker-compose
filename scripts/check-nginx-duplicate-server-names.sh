@@ -3,7 +3,7 @@
 #
 # nginx keeps the first server{} for a name+port and drops the rest with only a
 # "conflicting server name ... ignored" warning, so every location in the losing
-# file silently 404s. That is how hub.l-a.site lost /records (TASK-44): the hub
+# file silently 404s. That is how hub.l-a.site lost /records: the hub
 # apps and the cross-host stub each wrote their own server{} for the shared
 # hostname instead of fragments of one file.
 #

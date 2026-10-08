@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# MEASUREMENT SPIKE (TASK-50 phase 4), NOT a deploy path: Ansible renders, nothing is deployed.
+# MEASUREMENT SPIKE, NOT a deploy path: Ansible renders, nothing is deployed.
 #
 # Renders the la-compose deploy tree of every docker_compose host of an inventory into a
 # throwaway container per host (playbooks/bundle-render.yml), then captures each container's
@@ -20,7 +20,7 @@
 # Prints: BUNDLE-TIMING host=all step=render seconds=<s>, one step=capture line per host, and
 # writes DIR/<ansible_host>.render.manifest.
 #
-# --export (TASK-50 phase 5) also writes, per host, what scripts/bundle/host-apply.sh needs, to
+# --export also writes, per host, what scripts/bundle/host-apply.sh needs, to
 # DIR/export/<inventory_hostname>/ (root-only: the bundle holds secrets; the caller deletes it):
 # bundle.tgz, excluded.txt, recreate-drifted-services.sh, wait-for-health.sh and host-state/,
 # the host state the render wrote outside the bundle: an ALLOWLIST (root's "#Ansible:" cron

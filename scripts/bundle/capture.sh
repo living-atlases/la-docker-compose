@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# MEASUREMENT SPIKE (TASK-50, Jenkins stage 'Bundle spike'), NOT a deploy path: Ansible is
+# MEASUREMENT SPIKE (Jenkins stage 'Bundle spike'), NOT a deploy path: Ansible is
 # still the only way to deploy (see CLAUDE.md). This captures what a future "bundle" would
 # carry so apply.sh can time "pull + up" without Ansible in front of it.
 #

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/bundle/{host-apply,la-bundle-apply}.sh (TASK-50 phase 5) against a shimmed `docker`,
+# scripts/bundle/{host-apply,la-bundle-apply}.sh against a shimmed `docker`,
 # groupadd/useradd/crontab/sysctl/ssh/sudo and a shimmed wait-for-health.sh:
 #   1. a first apply restores the bundle, creates the missing external volume, bakes the
 #      branding, pulls pinned tags only when missing and mutable ones always, runs

@@ -691,7 +691,7 @@
         - e2e/fixtures/dr-test/eml.xml
 
 
-# ── TC12: the bundle apply metadata (TASK-50 phase 5) ─────────────────────────────
+# ── TC12: the bundle apply metadata ─────────────────────────────
 #
 # scripts/bundle/host-apply.sh applies a rendered bundle from .bundle-meta.json alone: the
 # host it was rendered for, the watch list it hashes into the same .config-hashes the Ansible

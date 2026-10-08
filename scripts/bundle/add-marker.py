@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Copy a bundle adding one harmless file to one watched config dir (TASK-50 apply spike).
+"""Copy a bundle adding one harmless file to one watched config dir (apply spike).
 
 A controlled config change for the CI: host-apply.sh must restart that service and only
 that one; applying the original bundle afterwards must delete the file again (dropped by

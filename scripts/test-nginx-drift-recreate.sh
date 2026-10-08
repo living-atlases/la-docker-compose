@@ -5,7 +5,7 @@
 # l-a.site-hosted deployment, this CI included) skipped that: main.yml's post-up
 # check only WARNS about drift, nothing applies it, so a stale nginx never picks up
 # a newly added volume mount (a hub's branding, e.g.) on a --no-recreate hot
-# redeploy -- 404s on files a fresh nginx would serve (build #403, TASK-41).
+# redeploy -- 404s on files a fresh nginx would serve (build #403).
 #
 # This extracts the REAL shell script from the "nginx: recreate if its own
 # definition drifted (use_la_site_certs branch)" task and runs it against a fake

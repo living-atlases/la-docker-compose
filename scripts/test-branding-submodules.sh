@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Branding submodules (commonui-bs3-2019: bootstrap, jquery, ala-styles) must reach the
 # branding build directory with content, or every page linking to them comes up
-# unstyled. Data hubs shipped it empty (TASK-48): the .gitmodules stat and the
+# unstyled. Data hubs shipped it empty: the .gitmodules stat and the
 # `git submodule update` in stage-branding-source.yml ran on the compose hosts, where the
 # controller-side branding_source_path does not exist, so they were skipped.
 #

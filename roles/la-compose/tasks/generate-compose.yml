@@ -3676,7 +3676,7 @@
 # branch (use_la_site_certs=true -- every l-a.site-hosted deployment, including this
 # CI) nginx staleness was never auto-repaired: a stale nginx then 404s on files a
 # fresh one would serve (build #403: a hub's banner.html/footer.html, mounted from a
-# volume nginx never remounted, TASK-41). Scoped to nginx alone -- stateless, no
+# volume nginx never remounted). Scoped to nginx alone -- stateless, no
 # uptime to protect, same reasoning as the sibling task's own comment.
 - name: "nginx: recreate if its own definition drifted (use_la_site_certs branch)"
   ansible.builtin.shell: |

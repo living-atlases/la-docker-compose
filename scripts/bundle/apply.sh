@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# MEASUREMENT SPIKE (TASK-50, Jenkins stage 'Bundle spike'), NOT a deploy path: Ansible is
+# MEASUREMENT SPIKE (Jenkins stage 'Bundle spike'), NOT a deploy path: Ansible is
 # still the only way to deploy (see CLAUDE.md). Times what a deploy costs once Ansible is
 # out of the critical path: restore the bundle capture.sh took, pull, up, wait for health.
 #

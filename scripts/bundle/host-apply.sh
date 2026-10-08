@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# TASK-50 phase 5: apply a rendered bundle to THIS host, as root, the way the Ansible deploy
+# Apply a rendered bundle to THIS host, as root, the way the Ansible deploy
 # does (roles/la-compose/tasks/main.yml from the pre-deploy cleanup to config-restart-apply),
 # without Ansible.
 #
@@ -55,7 +55,9 @@ done
 
 host="$(hostname)"
 t0=$(date +%s)
-timing() { echo "BUNDLE-TIMING host=$host phase=apply step=$1 seconds=$2"; }
+# Seconds for people too: "1826" reads better as "30 min 26 s".
+human() { [ "$1" -ge 60 ] && echo "$(( $1 / 60 )) min $(( $1 % 60 )) s" || echo "$1 s"; }
+timing() { echo "BUNDLE-TIMING host=$host phase=apply step=$1 seconds=$2 ($(human "$2"))"; }
 fail() {
   echo "BUNDLE-FAILED host=$host phase=apply step=$1 rc=$2"
   timing total "$(( $(date +%s) - t0 ))"
@@ -319,7 +321,7 @@ step gate gate
 step up up
 step restart restart
 step health health
-echo "NOTE: NOT run, Ansible still owns them (TASK-50 phase 2): database users/grants/password sync and"
+echo "NOTE: not done here, only the regular deploy (Ansible) does them: database users/grants/password sync and"
 echo "      schema migrations (init-databases.yml), and the post-up init (Solr collections, CAS admin/OIDC,"
-echo "      API keys, GeoServer). A redeploy that adds a service or rotates a password needs Ansible."
+echo "      API keys, GeoServer). A redeploy that adds a service or rotates a password needs the regular deploy."
 timing total "$(( $(date +%s) - t0 ))"

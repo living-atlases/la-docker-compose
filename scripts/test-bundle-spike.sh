@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/bundle/{capture,apply}.sh (TASK-50 bundle spike) against a shimmed `docker` and a
+# scripts/bundle/{capture,apply}.sh (bundle spike) against a shimmed `docker` and a
 # shimmed wait-for-health.sh:
 #   1. capture: bundles the compose dir and the small bind sources; leaves out logs, missing
 #      and oversized sources; the bundle is 0600 and nothing of its content is printed;

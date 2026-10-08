@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# TASK-50 / la-toolkit TASK-31: the fast deploy of a docker-compose portal, for the la-toolkit
+# The fast deploy of a docker-compose portal, for the la-toolkit
 # (and anyone with a generated inventory dir): render the bundles once, cache them, apply them
 # without Ansible (scripts/bundle/la-bundle-apply.sh).
 #
@@ -152,6 +152,9 @@ out="$CACHE_DIR/$key"
 mkdir -p "$CACHE_DIR"
 chmod 0700 "$CACHE_DIR"
 
+# Seconds for people too: "1826" reads better as "30 min 26 s".
+human() { [ "$1" -ge 60 ] && echo "$(( $1 / 60 )) min $(( $1 % 60 )) s" || echo "$1 s"; }
+
 # 4. Render, unless cached.
 if ! $FORCE && [ -f "$out/.complete" ]; then
   echo "FAST-DEPLOY key=$key render=cached"
@@ -163,7 +166,8 @@ else
   (umask 077 && bash "$RENDER" --out "$out" --inventory-args "$inv_args" \
      ${user:+--user "$user"} "${extra_args[@]}" --export)
   touch "$out/.complete"
-  echo "FAST-DEPLOY step=render seconds=$(( $(date +%s) - s ))"
+  d=$(( $(date +%s) - s ))
+  echo "FAST-DEPLOY step=render seconds=$d ($(human "$d"))"
 fi
 touch "$out"   # the newest use sorts first when pruning
 # Keep the newest --keep renders: each holds every host's secrets.
@@ -173,6 +177,12 @@ ls -1dt "$CACHE_DIR"/*/ 2>/dev/null | tail -n +"$((KEEP + 1))" | while read -r o
 s=$(date +%s)
 rc=0
 bash "$APPLY" --export-dir "$out/export" --hosts "$out/hosts" ${user:+--ssh-user "$user"} || rc=$?
-echo "FAST-DEPLOY step=apply seconds=$(( $(date +%s) - s )) rc=$rc"
-echo "FAST-DEPLOY step=total seconds=$(( $(date +%s) - t0 )) rc=$rc"
+d=$(( $(date +%s) - s )); total=$(( $(date +%s) - t0 ))
+echo "FAST-DEPLOY step=apply seconds=$d ($(human "$d")) rc=$rc"
+echo "FAST-DEPLOY step=total seconds=$total ($(human "$total")) rc=$rc"
+if [ "$rc" -eq 0 ]; then
+  echo "Fast deploy finished in $(human "$total")."
+else
+  echo "Fast deploy FAILED (rc=$rc) after $(human "$total")."
+fi
 exit "$rc"

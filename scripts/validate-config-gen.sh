@@ -199,7 +199,7 @@ else
   fi
 fi
 
-# ── Check 4b: one server_name per enabled vhost file (TASK-44) ───────────────
+# ── Check 4b: one server_name per enabled vhost file ───────────────
 section "Check 4b: No server_name declared in two nginx vhost files"
 
 if out="$(bash scripts/check-nginx-duplicate-server-names.sh "$OUTPUT_DIR/nginx/sites-enabled" 2>&1)"; then

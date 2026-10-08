@@ -1,5 +1,5 @@
 ---
-# SPIKE (TASK-50 phase 4): render the la-compose deploy tree of every docker_compose host
+# SPIKE: render the la-compose deploy tree of every docker_compose host
 # WITHOUT deploying to it. Each host is rendered inside a throwaway container named like the
 # host's ansible_host (ansible_connection=community.docker.docker: the synchronize module
 # resolves the container from ansible_host); ansible_host itself stays the real one, since

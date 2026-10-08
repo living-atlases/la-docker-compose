@@ -1,4 +1,4 @@
-# MEASUREMENT SPIKE (TASK-50 phase 4): the throwaway "host" playbooks/bundle-render.yml renders
+# MEASUREMENT SPIKE: the throwaway "host" playbooks/bundle-render.yml renders
 # into. It only has to look enough like a docker_compose VM for la-compose and the ala-install
 # roles to render: python for the modules, sudo for become, rsync for synchronize, cron and
 # sysctl for the host-state tasks, the docker CLI + compose plugin for `docker compose config`

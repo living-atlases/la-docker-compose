@@ -92,7 +92,7 @@ export function skipIfMissing(key: string, ctx: Mocha.Context): void {
  * A page whose CSS/JS 404s still answers 200 and still has a body, so pageRenders()
  * and every status check pass on a bare, unstyled page. The ALA hubs link bootstrap,
  * jquery and ala-styles from the branding; an empty commonui-bs3-2019 submodule in the
- * branding build (TASK-48) broke all of them at once and nothing went red.
+ * branding build broke all of them at once and nothing went red.
  * Third-party hosts (CDNs, Google Maps) are not this deployment's to serve: skipped.
  */
 export function linkedAssetsLoad(pageUrl: string): void {

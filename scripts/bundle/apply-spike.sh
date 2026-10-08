@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# TASK-50 phase 5, CI only (Jenkins stage 'Apply spike'): apply the bundles render.sh --export
+# CI only (Jenkins stage 'Apply spike'): apply the bundles render.sh --export
 # wrote to the stack Ansible just deployed, and check the applier keeps the redeploy contract.
 #   1. converge: apply on every host. It must pass; it may restart what really changed since
 #      the last Ansible deploy (CI renders ala-install's branch tip, which can be newer than

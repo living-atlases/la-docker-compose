@@ -461,7 +461,7 @@
         tc17_paths: "{{ nginx_remote_stub_paths['portal-shared.l-a.site'] }}"
 
     # ------------------------------------------------------------------ TC18
-    # Gatus duplicate-endpoint crash (TASK-42): a shared-vhost stub proxies to a path a
+    # Gatus duplicate-endpoint crash: a shared-vhost stub proxies to a path a
     # SIBLING host owns, and that sibling already registers its own gatus check for the
     # exact same hostname+path (gatus/templates/http.j2 keys the endpoint on those, not
     # on appname). If the stub's own nginx_vhost call also monitored it, gatus would see
@@ -538,7 +538,7 @@
           - "'state: absent' in tc19_stub_task_source"
         fail_msg: >-
           register-shared-vhost-stubs.yml no longer opts its stub out of gatus
-          monitoring (TASK-42 regression: the real owner's check and the stub's
+          monitoring (regression: the real owner's check and the stub's
           would collide again under the same hostname+path, crash-looping gatus).
 
     # ------------------------------------------------------------------ TC20

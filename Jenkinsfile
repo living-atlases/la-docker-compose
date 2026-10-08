@@ -55,7 +55,7 @@ def gatusGate(Map o) {
     }
 }
 
-// ----- Render spike (opt-in via RENDER_SPIKE, TASK-50 phase 4) -----
+// ----- Render spike (opt-in via RENDER_SPIKE) -----
 // Can Ansible render a portal without deploying it? Renders every docker_compose host into a
 // throwaway container on the agent (scripts/bundle/render.sh + playbooks/bundle-render.yml),
 // captures each deployed host's bundle, and compares the two by path and hash only
@@ -113,7 +113,7 @@ def renderSpike() {
     }
 }
 
-// ----- Apply spike (opt-in via APPLY_SPIKE, TASK-50 phase 5) -----
+// ----- Apply spike (opt-in via APPLY_SPIKE) -----
 // The applier on the stack Ansible just deployed: render + export every host's bundle on the
 // agent, then scripts/bundle/apply-spike.sh: a converge apply, a no-change apply (nothing
 // restarted, no running container replaced), a controlled config change on the first host (only its service
@@ -139,7 +139,7 @@ def applySpike() {
     if (spikeError) { throw spikeError }
 }
 
-// ----- Bundle spike (opt-in via BUNDLE_SPIKE, TASK-50) -----
+// ----- Bundle spike (opt-in via BUNDLE_SPIKE) -----
 // A MEASUREMENT, not a deploy path: what does a deploy cost once Ansible is out of the
 // critical path? Captures a bundle on each host from the stack Ansible just deployed
 // (never an older one: restoring a stale .env would silently revert the build), then
@@ -339,17 +339,17 @@ pipeline {
         booleanParam(
             name: 'BUNDLE_SPIKE',
             defaultValue: false,
-            description: 'MEASUREMENT (TASK-50, never fails the build, at most UNSTABLE): on the stack already deployed, capture a bundle (rendered compose dir + config bind sources) and time applying it without Ansible: live (restore, pull, up, health = redeploy floor), then down + cold (= new-portal floor, without the init steps). Prints BUNDLE-TIMING lines. Without FORCE_REDEPLOY it neither cleans nor redeploys: it runs against the stack the previous build left.'
+            description: 'MEASUREMENT (never fails the build, at most UNSTABLE): on the stack already deployed, capture a bundle (rendered compose dir + config bind sources) and time applying it without Ansible: live (restore, pull, up, health = redeploy floor), then down + cold (= new-portal floor, without the init steps). Prints BUNDLE-TIMING lines. Without FORCE_REDEPLOY it neither cleans nor redeploys: it runs against the stack the previous build left.'
         )
         booleanParam(
             name: 'APPLY_SPIKE',
             defaultValue: false,
-            description: 'TASK-50 phase 5 (never fails the build, at most UNSTABLE): render and export every host\'s bundle on the agent, then apply it WITHOUT Ansible (scripts/bundle/la-bundle-apply.sh) to the running stack: a no-change apply (no restart, no container replaced), a controlled config change on the first host (only its service restarts) and the revert, then the total-green gate. Prints BUNDLE-TIMING lines. Without FORCE_REDEPLOY it neither cleans nor redeploys.'
+            description: 'Apply spike (never fails the build, at most UNSTABLE): render and export every host\'s bundle on the agent, then apply it WITHOUT Ansible (scripts/bundle/la-bundle-apply.sh) to the running stack: a no-change apply (no restart, no container replaced), a controlled config change on the first host (only its service restarts) and the revert, then the total-green gate. Prints BUNDLE-TIMING lines. Without FORCE_REDEPLOY it neither cleans nor redeploys.'
         )
         booleanParam(
             name: 'RENDER_SPIKE',
             defaultValue: false,
-            description: 'MEASUREMENT (TASK-50 phase 4, never fails the build, at most UNSTABLE): render every docker_compose host into a throwaway container on the agent (playbooks/bundle-render.yml, no deploy, the real hosts are only read), then compare, by path and hash only, each rendered bundle with the one captured from the deployed host. Prints BUNDLE-TIMING and BUNDLE-COMPARE lines. Without FORCE_REDEPLOY it neither cleans nor redeploys.'
+            description: 'MEASUREMENT (never fails the build, at most UNSTABLE): render every docker_compose host into a throwaway container on the agent (playbooks/bundle-render.yml, no deploy, the real hosts are only read), then compare, by path and hash only, each rendered bundle with the one captured from the deployed host. Prints BUNDLE-TIMING and BUNDLE-COMPARE lines. Without FORCE_REDEPLOY it neither cleans nor redeploys.'
         )
     }
 
@@ -568,11 +568,11 @@ EOF
                     # Pure shell, ~1s.
                     bash scripts/test-hub-inventory-args.sh
                     bash scripts/test-nginx-vhost-loop-var.sh
-                    # TASK-50 bundle spike: capture/apply against a shimmed docker, ~2s.
+                    # Bundle spike: capture/apply against a shimmed docker, ~2s.
                     bash scripts/test-bundle-spike.sh
-                    # TASK-50 phase 5 applier: host-apply/la-bundle-apply against shims, ~3s.
+                    # Bundle applier: host-apply/la-bundle-apply against shims, ~3s.
                     bash scripts/test-bundle-apply.sh
-                    # la-toolkit fast deploy entry point (TASK-31), ~2s.
+                    # la-toolkit fast deploy entry point, ~2s.
                     bash scripts/test-fast-deploy.sh
                     # Data hubs under a path (hub.l-a.site/records) must serve and probe there.
                     bash scripts/test-hub-context-path.sh
@@ -1165,7 +1165,7 @@ EOF
                         export ANSIBLE_FORCE_COLOR=true
                         export ANSIBLE_STDOUT_CALLBACK=yaml
                         export ANSIBLE_HOST_KEY_CHECKING=False
-                        # Per-task timings in the log and a top-40 at the end (TASK-50 phase 0);
+                        # Per-task timings in the log and a top-40 at the end;
                         # scripts/profile-build-log.py reads the same log offline.
                         export ANSIBLE_CALLBACKS_ENABLED=ansible.posix.profile_tasks,ansible.posix.timer
                         export PROFILE_TASKS_TASK_OUTPUT_LIMIT=40
@@ -1448,7 +1448,7 @@ EOF
                         export ANSIBLE_FORCE_COLOR=true
                         export ANSIBLE_STDOUT_CALLBACK=yaml
                         export ANSIBLE_HOST_KEY_CHECKING=False
-                        # Per-task timings in the log and a top-40 at the end (TASK-50 phase 0);
+                        # Per-task timings in the log and a top-40 at the end;
                         # scripts/profile-build-log.py reads the same log offline.
                         export ANSIBLE_CALLBACKS_ENABLED=ansible.posix.profile_tasks,ansible.posix.timer
                         export PROFILE_TASKS_TASK_OUTPUT_LIMIT=40

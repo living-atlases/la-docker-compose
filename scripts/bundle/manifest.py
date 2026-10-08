@@ -3,7 +3,7 @@
 
 Numeric uid:gid, since the same uid has different names on the VM and in the render
 container (110:115 is pollinate:_ssh on the CI hosts). Hashes only: the bundle holds secrets, the manifest does not, so manifests are what two
-bundles are compared by (TASK-50 bundle spike). Usage: manifest.py BUNDLE.tgz
+bundles are compared by (bundle spike). Usage: manifest.py BUNDLE.tgz
 """
 import hashlib
 import sys

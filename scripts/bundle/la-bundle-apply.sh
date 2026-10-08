@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# TASK-50 phase 5: apply the bundles scripts/bundle/render.sh --export wrote to every host of
+# Apply the bundles scripts/bundle/render.sh --export wrote to every host of
 # a portal, in parallel, without Ansible. Per host: stream its export dir plus host-apply.sh
 # over ssh into a root-only temp dir, run host-apply.sh with sudo, delete the dir (a trap on
 # the host side, so a failed apply does not leave secrets behind).
