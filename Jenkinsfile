@@ -239,8 +239,12 @@ def spatialPlaywrightSh() {
         rm -rf spatial-e2e 2>/dev/null || docker run --rm -v "${env.WORKSPACE}:/w" alpine rm -rf /w/spatial-e2e
         mkdir -p spatial-e2e
         git clone -q --depth 1 --branch "${params.E2E_SPATIAL_REF}" https://github.com/living-atlases/spatial-hub.git spatial-e2e/src
-        # The hub URL comes from the same manifest Cypress uses (cp'd by the stage above).
-        BASE_URL="\$(python3 -c 'import json,sys; t=json.load(open("e2e/e2e-targets.json")); print(t["services"]["spatial"].rstrip("/"))')"
+        # The hub URL comes from the manifest the deployment writes on the first target host
+        # (fetched here so the stage also runs on its own, against an already-running stack).
+        TH="${env.TARGET_HOSTS.tokenize()[0]}"
+        if [ "\$TH" = "localhost" ] || [ "\$TH" = "127.0.0.1" ]; then cat /data/docker-compose/e2e-targets.json > spatial-e2e/e2e-targets.json
+        else ssh -o BatchMode=yes -o StrictHostKeyChecking=no "\$TH" "cat /data/docker-compose/e2e-targets.json" > spatial-e2e/e2e-targets.json; fi
+        BASE_URL="\$(python3 -c 'import json,sys; t=json.load(open("spatial-e2e/e2e-targets.json")); print(t["services"]["spatial"].rstrip("/"))')"
         echo "Spatial hub under test: \$BASE_URL"
         PWFILE="${env.INVENTORY_DIR}/lademo-local-passwords.ini"
         if [ -f "\$PWFILE" ]; then
@@ -1942,7 +1946,7 @@ ENVEOF
         // Body in spatialPlaywrightE2e() (see the top of this file). E2E_REMOTE=1 restricts the
         // specs to the read-only smoke subset; they are cloned from spatial-hub at E2E_SPATIAL_REF.
         stage('E2E Spatial (Playwright)') {
-            when { expression { params.RUN_E2E && params.RUN_E2E_SPATIAL && env.DO_REDEPLOY == 'true' && params.AUTO_DEPLOY && !params.ONLY_CLEAN } }
+            when { expression { params.RUN_E2E && params.RUN_E2E_SPATIAL && params.AUTO_DEPLOY && !params.ONLY_CLEAN } }
             steps { script { spatialPlaywrightE2e() } }
         }
 
