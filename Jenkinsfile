@@ -228,6 +228,7 @@ def spatialPlaywrightE2e() {
     try {
         if (params.E2E_BLOCKING) { run() } else { catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') { run() } }
     } finally {
+        junit allowEmptyResults: true, testResults: 'spatial-e2e/src/e2e/test-results/junit.xml'
         archiveArtifacts artifacts: 'spatial-e2e/src/e2e/test-results/**, spatial-e2e/src/e2e/playwright-report/**', allowEmptyArchive: true
     }
 }
@@ -255,9 +256,9 @@ def spatialPlaywrightSh() {
         fi
         # Image tag = the @playwright/test version pinned in the spatial-hub lockfile.
         docker run --rm --ipc=host -v "${env.WORKSPACE}/spatial-e2e/src/e2e:/e2e" -w /e2e \\
-            -e BASE_URL="\$BASE_URL" -e E2E_REMOTE=1 -e CI=1 -e E2E_USER -e E2E_PASSWORD \\
+            -e BASE_URL="\$BASE_URL" -e E2E_REMOTE=1 -e CI=1 -e E2E_USER -e E2E_PASSWORD -e PLAYWRIGHT_JUNIT_OUTPUT_NAME=/e2e/test-results/junit.xml \\
             mcr.microsoft.com/playwright:v1.64.0-noble \\
-            sh -c 'rc=0; npm ci && npx playwright test --project=api --project=browser --reporter=list || rc=\$?; chown -R \$(stat -c %u:%g /e2e) /e2e; exit \$rc'
+            sh -c 'rc=0; npm ci && npx playwright test --project=api --project=browser --reporter=list,junit || rc=\$?; chown -R \$(stat -c %u:%g /e2e) /e2e; exit \$rc'
     """
 }
 
