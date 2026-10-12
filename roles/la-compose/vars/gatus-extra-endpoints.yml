@@ -270,13 +270,15 @@ gatus_extra_endpoints:
     path: "/fields"
     conditions: ["[STATUS] < 400"]
 
-  # /web/ answers 302 to a ;jsessionid= URL; gatus follows redirects by default
-  # (client.ignore-redirect is false), so the body condition does see the real page.
+  # Not /web/: it answers 302 to ./?0 and the redirect needs the JSESSIONID cookie, which gatus
+  # does not keep, so the check looped until timeout (about 10 s, always failing). A WFS
+  # GetCapabilities limited to ServiceIdentification needs no session, answers in under a second
+  # (the full WMS one is 400 KB) and proves the OWS dispatcher is up.
   - name: "spatial geoserver"
     group: "Deep checks"
     service: "geoserver"
-    path: "/web/"
-    html: true
+    path: "/ows?service=WFS&request=GetCapabilities&version=2.0.0&acceptversions=2.0.0&sections=ServiceIdentification"
+    conditions: ["[STATUS] == 200", "[BODY] == pat(*WFS_Capabilities*)"]
 
   - name: "lists ws"
     group: "Deep checks"
