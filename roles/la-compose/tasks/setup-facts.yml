@@ -203,16 +203,51 @@
 #
 # Computed for every datastore in one loop rather than hand-written per datastore: this is
 # the third time the same predicate was needed and the second time a copy of it was wrong.
+# The docker hosts of this host's stage. A hybrid portal migrating service by service runs
+# compose hosts with real data (docker_stage=production) next to others whose services are
+# still empty or being tried (docker_stage=staging), and each stage keeps its own datastores:
+# a production host must never be pointed at a staging mysql. The toolkit writes docker_stage
+# only once a portal uses stages; without it every host is production, so the stack is one
+# stage, exactly as before.
+- name: Determine the docker hosts of this host's stage
+  ansible.builtin.set_fact:
+    docker_stage_hosts: >-
+      {%- set mine = docker_stage | default('production') -%}
+      {%- set ns = namespace(hosts=[]) -%}
+      {%- for h in groups['docker_compose'] | default([]) -%}
+        {%- if (hostvars[h].docker_stage | default('production')) == mine
+               and hostvars[h].ansible_host is defined -%}
+          {%- set ns.hosts = ns.hosts + [hostvars[h].ansible_host] -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ ns.hosts | unique }}
+  tags:
+    - always
+    - docker-compose
+
+# datastore_other_stage_only: deployed in this docker stack, but only on hosts of another
+# stage. Such a datastore is neither local (this stage does not run it) nor external (no VM
+# owns it), so generate-compose.yml gives it no endpoint at all.
 - name: Determine which datastores are deployed inside this docker stack (vs external VMs)
   ansible.builtin.set_fact:
     datastore_docker_local: >-
-      {%- set docker_hosts = groups['docker_compose'] | default([])
-            | map('extract', hostvars, 'ansible_host') | select('defined') | list -%}
+      {%- set docker_hosts = docker_stage_hosts -%}
       {%- set result = {} -%}
       {%- for name, spec in datastore_cluster_spec.items() -%}
         {%- set owners = spec.groups | map('extract', groups) | select('defined') | flatten
               | map('extract', hostvars, 'ansible_host') | select('defined') | list -%}
         {%- set _ = result.update({name: (owners | intersect(docker_hosts) | length) > 0}) -%}
+      {%- endfor -%}
+      {{ result }}
+    datastore_other_stage_only: >-
+      {%- set all_docker = groups['docker_compose'] | default([])
+            | map('extract', hostvars, 'ansible_host') | select('defined') | list -%}
+      {%- set result = {} -%}
+      {%- for name, spec in datastore_cluster_spec.items() -%}
+        {%- set owners = spec.groups | map('extract', groups) | select('defined') | flatten
+              | map('extract', hostvars, 'ansible_host') | select('defined') | list -%}
+        {%- set _ = result.update({name: (owners | intersect(all_docker) | length) > 0
+                                         and (owners | intersect(docker_stage_hosts) | length) == 0}) -%}
       {%- endfor -%}
       {{ result }}
   tags:

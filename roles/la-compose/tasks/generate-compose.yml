@@ -164,9 +164,12 @@
   ansible.builtin.set_fact:
     datastore_endpoints: >-
       {%- set result = {} -%}
-      {%- set docker_ansible_hosts = groups['docker_compose'] | default([])
-            | map('extract', hostvars, 'ansible_host') | select('defined') | list -%}
-      {%- for ds, spec in datastore_cluster_spec.items() -%}
+      {#- Owners are looked for among the hosts of this host's stage only: production and -#}
+      {#- staging each run their own datastores (see docker_stage_hosts in setup-facts). -#}
+      {%- set docker_ansible_hosts = docker_stage_hosts | default(groups['docker_compose'] | default([])
+            | map('extract', hostvars, 'ansible_host') | select('defined') | list) -%}
+      {%- for ds, spec in datastore_cluster_spec.items()
+            if not (datastore_other_stage_only | default({})).get(ds, false) -%}
         {%- set owner = namespace(host=none) -%}
         {#- A datastore group list mixes the datastore's own group with its CONSUMERS -#}
         {#- ('collectory', 'species-list', ... for mysql), and on a mixed VM+Docker -#}

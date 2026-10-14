@@ -19,6 +19,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROLE_TASKS="$REPO_ROOT/roles/la-compose/tasks/generate-compose.yml"
+SETUP_FACTS="$REPO_ROOT/roles/la-compose/tasks/setup-facts.yml"
 
 WORK_DIR="$(mktemp -d -t la-datastore-owner-XXXXXX)"
 cleanup() { [[ -n "${WORK_DIR:-}" && -d "$WORK_DIR" ]] && rm -rf -- "$WORK_DIR"; }
@@ -64,10 +65,23 @@ vmzk.zk ansible_host=vm-zookeeper-prod
 EOF
 
 # ── Extract the live expression from the role ────────────────────────────────
-python3 - "$ROLE_TASKS" "$WORK_DIR/compute.yml" "$WORK_DIR/guard.yml" <<'PY'
+python3 - "$ROLE_TASKS" "$WORK_DIR/compute.yml" "$WORK_DIR/guard.yml" \
+  "$SETUP_FACTS" "$WORK_DIR/locality.yml" <<'PY'
 import sys, yaml
 
 tasks = yaml.safe_load(open(sys.argv[1]))
+
+# The stage hosts and the datastore locality come from setup-facts.yml, which runs before
+# generate-compose.yml. Taken from the role as well, for the same reason as below.
+facts = yaml.safe_load(open(sys.argv[4]))
+locality = [t for t in facts if isinstance(t, dict) and t.get('name', '') in (
+    "Determine the docker hosts of this host's stage",
+    'Determine which datastores are deployed inside this docker stack (vs external VMs)')]
+if len(locality) != 2:
+    sys.exit("could not find the stage and locality tasks in setup-facts.yml")
+for t in locality:
+    t.pop('tags', None)
+yaml.safe_dump(locality, open(sys.argv[5], 'w'), default_flow_style=False, width=10000)
 
 
 def find(prefix):
@@ -117,19 +131,8 @@ cat > "$WORK_DIR/play.yml" <<'EOF'
       postgres: {groups: ['postgres', 'spatial', 'image-service', 'doi-service', 'data_quality_filter_service'], port: 5432, aliases: ['postgres', 'la_postgres']}
       mongodb: {groups: ['mongo', 'mongodb', 'cas-servers', 'ecodata'], port: 27017, aliases: ['mongodb', 'la_mongodb']}
   tasks:
-    # Same definition as setup-facts.yml, which runs before generate-compose.yml.
-    - name: Compute datastore locality
-      ansible.builtin.set_fact:
-        datastore_docker_local: >-
-          {%- set docker_hosts = groups['docker_compose'] | default([])
-                | map('extract', hostvars, 'ansible_host') | select('defined') | list -%}
-          {%- set result = {} -%}
-          {%- for name, spec in datastore_cluster_spec.items() -%}
-            {%- set owners = spec.groups | map('extract', groups) | select('defined') | flatten
-                  | map('extract', hostvars, 'ansible_host') | select('defined') | list -%}
-            {%- set _ = result.update({name: (owners | intersect(docker_hosts) | length) > 0}) -%}
-          {%- endfor -%}
-          {{ result }}
+    - name: Compute stage hosts and datastore locality (from setup-facts.yml)
+      ansible.builtin.include_tasks: locality.yml
 
     - name: Run the role's own endpoint computation
       ansible.builtin.include_tasks: compute.yml
@@ -235,4 +238,76 @@ if ! grep -q "outside" "$WORK_DIR/out-negative.log"; then
   fail "TC6e: the negative play failed, but not on the guard assertion (see log above)"
 fi
 echo "PASS TC6e: role guard fires on the production failure shape"
+
+# ── TC7: one datastore per stage ─────────────────────────────────────────────
+# gbif.es, migrating service by service: production compose hosts (real data) next to
+# staging ones (services still empty). Each stage runs its own mysql; a production host
+# must never be pointed at the staging one, nor staging at production.
+cat > "$WORK_DIR/inventory-stages.ini" <<'EOF2'
+[docker_compose]
+p1.docker_compose ansible_host=docker-1 docker_stage=production
+s2.docker_compose ansible_host=docker-2 docker_stage=staging
+p3.docker_compose ansible_host=docker-3 docker_stage=production
+s4.docker_compose ansible_host=docker-4 docker_stage=staging
+
+[cas-servers]
+vmauth.cas ansible_host=vm-auth-prod
+
+[collectory]
+p1.collectory ansible_host=docker-1
+
+[species-list]
+s2.species ansible_host=docker-2
+
+[spatial]
+p3.spatial ansible_host=docker-3
+
+[solrcloud]
+vmsolr.solr ansible_host=vm-solrcloud-prod
+EOF2
+
+sed -e '/^  tasks:/,$d' "$WORK_DIR/play.yml" > "$WORK_DIR/play-stages.yml"
+sed -i 's/      docker-3: "10.0.0.3"/      docker-3: "10.0.0.3"\n      docker-4: "10.0.0.4"/' "$WORK_DIR/play-stages.yml"
+cat >> "$WORK_DIR/play-stages.yml" <<'EOF2'
+  tasks:
+    - name: Compute stage hosts and datastore locality (from setup-facts.yml)
+      ansible.builtin.include_tasks: locality.yml
+
+    - name: Run the role's own endpoint computation
+      ansible.builtin.include_tasks: compute.yml
+
+    - name: "[TC7a] production hosts use the production mysql"
+      ansible.builtin.assert:
+        that: datastore_endpoints.mysql.ip == '10.0.0.1'
+        fail_msg: "FAIL TC7a: {{ inventory_hostname }} mysql at {{ datastore_endpoints.mysql.ip }}, expected 10.0.0.1"
+      when: docker_stage == 'production'
+
+    - name: "[TC7b] staging hosts use the staging mysql"
+      ansible.builtin.assert:
+        that: datastore_endpoints.mysql.ip == '10.0.0.2'
+        fail_msg: "FAIL TC7b: {{ inventory_hostname }} mysql at {{ datastore_endpoints.mysql.ip }}, expected 10.0.0.2"
+      when: docker_stage == 'staging'
+
+    - name: "[TC7c] a datastore only another stage runs gets no endpoint"
+      ansible.builtin.assert:
+        that: "'postgres' not in datastore_endpoints"
+        fail_msg: "FAIL TC7c: {{ inventory_hostname }} got postgres at {{ datastore_endpoints.postgres | default({}) }}, which only production runs"
+      when: docker_stage == 'staging'
+
+    - name: "[TC7d] external datastores stay on their VM in both stages"
+      ansible.builtin.assert:
+        that: datastore_endpoints.solr.ip == '172.16.16.118'
+        fail_msg: "FAIL TC7d: {{ inventory_hostname }} solr at {{ datastore_endpoints.solr.ip }}"
+
+    - name: "[TC7e] the role's own guard passes in both stages"
+      ansible.builtin.include_tasks: guard.yml
+EOF2
+
+if ! ANSIBLE_LOCALHOST_WARNING=False ANSIBLE_DEPRECATION_WARNINGS=False \
+     ansible-playbook -i inventory-stages.ini play-stages.yml --connection=local \
+     > "$WORK_DIR/out-stages.log" 2>&1; then
+  grep -A4 "FAIL TC7\|fatal:" "$WORK_DIR/out-stages.log" || cat "$WORK_DIR/out-stages.log"
+  fail "TC7: one datastore per stage (log above)"
+fi
+echo "PASS TC7: each stage resolves its own mysql; staging gets no production-only datastore"
 echo "OK"
