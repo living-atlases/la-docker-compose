@@ -1,5 +1,11 @@
-import { serviceUrl } from "../../support/services";
-import { apiOk, linkedAssetsLoad, pageRenders, skipIfMissing } from "../../support/checks";
+import { hasService, serviceUrl } from "../../support/services";
+import {
+  apiOk,
+  authTestsEnabled,
+  linkedAssetsLoad,
+  pageRenders,
+  skipIfMissing,
+} from "../../support/checks";
 
 // Spatial hub — heavy on client-side JS (Leaflet map). In this deployment '/' is CAS-gated,
 // so the map assertion runs only under ENABLE_AUTH_TESTS (after cy.login). The default no-auth
@@ -37,5 +43,28 @@ describe("Spatial hub", () => {
     // The portal's own layout files (spatial_hub_extra_assets, served by nginx in a jar install):
     // with the session cookie the hub page is reachable, so every css/js it links must load.
     linkedAssetsLoad(serviceUrl("spatial", "/"));
+  });
+
+  // The "Use species list" picker reads the hub's /portal/speciesList proxy. When the hub
+  // asked the wrong lists API (a quoted lists.version made a v1 hub call /v2) the proxy
+  // failed and the picker showed "0 of", while the page itself rendered fine.
+  it("spatial hub proxies the species lists", function () {
+    if (!authTestsEnabled() || !hasService("lists")) {
+      this.skip();
+    }
+    cy.login();
+    cy.request(serviceUrl("lists", "/ws/speciesList?max=1")).then((lists) => {
+      const publicLists = Number(lists.body?.listCount ?? 0);
+      cy.request({
+        url: serviceUrl("spatial", "/portal/speciesList?max=10"),
+        failOnStatusCode: false,
+      }).then((resp) => {
+        expect(resp.status, "hub species list proxy").to.eq(200);
+        expect(resp.body, "lists answer, not an error").to.not.have.property("error");
+        if (publicLists > 0) {
+          expect(Number(resp.body?.listCount ?? 0), "lists the picker shows").to.be.greaterThan(0);
+        }
+      });
+    });
   });
 });
