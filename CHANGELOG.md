@@ -10,7 +10,51 @@ edit by hand, write the notes in the annotated tag instead.
 
 ## Unreleased
 
-Nothing yet.
+#### Other changes
+
+- e2e(spatial): the hub proxies the species lists ([a085ca7](https://github.com/living-atlases/la-docker-compose/commit/a085ca77642be37c084c9b61467f7c205f809557))
+- ala-install: spatial-hub lists.version rendered as an integer ([a7c1e4d](https://github.com/living-atlases/la-docker-compose/commit/a7c1e4d96e55e03c13ad49d835788294e341cedc))
+
+<a name="v1.11.5"></a>
+
+## v1.11.5 - 2026-10-14
+
+**green CI build #476 (88/88 tests, Cypress 82 passing, Gatus 137/137 healthy)**
+
+One datastore per stage: compose hosts carry docker_stage (production or staging, from generator-living-atlas >= 1.9.14) and each stage gets its own mysql/postgres/mongo owner. Inventories without docker_stage render as before.
+
+### Commits (1 since v1.11.4)
+
+#### Features
+
+- **datastores**: one datastore per stage (docker_stage production/staging) ([4bcfe52](https://github.com/living-atlases/la-docker-compose/commit/4bcfe52b9419b9be405dd6e4a60fe0e7b4b25104))
+
+<a name="v1.11.4"></a>
+
+## v1.11.4 - 2026-10-13
+
+**green CI build #475 (88/88 tests, Gatus 137/137 healthy)**
+
+### Commits (10 since v1.11.3)
+
+#### Tests and CI
+
+- publish the spatial Playwright results as JUnit so they count in the test trend ([870914b](https://github.com/living-atlases/la-docker-compose/commit/870914b3aed3a6a4ee65a89d8cf33df9ead6abf9))
+- the Playwright stage runs on its own (no DO_REDEPLOY gate) and fetches the e2e-targets manifest itself ([b8dc276](https://github.com/living-atlases/la-docker-compose/commit/b8dc276e76f5792c6dc6b5d9a6e0cff9321ba953))
+- move the Playwright stage body out of pipeline{} (Method too large: the CPS method hit the 64 KB limit) ([2fb5754](https://github.com/living-atlases/la-docker-compose/commit/2fb575400b8102ee006a5908f0458896afa97303))
+- escape the stat substitution in the Playwright stage ([015e886](https://github.com/living-atlases/la-docker-compose/commit/015e886519f6470ea431565e0397fbd5d147789f))
+- spatial-hub Playwright e2e stage against the deployed hub (real CAS login from the inventory) ([0b3107f](https://github.com/living-atlases/la-docker-compose/commit/0b3107fe047b732ee25f401bd26e5e9a02dbe347))
+
+#### Documentation
+
+- **changelog**: v1.11.3 ([416daea](https://github.com/living-atlases/la-docker-compose/commit/416daeae4ba422de5f4655f2eaa28b16c12c4f34))
+
+#### Other changes
+
+- ala-install: spatial-service downloads maxent 3.4.4 and replaces an older jar (3.4.3 fails on JDK 17) ([25e2727](https://github.com/living-atlases/la-docker-compose/commit/25e2727bc63ec05f03499d29201b3a81dcff0fcf))
+- spatial_hub_image_tag / spatial_service_image_tag override only the image tag (spatial_*_version is compared with version() by the roles; a tag like es-dev-<sha> broke the bulk load) ([2e553d8](https://github.com/living-atlases/la-docker-compose/commit/2e553d83af480ad13990cdaf039ddb3e2ee63284))
+- ala-install: spatial_service_bootstrap5 (spatial-service headerAndFooter.baseURL to the Bootstrap 5 branding) ([4778261](https://github.com/living-atlases/la-docker-compose/commit/4778261e5eb9d5fe136b34f3153d677032456db9))
+- temporary SPATIAL_HUB_VERSION / SPATIAL_SERVICE_VERSION / SPATIAL_SERVICE_BS5 parameters to test spatial images without touching inventories ([07f75bb](https://github.com/living-atlases/la-docker-compose/commit/07f75bbdf673e5c26e8b8be80584e74c2d302ba5))
 
 <a name="v1.11.3"></a>
 
