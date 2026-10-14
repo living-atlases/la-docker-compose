@@ -131,6 +131,10 @@ env.filters["bool"] = lambda value: str(value).strip().lower() in ("true", "yes"
 #                stack_size (-Xss). Both come from the desc, not the inventory
 #   logger       an inventory <key>_stack_size must WIN over the desc's stack_size,
 #                which is the only way an operator can retune it
+#   collectory   an inventory <key>_extra_java_opts is appended LAST, verbatim (a later
+#                -D wins in Java). It is the operator's only per-service route to the
+#                JVM: java_security_opts is reset by ala-install's common set_fact, so an
+#                inventory value for it never arrives
 CASES = {
     "userdetails": {
         "desc": {"artifacts": "userdetails", "log_config_filename": "logback.xml"},
@@ -182,6 +186,13 @@ CASES = {
         "memory": "-Xmx1g", "log_config": "logback.xml", "version": "4.6.1",
         "extra_config": "logger-config", "stack": "1m", "stack_size_var": "1m",
     },
+    "collectory": {
+        "desc": {"artifacts": "collectory", "log_config_filename": "logback.xml"},
+        "prefix": "COLLECTORY", "artifact": "collectory",
+        "java_opts": "-Djava.awt.headless=true -Xmx3g -Xms1g",
+        "memory": "-Xmx3g", "log_config": "logback.xml", "version": "6.3.0",
+        "extra_java_opts": "-Dgrails.plugin.sentry.dsn=https://key@sentry.example.org/3",
+    },
 }
 
 rendered = env.get_template("docker-compose.env.j2").render(
@@ -192,6 +203,8 @@ rendered = env.get_template("docker-compose.env.j2").render(
         **{f"{k.replace('-', '_')}_version": c["version"] for k, c in CASES.items()},
         **{f"{k.replace('-', '_')}_stack_size": c["stack_size_var"]
            for k, c in CASES.items() if c.get("stack_size_var")},
+        **{f"{k.replace('-', '_')}_extra_java_opts": c["extra_java_opts"]
+           for k, c in CASES.items() if c.get("extra_java_opts")},
     },
 )
 
@@ -278,6 +291,13 @@ for key, case in CASES.items():
 
     for param in case.get("extra_params", []):
         require(prefix, f"-D{param['key']}={param['value']}", "extra_params must reach the JVM")
+
+    # Appended last, so it can override anything before it; nobody else gets it.
+    if case.get("extra_java_opts"):
+        if not lines[prefix].endswith(" " + case["extra_java_opts"]):
+            failures.append(f"{prefix} must END with the inventory {key}_extra_java_opts\n      got: {lines[prefix]}")
+    else:
+        reject(prefix, "sentry", "it declares no extra_java_opts")
 
 # A prefix collision would silently overwrite one service's options with another's.
 if len(lines) != len(CASES):
