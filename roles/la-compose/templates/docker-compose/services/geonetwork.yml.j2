@@ -1,11 +1,12 @@
 # Geonetwork - metadata catalog for the spatial stack (official upstream image, NOT an ALA build).
 # Uses the postgres-enabled tag (geonetwork:<v>-postgres): its entrypoint reads POSTGRES_DB_* env,
-# selects config-db/postgres.xml, and createdb's the `geonetwork` (+ vestigial `admin`) databases
-# on the shared la_postgres (PostGIS). The login role + db are pre-provisioned (idempotent) by
-# init-databases.yml; the role needs CREATEDB so the entrypoint can create the `admin` db.
+# selects config-db/postgres.xml, and createdb's POSTGRES_DB_NAME if missing on the shared
+# la_postgres (PostGIS). The login role + db are pre-provisioned (idempotent) by
+# init-databases.yml; the role keeps CREATEDB for that entrypoint fallback.
+# Tag: geonetwork_image_tag (role defaults; tags older than 3.12.12 carry Log4Shell and are refused).
 services:
   geonetwork:
-    image: {% set svc_reg = geonetwork_registry | default('') %}{{ svc_reg }}{% if svc_reg %}/{% endif %}geonetwork:{{ geonetwork_image_tag | default('3.4.4-postgres') }}
+    image: {% set svc_reg = geonetwork_registry | default('') %}{{ svc_reg }}{% if svc_reg %}/{% endif %}geonetwork:{{ geonetwork_image_tag }}
     container_name: {{ geonetwork_docker_host | default('la_geonetwork') }}
     profiles: [app-core, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
@@ -22,6 +23,7 @@ services:
       DATA_DIR: /var/lib/geonetwork/data
       POSTGRES_DB_HOST: "{{ geonetwork_db_hostname | default('postgres') }}"
       POSTGRES_DB_PORT: "{{ geonetwork_db_port | default('5432') }}"
+      POSTGRES_DB_NAME: "{{ geonetwork_database | default('geonetwork') }}"
       POSTGRES_DB_USERNAME: "{{ geonetwork_db_username | default('geonetwork') }}"
       POSTGRES_DB_PASSWORD: "{{ geonetwork_db_password }}"
     networks:

@@ -669,7 +669,9 @@
   tags:
     - db-init
 
-# The geonetwork:3.4.4-postgres image bundles an old libpq (<10) that cannot do SCRAM, which
+# The default geonetwork image is now 3.12.12-postgres (libpq 18, SCRAM-capable). md5 stays:
+# clusters already store md5 role passwords, and every client here authenticates with it.
+# Historically: the geonetwork:3.4.4-postgres image bundles an old libpq (<10) that cannot do SCRAM, which
 # postgres 16 uses by default. The `la_postgres-data` named volume persists the scram-sha-256
 # pg_hba across builds, so POSTGRES_HOST_AUTH_METHOD (initdb-only) does not help on an aged
 # cluster. Rewrite pg_hba to md5 in place + reload (idempotent; no-op once md5). Combined with

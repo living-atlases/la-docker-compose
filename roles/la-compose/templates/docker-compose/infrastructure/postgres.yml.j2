@@ -15,6 +15,7 @@ services:
     # "SCRAM authentication requires libpq version 10 or above" and it crash-loops. md5 is
     # understood by every consumer (modern JDBC drivers and the old libpq). pg_hba is also
     # switched to md5 in init-databases.yml (the named volume persists scram across builds).
+    # The default geonetwork is now 3.12.12 (libpq 18); md5 stays for existing clusters.
     # postgres_settings: extra server settings per host, e.g. a PostGIS-heavy spatial host:
     #   postgres_settings={"shared_buffers": "4GB", "effective_cache_size": "16GB", "work_mem": "32MB"}
     command: ["postgres", "-c", "password_encryption=md5"{% for k, v in postgres_settings | default({}) | dictsort %}, "-c", "{{ k }}={{ v }}"{% endfor %}]

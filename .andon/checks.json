@@ -78,6 +78,15 @@
     },
     {
       "match": [
+        "roles/la-compose/templates/docker-compose/services/geonetwork.yml.j2",
+        "roles/la-compose/defaults/main.yml",
+        "roles/la-compose/tasks/generate-compose.yml",
+        "scripts/test-geonetwork-image-tag.sh"
+      ],
+      "run": "bash scripts/test-geonetwork-image-tag.sh"
+    },
+    {
+      "match": [
         "scripts/refresh-biocache-fields.sh",
         "scripts/test-refresh-biocache-fields.sh"
       ],

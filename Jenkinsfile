@@ -667,6 +667,8 @@ EOF
                     bash scripts/test-config-restart-container-name.sh
                     bash scripts/test-geoserver-fallback-layers.sh
                     bash scripts/test-geoserver-url-check.sh
+                    # geonetwork < 3.12.12 ships log4j 2.7 + JndiLookup (Log4Shell): default and pin guard.
+                    ANSIBLE_PLAYBOOK="$VENV_MOL/bin/ansible-playbook" bash scripts/test-geonetwork-image-tag.sh
                     # spatial-hub compares lists.version with ints: a quoted one empties the list picker.
                     bash scripts/test-spatial-hub-lists-version.sh
 

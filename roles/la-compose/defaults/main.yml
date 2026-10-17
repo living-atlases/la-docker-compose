@@ -759,3 +759,19 @@ geoserver_image_tag: "{{ geoserver_version | default(la_compose_geoserver_role_d
 # vectortiles), as kartoza STABLE_EXTENSIONS names ("<name>-plugin", fetched at container
 # start). Without them a data dir from a VM loses its vector-tile GWC formats.
 geoserver_stable_extensions: "{{ geoserver_extension_urls | default(la_compose_geoserver_role_defaults.geoserver_extension_urls) | map('regex_replace', '^.*-([a-z0-9]+-plugin)\\.zip$', '\\1') | select('match', '^[a-z0-9]+-plugin$') | join(',') }}"
+
+# ============================================
+# GeoNetwork image
+# ============================================
+# 3.4.4-postgres (the old default, and the WAR ala-install still pins for VMs) ships
+# log4j-core 2.7 with JndiLookup and a JDK 8u181: Log4Shell (CVE-2021-44228/45046, in
+# CISA KEV), which LOG4J_FORMAT_MSG_NO_LOOKUPS does not mitigate on log4j < 2.10.
+# 3.12.12 is the last 3.x (log4j 2.17.2, same POSTGRES_DB_* entrypoint, embedded Lucene;
+# 4.x needs Elasticsearch). No ALA code calls GeoNetwork (spatial-service only carries
+# layers_store.GEONETWORK_URL), so the jump is safe for spatial-service/hub.
+# Upgrading a 3.4.4 catalogue: GeoNetwork migrates the db on first boot but leaves
+# MetadataStatus half done ("Restart application and check logs"); one restart of
+# la_geonetwork finishes it. generate-compose.yml refuses tags older than
+# geonetwork_min_image_version.
+geonetwork_image_tag: "3.12.12-postgres"
+geonetwork_min_image_version: "3.12.12"

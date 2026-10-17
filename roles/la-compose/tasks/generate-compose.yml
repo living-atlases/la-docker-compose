@@ -3499,6 +3499,24 @@
     - geoserver
     - docker-compose
 
+# An inventory pin to an older geonetwork image would bring Log4Shell back (see the
+# GeoNetwork block in defaults/main.yml). Non-numeric tags (latest, digests) are not judged.
+- name: Refuse geonetwork images older than geonetwork_min_image_version (Log4Shell)
+  ansible.builtin.assert:
+    that:
+      - _gn_version == '' or _gn_version is version(geonetwork_min_image_version, '>=')
+    fail_msg: >-
+      geonetwork_image_tag={{ geonetwork_image_tag }} is older than
+      {{ geonetwork_min_image_version }}: GeoNetwork 3.4.x ships log4j-core 2.7 with
+      JndiLookup (Log4Shell, CVE-2021-44228/45046). Drop the pin to use the role default.
+    quiet: true
+  vars:
+    _gn_version: "{{ geonetwork_image_tag | string | regex_search('^[0-9]+([.][0-9]+)+') or '' }}"
+  when: "'geonetwork' in services_enabled"
+  tags:
+    - geonetwork
+    - docker-compose
+
 - name: Generate geonetwork.yml
   ansible.builtin.template:
     src: docker-compose/services/geonetwork.yml.j2
