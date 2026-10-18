@@ -373,6 +373,26 @@
           also writes. Sharing it makes each run treat the other's rotation as already
           done and skip the file entirely.
 
+    # The scanner mounts the Docker socket (root-equivalent), so the image must be pinned
+    # by digest; and it is on by default because the Log4Shell geonetwork it exists for
+    # was a default nobody had opted into checking.
+    - name: "[TC8c] Assert the weekly Trivy scan is on by default, digest-pinned and off the GC's slot"
+      ansible.builtin.assert:
+        that:
+          - docker_housekeeping_trivy_enabled | bool
+          - "'@sha256:' in docker_housekeeping_trivy_image"
+          - "'@sha256:' in docker_housekeeping_trivy_curl_image"
+          - docker_housekeeping_trivy_oncalendar | lower not in ['minutely', 'hourly', 'daily']
+          - docker_housekeeping_trivy_oncalendar != docker_housekeeping_gc_oncalendar
+          - docker_housekeeping_trivy_cache_dir is not match('^/data(/|$)')
+        msg: >
+          FAIL TC8c: trivy enabled={{ docker_housekeeping_trivy_enabled }},
+          image={{ docker_housekeeping_trivy_image }},
+          oncalendar={{ docker_housekeeping_trivy_oncalendar }} (gc {{ docker_housekeeping_gc_oncalendar }}),
+          cache={{ docker_housekeeping_trivy_cache_dir }}. It must be on by default, pinned
+          by digest (it mounts the Docker socket), weekly-ish and not on the GC's slot, and
+          its ~1 GB DB cache outside /data (CLEAN_MACHINE wipes /data).
+
 # ── Test case 9: "local wins" must not disown the rest of the cluster ────────
 #
 # extra_hosts is filtered so a name the local stack serves cannot be pinned to another

@@ -176,6 +176,18 @@
     },
     {
       "match": [
+        "roles/docker-housekeeping/templates/trivy-scan.sh.j2",
+        "roles/docker-housekeeping/templates/trivy-scan.service.j2",
+        "roles/docker-housekeeping/templates/trivy-scan.timer.j2",
+        "roles/docker-housekeeping/defaults/main.yml",
+        "roles/docker-housekeeping/tasks/main.yml",
+        "scripts/trivy-ci-collect.sh",
+        "scripts/test-trivy-scan.sh"
+      ],
+      "run": "VENV_MOLECULE=.venv-molecule bash scripts/test-trivy-scan.sh"
+    },
+    {
+      "match": [
         "roles/la-compose/templates/heap-budget.j2",
         "scripts/test-heap-budget.sh"
       ],

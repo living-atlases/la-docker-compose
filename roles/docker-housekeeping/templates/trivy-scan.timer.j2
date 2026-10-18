@@ -1,0 +1,12 @@
+{{ ansible_managed | comment }}
+[Unit]
+Description=Weekly CVE scan of the running Docker images
+
+[Timer]
+OnCalendar={{ docker_housekeeping_trivy_oncalendar }}
+# A host that was down at scan time still gets its scan on the next boot.
+Persistent=true
+RandomizedDelaySec={{ docker_housekeeping_trivy_randomized_delay }}
+
+[Install]
+WantedBy=timers.target

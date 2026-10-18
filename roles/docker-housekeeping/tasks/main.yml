@@ -264,6 +264,96 @@
     - docker-housekeeping
     - disk-metrics
 
+# Weekly Trivy scan. Install only: no pull and no scan in the play (see defaults/main.yml).
+- name: housekeeping | trivy scan dependencies are present
+  ansible.builtin.package:
+    name:
+      - jq
+      - curl
+    state: present
+  when: docker_housekeeping_trivy_enabled | bool
+  tags:
+    - docker-housekeeping
+    - trivy
+
+# 0700: the report lists what is exploitable on this host.
+- name: housekeeping | trivy cache directory is private
+  ansible.builtin.file:
+    path: "{{ docker_housekeeping_trivy_cache_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  when: docker_housekeeping_trivy_enabled | bool
+  tags:
+    - docker-housekeeping
+    - trivy
+
+- name: housekeeping | install the trivy scan script
+  ansible.builtin.template:
+    src: trivy-scan.sh.j2
+    dest: /usr/local/bin/trivy-scan.sh
+    owner: root
+    group: root
+    mode: "0755"
+  when: docker_housekeeping_trivy_enabled | bool
+  tags:
+    - docker-housekeeping
+    - trivy
+
+- name: housekeeping | install the trivy scan systemd units
+  ansible.builtin.template:
+    src: "trivy-scan.{{ item }}.j2"
+    dest: "/etc/systemd/system/trivy-scan.{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - service
+    - timer
+  register: trivy_units
+  when: docker_housekeeping_trivy_enabled | bool
+  tags:
+    - docker-housekeeping
+    - trivy
+
+- name: housekeeping | reload systemd for the trivy units
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when:
+    - docker_housekeeping_trivy_enabled | bool
+    - trivy_units is changed
+  tags:
+    - docker-housekeeping
+    - trivy
+
+# Skipped under --check like the other timers: the unit only exists in a live run.
+- name: housekeeping | enable the weekly trivy scan
+  ansible.builtin.systemd:
+    name: trivy-scan.timer
+    enabled: true
+    state: started
+  when:
+    - docker_housekeeping_trivy_enabled | bool
+    - not ansible_check_mode
+  tags:
+    - docker-housekeeping
+    - trivy
+
+# Opting out has to stop the scans already scheduled, not just stop installing them.
+- name: housekeeping | disable the trivy scan when opted out
+  ansible.builtin.systemd:
+    name: trivy-scan.timer
+    enabled: false
+    state: stopped
+  failed_when: false
+  when:
+    - not (docker_housekeeping_trivy_enabled | bool)
+    - not ansible_check_mode
+  tags:
+    - docker-housekeeping
+    - trivy
+
 # Report, don't act. Acting on a full disk mid-play is how the 2026-08-04 outage
 # got worse; the preflight assert in validate-pre-deploy.yml is what stops the
 # deploy. This is here so the operator sees the number in the play output.

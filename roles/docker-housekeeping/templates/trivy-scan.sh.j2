@@ -1,0 +1,228 @@
+#!/bin/bash
+{{ ansible_managed | comment }}
+#
+# Scan the images this host is running for known CVEs and tell the admin -- privately.
+#
+# 2026-10-17: a one-off Trivy run found geonetwork:3.4.4, this repo's default, shipping
+# Log4Shell on a public portal. Nothing had been looking. This is the something.
+#
+#   - Report only. It never stops, pulls over or touches a service container.
+#   - Nothing is published: the report stays in CACHE (0700 root), not behind nginx and
+#     not in Gatus (usually public -- a red "vulnerabilities" check is a map for attackers).
+#   - One mail per change: a CISA KEV (known exploited) CVE not mailed before, or the scan
+#     starting to fail. Same findings next week = silence. A mail that cannot be sent is
+#     not recorded as sent, so the next run tries again.
+#
+# Usage: trivy-scan.sh [--force]   (--force: run even while a deploy is in progress)
+# Exit:  0 scanned (findings or not) or skipped, 1 every image failed to scan.
+
+set -uo pipefail
+
+FORCE=false
+[ "${1:-}" = "--force" ] && FORCE=true
+
+HOST="{{ inventory_hostname }}"
+CACHE="{{ docker_housekeeping_trivy_cache_dir }}"
+IMAGE="{{ docker_housekeeping_trivy_image }}"
+SEVERITY="{{ docker_housekeeping_trivy_severity }}"
+TIMEOUT="{{ docker_housekeeping_trivy_timeout }}"
+DB_REPO="{{ docker_housekeeping_trivy_db_repository }}"
+JAVA_DB_REPO="{{ docker_housekeeping_trivy_java_db_repository }}"
+KEV_URL="{{ docker_housekeeping_trivy_kev_url }}"
+IGNORE_IDS='{{ (docker_housekeeping_trivy_ignore_ids + docker_housekeeping_trivy_ignore_ids_extra) | to_json }}'
+IGNORE_PKGS='{{ (docker_housekeeping_trivy_ignore_pkgs + docker_housekeeping_trivy_ignore_pkgs_extra) | to_json }}'
+MAIL_TO="{{ docker_housekeeping_trivy_mail_to }}"
+MAIL_FROM="{{ docker_housekeeping_trivy_mail_from }}"
+SMTP_HOST="{{ docker_housekeeping_trivy_mail_smtp_host | trim }}"
+SMTP_PORT="{{ docker_housekeeping_trivy_mail_smtp_port | trim }}"
+MAIL_NETWORK="{{ docker_housekeeping_trivy_mail_network }}"
+CURL_IMAGE="{{ docker_housekeeping_trivy_curl_image }}"
+MARKER="{{ docker_housekeeping_deploy_marker }}"
+MARKER_MAX_AGE_MIN="{{ docker_housekeeping_deploy_marker_max_age_min }}"
+
+OUT="$CACHE/out"
+SUMMARY="$CACHE/summary.json"
+STATE="$CACHE/notified.json"
+KEV="$CACHE/kev.json"
+
+log() { echo "trivy-scan: $*"; }
+
+# Same guard as containerd-gc: a deploy is pulling and starting containers, and a scan
+# competing with it for IO and memory is the last thing a tight cluster needs.
+if [ "$FORCE" != true ] && [ -n "$(find "$MARKER" -maxdepth 0 -mmin "-${MARKER_MAX_AGE_MIN}" 2>/dev/null)" ]; then
+  log "a deploy is in progress (${MARKER}); skipping"
+  exit 0
+fi
+
+umask 077
+mkdir -p "$CACHE/db" "$OUT"
+chmod 0700 "$CACHE"
+
+# --- CISA KEV catalog: refresh, else keep the cached copy ----------------------------
+kev_catalog=true
+tmp=$(mktemp "$KEV.XXXXXX")
+if curl -fsSL --max-time 60 "$KEV_URL" -o "$tmp" 2>/dev/null &&
+   jq -e '(.vulnerabilities | length) > 0' "$tmp" >/dev/null 2>&1; then
+  mv -f "$tmp" "$KEV"
+else
+  rm -f "$tmp"
+  if [ -s "$KEV" ]; then
+    log "could not refresh the KEV catalog; using the cached one ($(stat -c %y "$KEV"))"
+  else
+    log "WARNING: no KEV catalog (download failed, none cached); KEV counts will be 0"
+    kev_catalog=false
+    echo '{"vulnerabilities":[]}' > "$KEV"
+  fi
+fi
+
+# --- Scan ----------------------------------------------------------------------------
+db_args=()
+[ -n "$DB_REPO" ] && db_args+=(--db-repository "$DB_REPO")
+[ -n "$JAVA_DB_REPO" ] && db_args+=(--java-db-repository "$JAVA_DB_REPO")
+
+{% raw %}
+mapfile -t images < <(docker ps --format '{{.Image}}' | sort -u)
+total=${#images[@]}
+{% endraw %}
+run_dir=$(mktemp -d "$CACHE/run.XXXXXX")
+failed=0
+for img in "${images[@]}"; do
+  f="$run_dir/$(printf '%s' "$img" | tr -c 'A-Za-z0-9._-' '_').json"
+  if docker run --rm \
+       -v /var/run/docker.sock:/var/run/docker.sock:ro \
+       -v "$CACHE/db:/root/.cache/trivy" \
+       "$IMAGE" image --quiet --image-src docker --scanners vuln \
+       --severity "$SEVERITY" --ignore-unfixed --timeout "$TIMEOUT" \
+       --format json "${db_args[@]}" "$img" > "$f.part" &&
+     jq -e . "$f.part" >/dev/null 2>&1; then
+    mv -f "$f.part" "$f"
+  else
+    failed=$((failed + 1))
+    rm -f "$f.part"
+    log "scan of $img failed"
+  fi
+done
+
+if [ "$total" -gt 0 ] && [ "$failed" -eq "$total" ]; then
+  status=error
+  # Keep the last good report: "the scanner broke" must not read as "all clear".
+  rm -rf "$run_dir"
+elif [ "$failed" -gt 0 ]; then
+  status=partial
+else
+  status=ok
+fi
+if [ "$status" != error ]; then
+  rm -rf "$OUT"
+  mv "$run_dir" "$OUT"
+  chmod 0700 "$OUT"
+fi
+
+# --- Findings ------------------------------------------------------------------------
+shopt -s nullglob
+reports=("$OUT"/*.json)
+shopt -u nullglob
+per_image=$(jq -n --slurpfile kev "$KEV" \
+    --argjson ign_ids "$IGNORE_IDS" --argjson ign_pkgs "$IGNORE_PKGS" '
+  ($kev[0].vulnerabilities // [] | map({key: .cveID, value: true}) | from_entries) as $kevset
+  | [inputs
+     | { image: .ArtifactName,
+         v: [ .Results[]?.Vulnerabilities[]?
+              | select(.VulnerabilityID as $id | $ign_ids | any(. == $id) | not)
+              | select(.PkgName as $p | $ign_pkgs | any(. == $p) | not) ] }
+     | { image,
+         critical_fixable: ([ .v[] | select(.Severity == "CRITICAL") | .VulnerabilityID ] | unique | length),
+         kev: ([ .v[] | select($kevset[.VulnerabilityID])
+                 | { id: .VulnerabilityID, pkg: .PkgName,
+                     installed: .InstalledVersion, fixed: (.FixedVersion // ""),
+                     title: (.Title // "") } ]
+               | unique_by(.id + " " + .pkg)) } ]
+  | sort_by(.image)' "${reports[@]}" </dev/null)
+
+tmp=$(mktemp "$SUMMARY.XXXXXX")
+jq -n --arg status "$status" --arg host "$HOST" \
+      --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      --argjson images "$total" --argjson failed "$failed" \
+      --argjson kev_catalog "$kev_catalog" --argjson per "$per_image" '
+  { status: $status, host: $host, scanned_at: $at, images: $images, failed: $failed,
+    stale: ($status == "error"), kev_catalog: $kev_catalog,
+    critical_fixable: ([ $per[].critical_fixable ] | add // 0),
+    kev: ([ $per[].kev | length ] | add // 0),
+    per_image: $per }' > "$tmp"
+mv -f "$tmp" "$SUMMARY"
+
+kev_count=$(jq -r .kev "$SUMMARY")
+log "status=$status images=$total failed=$failed critical_fixable=$(jq -r .critical_fixable "$SUMMARY") kev=$kev_count report=$OUT"
+
+# --- Mail on change ------------------------------------------------------------------
+current=$(jq -c '[ .per_image[] | .image as $i | .kev[] | "\($i) \(.id)" ] | unique' "$SUMMARY")
+if [ -s "$STATE" ] && jq -e . "$STATE" >/dev/null 2>&1; then
+  prev=$(jq -c '.keys // []' "$STATE")
+  prev_status=$(jq -r '.status // "ok"' "$STATE")
+else
+  prev='[]'
+  prev_status=ok
+fi
+new=$(jq -cn --argjson c "$current" --argjson p "$prev" '$c - $p')
+new_count=$(jq -r length <<<"$new")
+
+save_state() {
+  local t
+  t=$(mktemp "$STATE.XXXXXX")
+  jq -n --argjson keys "$current" --arg status "$status" '{keys: $keys, status: $status}' > "$t"
+  mv -f "$t" "$STATE"
+}
+
+need_mail=false
+[ "$new_count" -gt 0 ] && need_mail=true
+[ "$status" = error ] && [ "$prev_status" != error ] && need_mail=true
+
+if [ "$need_mail" != true ]; then
+  save_state
+elif [ -z "$MAIL_TO" ]; then
+  log "WARNING: ${new_count} new KEV finding(s) / status=${status}, but no recipient (docker_housekeeping_trivy_mail_to is empty)"
+else
+  if [ "$new_count" -gt 0 ]; then
+    subject="[trivy] ${HOST}: ${new_count} new known-exploited CVE(s) in running images"
+  else
+    subject="[trivy] ${HOST}: vulnerability scan is failing"
+  fi
+  msg="$CACHE/mail.txt"
+  {
+    printf 'From: %s\r\nTo: %s\r\nSubject: %s\r\nDate: %s\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n' \
+      "$MAIL_FROM" "$MAIL_TO" "$subject" "$(date -R)"
+    echo "Host: $HOST"
+    echo "Scan: status=$status images=$total failed=$failed at $(jq -r .scanned_at "$SUMMARY")"
+    [ "$status" = error ] && echo "Every image failed to scan; the findings below are from the last good run."
+    [ "$kev_catalog" = false ] && echo "WARNING: no CISA KEV catalog could be downloaded."
+    echo
+    if [ "$new_count" -gt 0 ]; then
+      echo "New known-exploited (CISA KEV) CVEs:"
+      jq -r --argjson new "$new" '
+        .per_image[] | .image as $i | .kev[] | select(("\($i) \(.id)") as $k | $new | any(. == $k))
+        | "  \($i)\n    \(.id)  \(.pkg) \(.installed) -> \(if .fixed == "" then "no fix" else .fixed end)  \(.title)"' "$SUMMARY"
+      echo
+    fi
+    echo "All KEV findings on this host: $kev_count. CRITICAL with a fix: $(jq -r .critical_fixable "$SUMMARY")."
+    echo "Full report (root only): $OUT on $HOST"
+  } > "$msg"
+  chmod 0644 "$msg"   # read by the curl container's non-root user via the bind mount
+
+  rcpt_args=()
+  IFS=', ' read -r -a rcpts <<<"$MAIL_TO"
+  for r in "${rcpts[@]}"; do [ -n "$r" ] && rcpt_args+=(--mail-rcpt "$r"); done
+
+  if docker run --rm --network "$MAIL_NETWORK" -v "$msg:/mail.txt:ro" "$CURL_IMAGE" \
+       --silent --show-error --max-time 60 \
+       --url "smtp://${SMTP_HOST}:${SMTP_PORT}" \
+       --mail-from "$MAIL_FROM" "${rcpt_args[@]}" --upload-file /mail.txt; then
+    log "mailed ${MAIL_TO}: ${subject}"
+    save_state
+  else
+    log "WARNING: could not mail ${MAIL_TO} via ${SMTP_HOST}:${SMTP_PORT} on ${MAIL_NETWORK}; will retry next run"
+  fi
+  rm -f "$msg"
+fi
+
+[ "$status" = error ] && exit 1
+exit 0

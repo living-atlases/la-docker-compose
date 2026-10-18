@@ -52,3 +52,68 @@ docker_housekeeping_journal_max_use: 200M
 docker_housekeeping_metrics_enabled: true
 docker_housekeeping_metrics_interval: 5min
 docker_housekeeping_metrics_dir: "{{ nginx_conf_dir | default(docker_compose_data_dir | default('/data/docker-compose') ~ '/nginx') }}/metrics"
+
+# Weekly CVE scan of the images this host is running (Trivy). 2026-10-17: a manual
+# scan found geonetwork:3.4.4 -- this repo's default -- shipping Log4Shell (log4j-core
+# 2.7 with JndiLookup), public on a production portal for years with nothing looking.
+#
+# Report, never act and never publish:
+#   - the report stays in docker_housekeeping_trivy_cache_dir (0700 root). Nothing is
+#     served by nginx and there is no Gatus check: Gatus is usually public, and a red
+#     "vulnerabilities" endpoint tells an attacker which host to look at;
+#   - the admin gets ONE mail when a CISA KEV (known exploited) CVE appears that was
+#     not mailed before, or when the scan starts failing. Same findings next week: silence;
+#   - nothing is scanned or pulled during the play. An optional download that fails
+#     takes the host out of the play and cascades to the others (#355); the first scan
+#     is the timer's (or the CI's `Trivy scan` stage).
+#
+# Opt out on hosts with no egress to the vulnerability DBs (ghcr.io / mirror.gcr.io), or
+# point the two *_db_repository variables at a mirror.
+docker_housekeeping_trivy_enabled: true
+# By digest, from the official image. The scanner mounts the Docker socket read-only to
+# read local images, which is root-equivalent on the host whatever the :ro says: the
+# digest pin is what makes that acceptable.
+docker_housekeeping_trivy_image: "aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969"
+docker_housekeeping_trivy_db_repository: ""
+docker_housekeeping_trivy_java_db_repository: ""
+# Vulnerability DB + Java DB (needed to see jars in WEB-INF/lib, which is where log4j
+# was) take ~1 GB. Outside /data and /var/lib/docker so CLEAN_MACHINE does not make
+# every CI build download them again.
+docker_housekeeping_trivy_cache_dir: /var/cache/trivy
+# Not on the GC's 02:00, and spread so a cluster does not hit the DB mirrors at once.
+docker_housekeeping_trivy_oncalendar: "Sun *-*-* 04:00:00"
+docker_housekeeping_trivy_randomized_delay: 2h
+# HIGH too: KEV entries are not all CRITICAL. critical_fixable counts CRITICAL only.
+docker_housekeeping_trivy_severity: "HIGH,CRITICAL"
+docker_housekeeping_trivy_timeout: 30m
+docker_housekeeping_trivy_kev_url: "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
+# Findings that do not apply, each with its reason. Matched after the scan, on the CVE id
+# or on the package name.
+docker_housekeeping_trivy_ignore_ids:
+  # Tomcat partial-PUT RCE: needs the default servlet writable (readonly=false), which is
+  # not Tomcat's default and no LA image sets. Hits ~28 LA images.
+  - CVE-2025-24813
+docker_housekeeping_trivy_ignore_pkgs:
+  # Kernel headers inside an image (kartoza/geoserver ships them): the container runs on
+  # the host's kernel, so these are the host's problem, not the image's.
+  - linux-libc-dev
+docker_housekeeping_trivy_ignore_ids_extra: []
+docker_housekeeping_trivy_ignore_pkgs_extra: []
+
+# Who hears about it. Empty recipient = no mail, a warning in the journal instead.
+docker_housekeeping_trivy_mail_to: "{{ support_email | default('') }}"
+docker_housekeeping_trivy_mail_from: "{{ email_sender | default(docker_housekeeping_trivy_mail_to) }}"
+# Sent from a throwaway container on the compose network, because the host itself does
+# not resolve postfix/mailhog. Same resolution as the services' mail_smtp_host
+# (la-compose setup-facts): development -> mailhog:1025, otherwise postfix:25 unless the
+# inventory names an external relay. In production that relay needs TASK-65 done.
+docker_housekeeping_trivy_mail_smtp_host: >-
+  {{ 'mailhog' if (docker_mail_development_mode | default(false) | bool)
+     else ('postfix' if (mail_smtp_host | default('localhost') in ['localhost', '127.0.0.1', 'postfix'])
+     else mail_smtp_host) }}
+docker_housekeeping_trivy_mail_smtp_port: >-
+  {{ 1025 if (docker_mail_development_mode | default(false) | bool)
+     else (25 if (mail_smtp_host | default('localhost') in ['localhost', '127.0.0.1', 'postfix'])
+     else (mail_smtp_port | default(25))) }}
+docker_housekeeping_trivy_mail_network: "la_{{ docker_network | default('internal') }}"
+docker_housekeeping_trivy_curl_image: "curlimages/curl:8.16.0@sha256:463eaf6072688fe96ac64fa623fe73e1dbe25d8ad6c34404a669ad3ce1f104b6"

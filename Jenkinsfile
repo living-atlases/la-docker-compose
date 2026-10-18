@@ -368,6 +368,11 @@ pipeline {
             description: 'Branch or tag of living-atlases/spatial-hub whose e2e/ directory is run by RUN_E2E_SPATIAL.'
         )
         booleanParam(
+            name: 'RUN_TRIVY',
+            defaultValue: true,
+            description: 'Scan every running image on the deployed hosts with Trivy (the same script the weekly host timer runs). Report-only: UNSTABLE on CISA KEV findings or scanner failure, never FAILURE. Reports are archived, never published.'
+        )
+        booleanParam(
             name: 'RUN_E2E',
             defaultValue: true,
             description: 'Run post-deploy verification (Gatus health gate + Cypress smoke). Report-only.'
@@ -698,6 +703,10 @@ EOF
                     # The nightly image GC skips while a deploy is in progress: it fired during
                     # `compose up` in #428 and deleted a just-pulled image. Shimmed docker, ~5s.
                     VENV_MOLECULE="$VENV_MOL" bash scripts/test-containerd-gc-deploy-guard.sh
+
+                    # The weekly Trivy scan reports privately and mails once per new KEV (and
+                    # retries a mail it could not send). Shimmed docker/curl, ~10s.
+                    VENV_MOLECULE="$VENV_MOL" bash scripts/test-trivy-scan.sh
 
                     # Pinned image tags are pulled only when missing, mutable ones every time
                     # (4.4 min of manifest checks per run in #430/#431). Shimmed docker, ~10s.
@@ -1989,6 +1998,67 @@ ENVEOF
                         log: 'gatus-all-gate.log', blocking: params.GATUS_ALL_BLOCKING,
                         failed: 'GATE-FAILED: Gatus reports unhealthy endpoints (all groups) - see the log above.',
                         ok: 'Gatus total green: every endpoint verified.')
+                }
+            }
+        }
+
+        // ----- Trivy CVE scan (RUN_TRIVY, report-only) -----
+        // Runs the SAME /usr/local/bin/trivy-scan.sh the docker-housekeeping role installs for
+        // the weekly timer (via scripts/trivy-ci-collect.sh), so CI and portals share one
+        // implementation. Last on purpose: a scan downloads ~1 GB of DBs on a cold cache and
+        // reads every image, and the health gates above already live on a load-bearing
+        // converge budget. UNSTABLE when a running image carries a CISA KEV CVE, the scanner
+        // fails, or a mail it says it sent never reached mailhog -- never FAILURE, whatever
+        // E2E_BLOCKING says. Reports go to the build's artifacts only, never to Gatus.
+        stage('Trivy scan') {
+            when { expression { params.RUN_TRIVY && env.DO_REDEPLOY == 'true' && params.AUTO_DEPLOY && !params.ONLY_CLEAN } }
+            steps {
+                script {
+                    def hosts = env.TARGET_HOSTS.trim().split(/\s+/)
+                    sh 'rm -rf trivy-reports && mkdir -p trivy-reports'
+                    def jobs = [:]
+                    for (h in hosts) {
+                        def targetHost = h
+                        jobs[targetHost] = {
+                            sh("""
+                                set -eu
+                                d="trivy-reports/${targetHost}"
+                                mkdir -p "\$d"
+                                if [ "${targetHost}" = "localhost" ] || [ "${targetHost}" = "127.0.0.1" ]; then
+                                    bash scripts/trivy-ci-collect.sh | tar -C "\$d" -xf -
+                                else
+                                    ssh ${targetHost} bash -s < scripts/trivy-ci-collect.sh | tar -C "\$d" -xf -
+                                fi
+                            """.stripIndent())
+                        }
+                    }
+                    // A host that cannot be reached is a finding for the summary below, not a FAILURE.
+                    catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') { parallel jobs }
+                    archiveArtifacts artifacts: 'trivy-reports/**', allowEmptyArchive: true
+                    catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
+                        sh '''
+                            set -u
+                            bad=0
+                            printf '%-28s %-8s %6s %5s %4s\n' HOST STATUS IMAGES CRIT KEV
+                            for d in trivy-reports/*/; do
+                                h=$(basename "$d")
+                                rc=$(cat "$d/rc" 2>/dev/null || echo missing)
+                                if [ ! -s "$d/summary.json" ]; then
+                                    printf '%-28s scanner rc=%s, no report\n' "$h" "$rc"; sed 's/^/    /' "$d/scan.log" 2>/dev/null || true
+                                    bad=1; continue
+                                fi
+                                jq -r --arg h "$h" '"\($h)\t\(.status)\t\(.images)\t\(.critical_fixable)\t\(.kev)"' "$d/summary.json" |
+                                    awk -F'\t' '{printf "%-28s %-8s %6s %5s %4s\n", $1, $2, $3, $4, $5}'
+                                jq -r '.per_image[] | .image as $i | .kev[] | "    KEV \(.id)  \($i)  \(.pkg) \(.installed) -> \(.fixed)"' "$d/summary.json"
+                                jq -e '.kev == 0 and .status != "error"' "$d/summary.json" >/dev/null || bad=1
+                                if [ -e "$d/mailhog.json" ] && ! jq -e '.total > 0' "$d/mailhog.json" >/dev/null 2>&1; then
+                                    echo "    the scan mailed, but no [trivy] mail is in mailhog"; bad=1
+                                fi
+                            done
+                            [ "$bad" = 0 ] || { echo "TRIVY: known-exploited CVEs or scanner failures - see above and the trivy-reports artifacts."; exit 1; }
+                            echo "TRIVY: no known-exploited CVEs in the running images."
+                        '''
+                    }
                 }
             }
         }

@@ -415,6 +415,25 @@ matching `CLEAN_HOSTS_ALLOW_REGEX`.
 
 ---
 
+## Vulnerability scanning (Trivy)
+
+Every Docker host gets a weekly CVE scan of the images it is running (`trivy-scan.timer`, from the `docker-housekeeping` role). It is report-only and private:
+
+- The report stays on the host, readable by root only: `/var/cache/trivy/summary.json` and one Trivy JSON per image in `/var/cache/trivy/out/`. Nothing is served by nginx and there is no Gatus check, because Gatus is usually public.
+- The admin (`support_email`) gets one mail when a running image carries a [CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog) (known exploited) CVE that was not mailed before, or when the scan starts failing. The same findings the next week send nothing. The mail goes through the stack's own relay (mailhog in development, postfix otherwise), so in production it needs a working relay (`email_sender_server`).
+- Nothing is pulled or scanned during a deploy, and the scan skips while one is in progress. Run it by hand with `sudo /usr/local/bin/trivy-scan.sh --force`; `journalctl -u trivy-scan` shows each run.
+
+Knobs (inventory or `[all:vars]`):
+
+| Variable | Default | Use |
+|---|---|---|
+| `docker_housekeeping_trivy_enabled` | `true` | `false` on hosts with no egress to the vulnerability DBs |
+| `docker_housekeeping_trivy_db_repository` / `_java_db_repository` | Trivy's | point at a mirror instead of opting out |
+| `docker_housekeeping_trivy_mail_to` | `support_email` | recipients, comma-separated; empty = no mail |
+| `docker_housekeeping_trivy_ignore_ids_extra` / `_ignore_pkgs_extra` | `[]` | findings that do not apply to your portal (say why in a comment) |
+
+The CI runs the same script on its hosts in the `Trivy scan` stage (`RUN_TRIVY`, on by default) and goes UNSTABLE when it finds a KEV; the JSON reports are in the build artifacts.
+
 ## Migrating an existing portal (VMs → Docker)
 
 Moving a Living Atlas that runs on VMs into this deployment means carrying over
