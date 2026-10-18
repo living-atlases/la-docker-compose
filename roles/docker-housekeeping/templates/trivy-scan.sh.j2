@@ -21,7 +21,9 @@ set -uo pipefail
 FORCE=false
 [ "${1:-}" = "--force" ] && FORCE=true
 
-HOST="{{ inventory_hostname }}"
+# The generator names hosts "<machine>.<group>" (gbif-es-docker-cluster-2023-1.docker_compose);
+# the mail subject wants the machine.
+HOST="{{ inventory_hostname | regex_replace('\\.docker_compose$', '') }}"
 CACHE="{{ docker_housekeeping_trivy_cache_dir }}"
 IMAGE="{{ docker_housekeeping_trivy_image }}"
 SEVERITY="{{ docker_housekeeping_trivy_severity }}"
@@ -81,7 +83,7 @@ db_args=()
 [ -n "$DB_REPO" ] && db_args+=(--db-repository "$DB_REPO")
 [ -n "$JAVA_DB_REPO" ] && db_args+=(--java-db-repository "$JAVA_DB_REPO")
 
-# The DBs alone are ~2.5 GB. On a host that is already short of disk, a scan must not be
+# The DBs alone are ~3 GB. On a host that is already short of disk, a scan must not be
 # what pushes it under the pre-deploy disk assert and blocks the next deploy.
 free_gb=$(df --output=avail -B1G "$CACHE" | tail -1 | tr -dc '0-9')
 images=()
