@@ -262,6 +262,39 @@ def spatialPlaywrightSh() {
     """
 }
 
+// Trivy scan stage body, outside pipeline{} like renderSpike(): the declarative block sits
+// at the JVM 64 KB method limit (#479: "Method too large" when it was inline).
+def trivyScan() {
+    def hosts = env.TARGET_HOSTS.trim().split(/\s+/)
+    sh 'rm -rf trivy-reports && mkdir -p trivy-reports'
+    def jobs = [:]
+    for (h in hosts) {
+        def targetHost = h
+        jobs[targetHost] = {
+            sh("""
+                set -eu
+                d="trivy-reports/${targetHost}"
+                mkdir -p "\$d"
+                if [ "${targetHost}" = "localhost" ] || [ "${targetHost}" = "127.0.0.1" ]; then
+                    bash scripts/trivy-ci-collect.sh | tar -C "\$d" -xf -
+                else
+                    ssh ${targetHost} bash -s < scripts/trivy-ci-collect.sh | tar -C "\$d" -xf -
+                fi
+            """.stripIndent())
+        }
+    }
+    // A host that cannot be reached is a finding for the summary below, not a FAILURE.
+    // ~15 images per host and a cold DB cache on a CLEAN_MACHINE build; a hung scan
+    // must not hold the build, and a timeout here is UNSTABLE like any other finding.
+    catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
+        timeout(time: 60, unit: 'MINUTES') { parallel jobs }
+    }
+    archiveArtifacts artifacts: 'trivy-reports/**', allowEmptyArchive: true
+    catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
+        sh 'bash scripts/trivy-ci-summary.sh trivy-reports'
+    }
+}
+
 pipeline {
     agent any
 
@@ -370,7 +403,7 @@ pipeline {
         booleanParam(
             name: 'RUN_TRIVY',
             defaultValue: true,
-            description: 'Scan every running image on the deployed hosts with Trivy (the same script the weekly host timer runs). Report-only: UNSTABLE on CISA KEV findings or scanner failure, never FAILURE. Reports are archived, never published.'
+            description: 'Trivy scan of the running images on every host. UNSTABLE on CISA KEV or scanner failure, never FAILURE.'
         )
         booleanParam(
             name: 'RUN_E2E',
@@ -2012,38 +2045,7 @@ ENVEOF
         // E2E_BLOCKING says. Reports go to the build's artifacts only, never to Gatus.
         stage('Trivy scan') {
             when { expression { params.RUN_TRIVY && env.DO_REDEPLOY == 'true' && params.AUTO_DEPLOY && !params.ONLY_CLEAN } }
-            steps {
-                script {
-                    def hosts = env.TARGET_HOSTS.trim().split(/\s+/)
-                    sh 'rm -rf trivy-reports && mkdir -p trivy-reports'
-                    def jobs = [:]
-                    for (h in hosts) {
-                        def targetHost = h
-                        jobs[targetHost] = {
-                            sh("""
-                                set -eu
-                                d="trivy-reports/${targetHost}"
-                                mkdir -p "\$d"
-                                if [ "${targetHost}" = "localhost" ] || [ "${targetHost}" = "127.0.0.1" ]; then
-                                    bash scripts/trivy-ci-collect.sh | tar -C "\$d" -xf -
-                                else
-                                    ssh ${targetHost} bash -s < scripts/trivy-ci-collect.sh | tar -C "\$d" -xf -
-                                fi
-                            """.stripIndent())
-                        }
-                    }
-                    // A host that cannot be reached is a finding for the summary below, not a FAILURE.
-                    // ~15 images per host and a cold DB cache on a CLEAN_MACHINE build; a hung scan
-                    // must not hold the build, and a timeout here is UNSTABLE like any other finding.
-                    catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
-                        timeout(time: 60, unit: 'MINUTES') { parallel jobs }
-                    }
-                    archiveArtifacts artifacts: 'trivy-reports/**', allowEmptyArchive: true
-                    catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
-                        sh 'bash scripts/trivy-ci-summary.sh trivy-reports'
-                    }
-                }
-            }
+            steps { script { trivyScan() } }
         }
 
         // See renderSpike() above the pipeline.
