@@ -295,6 +295,194 @@ def trivyScan() {
     }
 }
 
+// 'Hot Redeploy Test' stage body, outside pipeline{}: the declarative block is at the JVM 64 KB
+// method limit (#479/#480 "Method too large").
+def hotRedeployTest() {
+    def hosts = env.TARGET_HOSTS.trim().split(/\s+/)
+
+    // --- Phase A: seed canaries, snapshot containers, start nginx probe (per host) ---
+    for (h in hosts) {
+        def targetHost = h
+        sh("""
+            set -eu
+            phase_a=\$(cat <<'EOF'
+            set -eu
+            echo "==> [redeploy-test] Phase A on \$(hostname)"
+            # File canary in /data (outside compose-managed dirs)
+            date -u +%s | sudo tee /data/.redeploy-canary >/dev/null
+            # MySQL canary: own throwaway schema, no app tables touched.
+            # Root password comes from the container env — never leaves the host.
+            if sudo docker ps --format '{{.Names}}' | grep -qx la_mysql; then
+                sudo docker exec la_mysql sh -c 'mysql -uroot -p"\$MYSQL_ROOT_PASSWORD" -e "
+                  CREATE DATABASE IF NOT EXISTS redeploy_canary;
+                  CREATE TABLE IF NOT EXISTS redeploy_canary.t (id INT PRIMARY KEY, ts BIGINT);
+                  REPLACE INTO redeploy_canary.t VALUES (1, UNIX_TIMESTAMP());"'
+                echo "mysql canary seeded"
+            fi
+            # Snapshot running la_* containers: name, immutable ID, and health state.
+            # A container that is UNHEALTHY before the redeploy is allowed to be recreated
+            # (the redeploy heals it: pre-deploy cleanup removes unhealthy la_* and compose
+            # up recreates it fresh), so Phase C enforces a stable ID only for containers
+            # that were NOT unhealthy here.
+            sudo docker ps --filter "name=la_" --format '{{.Names}} {{.ID}}' | while read -r nm cid; do
+                h=\$(sudo docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "\$nm" 2>/dev/null || echo none)
+                echo "\$nm \$cid \$h"
+            done | sort > /tmp/redeploy-before.txt
+            wc -l /tmp/redeploy-before.txt
+            # Availability probe against local nginx (1s cadence) while the redeploy runs.
+            # We classify by curl exit code, NOT just success/fail, to separate the real
+            # contract (did nginx stop ACCEPTING connections? => DOWN) from mere slowness
+            # under the redeploy's CPU storm (image build + up of ~30 containers + restarts
+            # => SLOW). A graceful reload never refuses a connection; a recreate does. So:
+            #   rc 0                -> OK   (served, even a 502 counts as "nginx is up")
+            #   rc 7/28/35/56       -> DOWN (connection refused/reset/SSL handshake failed:
+            #                                nginx not listening = real downtime)
+            #   rc 28 (timeout)     -> SLOW (host saturated but nginx still up; informational)
+            # --max-time 5 gives a wide margin so a slow-but-served request is not miscounted.
+            # Each sample is stamped 'HH:MM:SS CLASS rc' so Phase C can pinpoint WHEN the
+            # refusals happen (during compose up? nginx reload? converge restarts?) and
+            # cross-reference with the playbook timeline.
+            sudo rm -f /tmp/redeploy-probe.stop /tmp/redeploy-probe.log
+            if sudo docker ps --format '{{.Names}}' | grep -qx la_nginx; then
+                nohup bash -c 'while [ ! -f /tmp/redeploy-probe.stop ]; do
+                    curl -sk -o /dev/null --max-time 5 https://127.0.0.1/; rc=\$?
+                    ts=\$(date -u +%H:%M:%S)
+                    case "\$rc" in
+                        0)  echo "\$ts OK 0" ;;
+                        28) echo "\$ts SLOW 28" ;;
+                        *)  echo "\$ts DOWN \$rc" ;;
+                    esac
+                    sleep 1
+                done >> /tmp/redeploy-probe.log' >/dev/null 2>&1 &
+                echo "nginx probe started"
+            fi
+EOF
+            )
+            if [ "${targetHost}" = "localhost" ] || [ "${targetHost}" = "127.0.0.1" ]; then
+                bash -c "\$phase_a"
+            else
+                echo "\$phase_a" | ssh -o BatchMode=yes ${targetHost} bash -s
+            fi
+        """.stripIndent())
+    }
+
+    // --- Phase B: re-run the playbooks, same invocation as 'Run Playbooks', NO cleaning ---
+    def inventoryArg = "-i ${INVENTORY_DIR}/lademo-inventory.ini"
+    if (fileExists("${INVENTORY_DIR}/lademo-local-extras.ini")) {
+        inventoryArg += " -i ${INVENTORY_DIR}/lademo-local-extras.ini"
+    }
+    if (fileExists("${INVENTORY_DIR}/lademo-local-passwords.ini")) {
+        inventoryArg += " -i ${INVENTORY_DIR}/lademo-local-passwords.ini"
+    }
+    // Data hubs: the portal inventory declares their groups empty and only
+    // <pkg>-inventories/<pkg>-inventory.ini fills them, so without these la-compose
+    // resolves no alias and drops the hub (build #397: green, hubs: []).
+    def hubInventoryArg = sh(returnStdout: true,
+        script: "bash '${WORKSPACE}/scripts/hub-inventory-args.sh' '${INVENTORY_PARENT_DIR}' '${INVENTORY_DIR}'").trim()
+    if (hubInventoryArg) {
+        inventoryArg += " " + hubInventoryArg
+        echo "Data hub inventories: ${hubInventoryArg}"
+    }
+    // Same skip list (params + active topology): a different set would
+    // legitimately add/remove services and invalidate the
+    // container-stability assertion below.
+    def skipArg = ''
+    def skipList = []
+    if (params.SKIP_SERVICES?.trim()) { skipList += params.SKIP_SERVICES.tokenize(',') }
+    if (env.TOPOLOGY_SKIP_SERVICES?.trim()) { skipList += env.TOPOLOGY_SKIP_SERVICES.tokenize(',') }
+    skipList = skipList.collect { it.trim() }.findAll { it }.unique()
+    def extraMap = (skipList ? [skip_services: skipList] : [:]) + spatialOverrideVars()
+    if (spatialOverrideVars()) { echo "Spatial overrides: ${spatialOverrideVars()}" }
+    if (extraMap) {
+        skipArg = " --extra-vars '" + groovy.json.JsonOutput.toJson(extraMap) + "'"
+    }
+    sh """
+        set -eu
+        export PATH="${VENV_DIR}/bin:\$PATH"
+        export ANSIBLE_ROLES_PATH="${WORKSPACE}/ala-install/ansible/roles:${WORKSPACE}/roles"
+        export ANSIBLE_FORCE_COLOR=true
+        export ANSIBLE_STDOUT_CALLBACK=yaml
+        export ANSIBLE_HOST_KEY_CHECKING=False
+        # Per-task timings in the log and a top-40 at the end;
+        # scripts/profile-build-log.py reads the same log offline.
+        export ANSIBLE_CALLBACKS_ENABLED=ansible.posix.profile_tasks,ansible.posix.timer
+        export PROFILE_TASKS_TASK_OUTPUT_LIMIT=40
+        echo "[redeploy-test] Re-running site.yml over the live stack (no clean)..."
+        ansible-playbook playbooks/site.yml ${inventoryArg} --limit docker_compose --extra-vars "auto_deploy=true"${skipArg} -v
+    """
+
+    // --- Phase C: assert canaries intact, zero probe failures, stable containers ---
+    for (h in hosts) {
+        def targetHost = h
+        sh("""
+            set -eu
+            phase_c=\$(cat <<'EOF'
+            set -eu
+            echo "==> [redeploy-test] Phase C on \$(hostname)"
+            rc=0
+            # Stop the probe and judge availability
+            sudo touch /tmp/redeploy-probe.stop; sleep 2
+            if [ -f /tmp/redeploy-probe.log ]; then
+                total=\$(wc -l < /tmp/redeploy-probe.log)
+                down=\$(grep -c DOWN /tmp/redeploy-probe.log || true)
+                slow=\$(grep -c SLOW /tmp/redeploy-probe.log || true)
+                echo "nginx probe: \$down down (refused/reset) / \$slow slow (>5s) / \$total samples"
+                # Diagnostic: show WHEN the refusals happened (collapsed to contiguous
+                # windows) so we can line them up against the playbook timeline.
+                if [ "\$down" -gt 0 ]; then
+                    echo "-- DOWN samples (ts CLASS rc) --"
+                    grep DOWN /tmp/redeploy-probe.log
+                    echo "-- probe head/tail --"
+                    head -1 /tmp/redeploy-probe.log; tail -1 /tmp/redeploy-probe.log
+                fi
+                # Only connection refusal/reset counts as downtime — nginx stopped accepting
+                # connections (a recreate/stop). SLOW = host saturated but nginx still serving.
+                if [ "\$down" -gt 0 ]; then echo "FAIL: nginx refused connections during redeploy (\$down samples)"; rc=1; fi
+            fi
+            # File canary
+            if sudo test -f /data/.redeploy-canary; then
+                echo "PASS: file canary preserved"
+            else
+                echo "FAIL: file canary deleted (/data was touched!)"; rc=1
+            fi
+            # MySQL canary
+            if sudo docker ps --format '{{.Names}}' | grep -qx la_mysql; then
+                n=\$(sudo docker exec la_mysql sh -c 'mysql -N -uroot -p"\$MYSQL_ROOT_PASSWORD" -e "SELECT COUNT(*) FROM redeploy_canary.t;"' 2>/dev/null || echo 0)
+                if [ "\$n" = "1" ]; then echo "PASS: mysql canary preserved"; else echo "FAIL: mysql canary lost (count=\$n)"; rc=1; fi
+            fi
+            # Every container that was running AND not-unhealthy BEFORE must still run
+            # with the SAME ID. Containers that were unhealthy before are allowed to be
+            # recreated (the redeploy heals them), so they are skipped here — this keeps
+            # the contract test focused on healthy containers and decouples it from the
+            # OIDC boot-ordering churn (collectory/logger/spatial-hub can boot unhealthy).
+            sudo docker ps --filter "name=la_" --format '{{.Names}} {{.ID}}' | sort > /tmp/redeploy-after.txt
+            while read -r name id health; do
+                if [ "\$health" = "unhealthy" ]; then
+                    echo "SKIP: \$name was unhealthy before redeploy (recreation allowed)"; continue
+                fi
+                if ! grep -q "^\$name \$id\$" /tmp/redeploy-after.txt; then
+                    echo "FAIL: container \$name was recreated or stopped (was \$id)"; rc=1
+                fi
+            done < /tmp/redeploy-before.txt
+            [ "\$rc" -eq 0 ] && echo "PASS: all pre-existing containers untouched"
+            # Cleanup canaries and probe artifacts
+            sudo rm -f /data/.redeploy-canary /tmp/redeploy-probe.stop /tmp/redeploy-probe.log /tmp/redeploy-before.txt /tmp/redeploy-after.txt
+            if sudo docker ps --format '{{.Names}}' | grep -qx la_mysql; then
+                sudo docker exec la_mysql sh -c 'mysql -uroot -p"\$MYSQL_ROOT_PASSWORD" -e "DROP DATABASE IF EXISTS redeploy_canary;"' || true
+            fi
+            exit \$rc
+EOF
+            )
+            if [ "${targetHost}" = "localhost" ] || [ "${targetHost}" = "127.0.0.1" ]; then
+                bash -c "\$phase_c"
+            else
+                echo "\$phase_c" | ssh -o BatchMode=yes ${targetHost} bash -s
+            fi
+        """.stripIndent())
+    }
+    echo "✓ Hot redeploy test passed: no data loss, no nginx downtime, containers stable"
+}
+
 pipeline {
     agent any
 
@@ -1472,193 +1660,7 @@ EOF
         // is broken and must not reach production.
         stage('Hot Redeploy Test') {
             when { expression { params.TEST_REDEPLOY && env.DO_REDEPLOY == 'true' && params.AUTO_DEPLOY && !params.ONLY_CLEAN } }
-            steps {
-                script {
-                    def hosts = env.TARGET_HOSTS.trim().split(/\s+/)
-
-                    // --- Phase A: seed canaries, snapshot containers, start nginx probe (per host) ---
-                    for (h in hosts) {
-                        def targetHost = h
-                        sh("""
-                            set -eu
-                            phase_a=\$(cat <<'EOF'
-                            set -eu
-                            echo "==> [redeploy-test] Phase A on \$(hostname)"
-                            # File canary in /data (outside compose-managed dirs)
-                            date -u +%s | sudo tee /data/.redeploy-canary >/dev/null
-                            # MySQL canary: own throwaway schema, no app tables touched.
-                            # Root password comes from the container env — never leaves the host.
-                            if sudo docker ps --format '{{.Names}}' | grep -qx la_mysql; then
-                                sudo docker exec la_mysql sh -c 'mysql -uroot -p"\$MYSQL_ROOT_PASSWORD" -e "
-                                  CREATE DATABASE IF NOT EXISTS redeploy_canary;
-                                  CREATE TABLE IF NOT EXISTS redeploy_canary.t (id INT PRIMARY KEY, ts BIGINT);
-                                  REPLACE INTO redeploy_canary.t VALUES (1, UNIX_TIMESTAMP());"'
-                                echo "mysql canary seeded"
-                            fi
-                            # Snapshot running la_* containers: name, immutable ID, and health state.
-                            # A container that is UNHEALTHY before the redeploy is allowed to be recreated
-                            # (the redeploy heals it: pre-deploy cleanup removes unhealthy la_* and compose
-                            # up recreates it fresh), so Phase C enforces a stable ID only for containers
-                            # that were NOT unhealthy here.
-                            sudo docker ps --filter "name=la_" --format '{{.Names}} {{.ID}}' | while read -r nm cid; do
-                                h=\$(sudo docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "\$nm" 2>/dev/null || echo none)
-                                echo "\$nm \$cid \$h"
-                            done | sort > /tmp/redeploy-before.txt
-                            wc -l /tmp/redeploy-before.txt
-                            # Availability probe against local nginx (1s cadence) while the redeploy runs.
-                            # We classify by curl exit code, NOT just success/fail, to separate the real
-                            # contract (did nginx stop ACCEPTING connections? => DOWN) from mere slowness
-                            # under the redeploy's CPU storm (image build + up of ~30 containers + restarts
-                            # => SLOW). A graceful reload never refuses a connection; a recreate does. So:
-                            #   rc 0                -> OK   (served, even a 502 counts as "nginx is up")
-                            #   rc 7/28/35/56       -> DOWN (connection refused/reset/SSL handshake failed:
-                            #                                nginx not listening = real downtime)
-                            #   rc 28 (timeout)     -> SLOW (host saturated but nginx still up; informational)
-                            # --max-time 5 gives a wide margin so a slow-but-served request is not miscounted.
-                            # Each sample is stamped 'HH:MM:SS CLASS rc' so Phase C can pinpoint WHEN the
-                            # refusals happen (during compose up? nginx reload? converge restarts?) and
-                            # cross-reference with the playbook timeline.
-                            sudo rm -f /tmp/redeploy-probe.stop /tmp/redeploy-probe.log
-                            if sudo docker ps --format '{{.Names}}' | grep -qx la_nginx; then
-                                nohup bash -c 'while [ ! -f /tmp/redeploy-probe.stop ]; do
-                                    curl -sk -o /dev/null --max-time 5 https://127.0.0.1/; rc=\$?
-                                    ts=\$(date -u +%H:%M:%S)
-                                    case "\$rc" in
-                                        0)  echo "\$ts OK 0" ;;
-                                        28) echo "\$ts SLOW 28" ;;
-                                        *)  echo "\$ts DOWN \$rc" ;;
-                                    esac
-                                    sleep 1
-                                done >> /tmp/redeploy-probe.log' >/dev/null 2>&1 &
-                                echo "nginx probe started"
-                            fi
-EOF
-                            )
-                            if [ "${targetHost}" = "localhost" ] || [ "${targetHost}" = "127.0.0.1" ]; then
-                                bash -c "\$phase_a"
-                            else
-                                echo "\$phase_a" | ssh -o BatchMode=yes ${targetHost} bash -s
-                            fi
-                        """.stripIndent())
-                    }
-
-                    // --- Phase B: re-run the playbooks, same invocation as 'Run Playbooks', NO cleaning ---
-                    def inventoryArg = "-i ${INVENTORY_DIR}/lademo-inventory.ini"
-                    if (fileExists("${INVENTORY_DIR}/lademo-local-extras.ini")) {
-                        inventoryArg += " -i ${INVENTORY_DIR}/lademo-local-extras.ini"
-                    }
-                    if (fileExists("${INVENTORY_DIR}/lademo-local-passwords.ini")) {
-                        inventoryArg += " -i ${INVENTORY_DIR}/lademo-local-passwords.ini"
-                    }
-                    // Data hubs: the portal inventory declares their groups empty and only
-                    // <pkg>-inventories/<pkg>-inventory.ini fills them, so without these la-compose
-                    // resolves no alias and drops the hub (build #397: green, hubs: []).
-                    def hubInventoryArg = sh(returnStdout: true,
-                        script: "bash '${WORKSPACE}/scripts/hub-inventory-args.sh' '${INVENTORY_PARENT_DIR}' '${INVENTORY_DIR}'").trim()
-                    if (hubInventoryArg) {
-                        inventoryArg += " " + hubInventoryArg
-                        echo "Data hub inventories: ${hubInventoryArg}"
-                    }
-                    // Same skip list (params + active topology): a different set would
-                    // legitimately add/remove services and invalidate the
-                    // container-stability assertion below.
-                    def skipArg = ''
-                    def skipList = []
-                    if (params.SKIP_SERVICES?.trim()) { skipList += params.SKIP_SERVICES.tokenize(',') }
-                    if (env.TOPOLOGY_SKIP_SERVICES?.trim()) { skipList += env.TOPOLOGY_SKIP_SERVICES.tokenize(',') }
-                    skipList = skipList.collect { it.trim() }.findAll { it }.unique()
-                    def extraMap = (skipList ? [skip_services: skipList] : [:]) + spatialOverrideVars()
-                    if (spatialOverrideVars()) { echo "Spatial overrides: ${spatialOverrideVars()}" }
-                    if (extraMap) {
-                        skipArg = " --extra-vars '" + groovy.json.JsonOutput.toJson(extraMap) + "'"
-                    }
-                    sh """
-                        set -eu
-                        export PATH="${VENV_DIR}/bin:\$PATH"
-                        export ANSIBLE_ROLES_PATH="${WORKSPACE}/ala-install/ansible/roles:${WORKSPACE}/roles"
-                        export ANSIBLE_FORCE_COLOR=true
-                        export ANSIBLE_STDOUT_CALLBACK=yaml
-                        export ANSIBLE_HOST_KEY_CHECKING=False
-                        # Per-task timings in the log and a top-40 at the end;
-                        # scripts/profile-build-log.py reads the same log offline.
-                        export ANSIBLE_CALLBACKS_ENABLED=ansible.posix.profile_tasks,ansible.posix.timer
-                        export PROFILE_TASKS_TASK_OUTPUT_LIMIT=40
-                        echo "[redeploy-test] Re-running site.yml over the live stack (no clean)..."
-                        ansible-playbook playbooks/site.yml ${inventoryArg} --limit docker_compose --extra-vars "auto_deploy=true"${skipArg} -v
-                    """
-
-                    // --- Phase C: assert canaries intact, zero probe failures, stable containers ---
-                    for (h in hosts) {
-                        def targetHost = h
-                        sh("""
-                            set -eu
-                            phase_c=\$(cat <<'EOF'
-                            set -eu
-                            echo "==> [redeploy-test] Phase C on \$(hostname)"
-                            rc=0
-                            # Stop the probe and judge availability
-                            sudo touch /tmp/redeploy-probe.stop; sleep 2
-                            if [ -f /tmp/redeploy-probe.log ]; then
-                                total=\$(wc -l < /tmp/redeploy-probe.log)
-                                down=\$(grep -c DOWN /tmp/redeploy-probe.log || true)
-                                slow=\$(grep -c SLOW /tmp/redeploy-probe.log || true)
-                                echo "nginx probe: \$down down (refused/reset) / \$slow slow (>5s) / \$total samples"
-                                # Diagnostic: show WHEN the refusals happened (collapsed to contiguous
-                                # windows) so we can line them up against the playbook timeline.
-                                if [ "\$down" -gt 0 ]; then
-                                    echo "-- DOWN samples (ts CLASS rc) --"
-                                    grep DOWN /tmp/redeploy-probe.log
-                                    echo "-- probe head/tail --"
-                                    head -1 /tmp/redeploy-probe.log; tail -1 /tmp/redeploy-probe.log
-                                fi
-                                # Only connection refusal/reset counts as downtime — nginx stopped accepting
-                                # connections (a recreate/stop). SLOW = host saturated but nginx still serving.
-                                if [ "\$down" -gt 0 ]; then echo "FAIL: nginx refused connections during redeploy (\$down samples)"; rc=1; fi
-                            fi
-                            # File canary
-                            if sudo test -f /data/.redeploy-canary; then
-                                echo "PASS: file canary preserved"
-                            else
-                                echo "FAIL: file canary deleted (/data was touched!)"; rc=1
-                            fi
-                            # MySQL canary
-                            if sudo docker ps --format '{{.Names}}' | grep -qx la_mysql; then
-                                n=\$(sudo docker exec la_mysql sh -c 'mysql -N -uroot -p"\$MYSQL_ROOT_PASSWORD" -e "SELECT COUNT(*) FROM redeploy_canary.t;"' 2>/dev/null || echo 0)
-                                if [ "\$n" = "1" ]; then echo "PASS: mysql canary preserved"; else echo "FAIL: mysql canary lost (count=\$n)"; rc=1; fi
-                            fi
-                            # Every container that was running AND not-unhealthy BEFORE must still run
-                            # with the SAME ID. Containers that were unhealthy before are allowed to be
-                            # recreated (the redeploy heals them), so they are skipped here — this keeps
-                            # the contract test focused on healthy containers and decouples it from the
-                            # OIDC boot-ordering churn (collectory/logger/spatial-hub can boot unhealthy).
-                            sudo docker ps --filter "name=la_" --format '{{.Names}} {{.ID}}' | sort > /tmp/redeploy-after.txt
-                            while read -r name id health; do
-                                if [ "\$health" = "unhealthy" ]; then
-                                    echo "SKIP: \$name was unhealthy before redeploy (recreation allowed)"; continue
-                                fi
-                                if ! grep -q "^\$name \$id\$" /tmp/redeploy-after.txt; then
-                                    echo "FAIL: container \$name was recreated or stopped (was \$id)"; rc=1
-                                fi
-                            done < /tmp/redeploy-before.txt
-                            [ "\$rc" -eq 0 ] && echo "PASS: all pre-existing containers untouched"
-                            # Cleanup canaries and probe artifacts
-                            sudo rm -f /data/.redeploy-canary /tmp/redeploy-probe.stop /tmp/redeploy-probe.log /tmp/redeploy-before.txt /tmp/redeploy-after.txt
-                            if sudo docker ps --format '{{.Names}}' | grep -qx la_mysql; then
-                                sudo docker exec la_mysql sh -c 'mysql -uroot -p"\$MYSQL_ROOT_PASSWORD" -e "DROP DATABASE IF EXISTS redeploy_canary;"' || true
-                            fi
-                            exit \$rc
-EOF
-                            )
-                            if [ "${targetHost}" = "localhost" ] || [ "${targetHost}" = "127.0.0.1" ]; then
-                                bash -c "\$phase_c"
-                            else
-                                echo "\$phase_c" | ssh -o BatchMode=yes ${targetHost} bash -s
-                            fi
-                        """.stripIndent())
-                    }
-                    echo "✓ Hot redeploy test passed: no data loss, no nginx downtime, containers stable"
-                }
-            }
+            steps { script { hotRedeployTest() } }
         }
 
         // ----- Airflow ingestion e2e (opt-in via RUN_AIRFLOW_INGEST) -----
