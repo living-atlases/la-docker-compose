@@ -107,17 +107,26 @@ docker_housekeeping_trivy_ignore_pkgs_extra: []
 # Who hears about it. Empty recipient = no mail, a warning in the journal instead.
 docker_housekeeping_trivy_mail_to: "{{ support_email | default('') }}"
 docker_housekeeping_trivy_mail_from: "{{ email_sender | default(docker_housekeeping_trivy_mail_to) }}"
-# Sent from a throwaway container on the compose network, because the host itself does
-# not resolve postfix/mailhog. Same resolution as the services' mail_smtp_host
-# (la-compose setup-facts): development -> mailhog:1025, otherwise postfix:25 unless the
-# inventory names an external relay. In production that relay needs TASK-65 done.
+# The same mail path the portal already uses, sent from a throwaway container on the
+# compose network (the host itself does not resolve postfix/mailhog):
+#   - development: mailhog:1025, like every service;
+#   - production: the relay downloads (biocache, mail_smtp_host) or auth (userdetails,
+#     mail_host) already mail through. Normally that is the postfix container on every
+#     host, relaying via email_sender_server (TASK-65); an external SMTP named in the
+#     inventory is used as-is.
+docker_housekeeping_trivy_mail_external: >-
+  {{ [mail_smtp_host | default(''), mail_host | default('')]
+     | reject('in', ['', 'localhost', '127.0.0.1', 'postfix', 'mailhog']) | list }}
 docker_housekeeping_trivy_mail_smtp_host: >-
   {{ 'mailhog' if (docker_mail_development_mode | default(false) | bool)
-     else ('postfix' if (mail_smtp_host | default('localhost') in ['localhost', '127.0.0.1', 'postfix'])
-     else mail_smtp_host) }}
+     else (docker_housekeeping_trivy_mail_external | first
+           if docker_housekeeping_trivy_mail_external | length > 0 else 'postfix') }}
 docker_housekeeping_trivy_mail_smtp_port: >-
   {{ 1025 if (docker_mail_development_mode | default(false) | bool)
-     else (25 if (mail_smtp_host | default('localhost') in ['localhost', '127.0.0.1', 'postfix'])
-     else (mail_smtp_port | default(25))) }}
+     else (mail_smtp_port | default(25)
+           if (docker_housekeeping_trivy_mail_smtp_host | trim) == (mail_smtp_host | default(''))
+     else (mail_port | default(mail_smtp_port | default(25))
+           if (docker_housekeeping_trivy_mail_smtp_host | trim) == (mail_host | default(''))
+     else 25)) }}
 docker_housekeeping_trivy_mail_network: "la_{{ docker_network | default('internal') }}"
 docker_housekeeping_trivy_curl_image: "curlimages/curl:8.16.0@sha256:463eaf6072688fe96ac64fa623fe73e1dbe25d8ad6c34404a669ad3ce1f104b6"

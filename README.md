@@ -420,7 +420,7 @@ matching `CLEAN_HOSTS_ALLOW_REGEX`.
 Every Docker host gets a weekly CVE scan of the images it is running (`trivy-scan.timer`, from the `docker-housekeeping` role). It is report-only and private:
 
 - The report stays on the host, readable by root only: `/var/cache/trivy/summary.json` and one Trivy JSON per image in `/var/cache/trivy/out/`. Nothing is served by nginx and there is no Gatus check, because Gatus is usually public.
-- The admin (`support_email`) gets one mail when a running image carries a [CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog) (known exploited) CVE that was not mailed before, or when the scan starts failing. The same findings the next week send nothing. The mail goes through the stack's own relay (mailhog in development, postfix otherwise), so in production it needs a working relay (`email_sender_server`).
+- The admin (`support_email`) gets one mail when a running image carries a [CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog) (known exploited) CVE that was not mailed before, or when the scan starts failing. The same findings the next week send nothing. The mail takes the portal's own path: mailhog in development, and in production the relay that download (`mail_smtp_host`) and account (`mail_host`) mails already use — the per-host postfix relaying via `email_sender_server`, or the external SMTP the inventory names.
 - Nothing is pulled or scanned during a deploy, and the scan skips while one is in progress. Run it by hand with `sudo /usr/local/bin/trivy-scan.sh --force`; `journalctl -u trivy-scan` shows each run.
 
 Knobs (inventory or `[all:vars]`):

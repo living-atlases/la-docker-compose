@@ -15,7 +15,9 @@
 #      mapping a local container already has;
 #  10. scripts/trivy-ci-summary.sh (the stage's verdict) fails on KEV, missing report,
 #      unsent mail or mail missing from mailhog, and passes a clean host;
-#  11. a host short of disk skips the scan (report kept, status skipped) and CI flags it.
+#  11. a host short of disk skips the scan (report kept, status skipped) and CI flags it;
+#  12. the mail takes the portal's own path: mailhog in development, the postfix relay in
+#      production, or the external SMTP that downloads/auth already use.
 # ~10s, no Docker, no root, no network.
 set -eu
 cd "$(dirname "$0")/.."
@@ -50,7 +52,7 @@ YML
     -e "docker_housekeeping_trivy_cache_dir=$cache" \
     -e "docker_housekeeping_trivy_mail_to=$2" \
     -e "docker_housekeeping_trivy_mail_from=trivy@example.org" \
-    -e "docker_mail_development_mode=${3:-false}" >"$tmp/render.log" 2>&1 ||
+    -e "docker_mail_development_mode=${3:-false}" ${EXTRA_VARS:-} >"$tmp/render.log" 2>&1 ||
     { cat "$tmp/render.log" >&2; fail "template did not render"; }
 }
 render "$tmp/trivy-scan.sh" "admin@example.org"
@@ -281,4 +283,20 @@ jq '.kev = 0 | .per_image = []' "$r/low/summary.json" >"$r/low/s" && mv "$r/low/
 verdict "$r" && fail "verdict: a skipped scan passes"
 rm -f "$tmp/low-disk"
 pass "a host short of disk skips the scan, keeps the last report, and CI flags it"
+
+# --- 12. mail path ----------------------------------------------------------------------
+smtp_of() { # $1 = label, $2 = development mode; EXTRA_VARS = inventory mail settings
+  render "$tmp/smtp-$1.sh" "admin@example.org" "$2"
+  printf '%s:%s' "$(sed -n 's/^SMTP_HOST="\(.*\)"$/\1/p' "$tmp/smtp-$1.sh")" \
+                 "$(sed -n 's/^SMTP_PORT="\(.*\)"$/\1/p' "$tmp/smtp-$1.sh")"
+}
+got=$(EXTRA_VARS="-e mail_smtp_host=localhost -e mail_smtp_port=25" smtp_of dev true)
+[ "$got" = mailhog:1025 ] || fail "development mails $got, expected mailhog:1025"
+got=$(EXTRA_VARS="-e mail_smtp_host=localhost -e mail_smtp_port=25 -e mail_host=localhost" smtp_of prod false)
+[ "$got" = postfix:25 ] || fail "production with a local relay mails $got, expected postfix:25"
+got=$(EXTRA_VARS="-e mail_smtp_host=smtp.example.org -e mail_smtp_port=2525" smtp_of downloads false)
+[ "$got" = smtp.example.org:2525 ] || fail "production with the downloads SMTP mails $got"
+got=$(EXTRA_VARS="-e mail_smtp_host=localhost -e mail_host=auth-smtp.example.org -e mail_port=587" smtp_of auth false)
+[ "$got" = auth-smtp.example.org:587 ] || fail "production with the auth SMTP mails $got"
+pass "the mail goes where the portal's own mail goes (mailhog, postfix, or the downloads/auth SMTP)"
 echo "All checks passed."
