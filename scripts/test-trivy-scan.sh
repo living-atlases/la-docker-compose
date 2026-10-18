@@ -10,7 +10,12 @@
 #   6. no recipient -> no mail, a warning;
 #   7. KEV catalog download failing -> the cached catalog is used;
 #   8. scripts/trivy-ci-collect.sh (the Jenkins stage's host side) returns rc, log, report
-#      and, when it mailed mailhog, the mailhog search -- and nothing else on stdout.
+#      and, when it mailed mailhog, the mailhog search -- and nothing else on stdout;
+#   9. a relay on another host (one mailhog per cluster) is reached through the extra_hosts
+#      mapping a local container already has;
+#  10. scripts/trivy-ci-summary.sh (the stage's verdict) fails on KEV, missing report,
+#      unsent mail or mail missing from mailhog, and passes a clean host;
+#  11. a host short of disk skips the scan (report kept, status skipped) and CI flags it.
 # ~10s, no Docker, no root, no network.
 set -eu
 cd "$(dirname "$0")/.."
@@ -72,8 +77,14 @@ cat >"$tmp/bin/docker" <<EOF
 #!/bin/bash
 echo "\$*" >>"$tmp/docker-calls"
 case "\$1" in
-  ps) cat "$tmp/ps-images"; exit 0 ;;
+  ps)
+    if [ "\$2" = -q ]; then
+      if [[ "\$*" == *label=* ]]; then [ -e "$tmp/relay-remote" ] || echo relayid; else echo c1; fi
+    else cat "$tmp/ps-images"; fi
+    exit 0 ;;
+  inspect) [ -e "$tmp/relay-remote" ] && printf 'other=10.9.9.9\nmailhog=10.1.2.3\n'; exit 0 ;;
 esac
+if [[ "\$*" == *aquasec/trivy*" clean "* ]]; then exit 0; fi
 if [[ "\$*" == *aquasec/trivy* ]]; then
   [ -e "$tmp/trivy-fail" ] && exit 1
   img="\${@: -1}"
@@ -90,6 +101,11 @@ if [[ "\$*" == *curlimages/curl* ]]; then
 fi
 exit 1
 EOF
+# Free space is faked too: the agent's /tmp must not decide whether the scan runs.
+cat >"$tmp/bin/df" <<EOF
+#!/bin/bash
+echo Avail; [ -e "$tmp/low-disk" ] && echo 1 || echo 100
+EOF
 cat >"$tmp/bin/sudo" <<'EOF'
 #!/bin/bash
 exec "$@"
@@ -100,7 +116,7 @@ cat >"$tmp/bin/curl" <<EOF
 while [ \$# -gt 0 ]; do [ "\$1" = -o ] && { cp "$tmp/fx/kev.json" "\$2"; exit 0; }; shift; done
 exit 2
 EOF
-chmod +x "$tmp/bin/docker" "$tmp/bin/curl" "$tmp/bin/sudo"
+chmod +x "$tmp/bin/docker" "$tmp/bin/curl" "$tmp/bin/sudo" "$tmp/bin/df"
 
 # run <label> <expected exit> [script] [args...]
 run() {
@@ -122,7 +138,8 @@ pass "a deploy in progress (fresh marker) skips the scan"
 
 run force 0 "$tmp/trivy-scan.sh" --force
 grep -q "aquasec/trivy" "$tmp/docker-calls" || fail "--force: no scan"
-[ "$(grep -c aquasec/trivy "$tmp/docker-calls")" = 2 ] || fail "--force: duplicate images not collapsed"
+grep aquasec/trivy "$tmp/docker-calls" | tail -1 | grep -q "clean --scan-cache" || fail "--force: the per-image scan cache is not cleared after the scan"
+[ "$(grep -c "aquasec/trivy.* image " "$tmp/docker-calls")" = 2 ] || fail "--force: duplicate images not collapsed"
 pass "--force scans despite the marker, each running image once"
 rm -f "$marker"
 
@@ -217,4 +234,51 @@ jq -e '.total == 1' "$tmp/c2/mailhog.json" >/dev/null || fail "collector (dev): 
 collect "$tmp/missing-script" "$tmp/c3"
 [ "$(cat "$tmp/c3/rc")" = 127 ] || fail "collector: a host without the scanner is not reported"
 pass "the CI collector returns rc, log, report and the mailhog check as a clean tar"
+
+# --- 9. relay on another host ------------------------------------------------------------
+grep -q -- "--add-host" "$tmp/docker-calls" && fail "relay running here: still forced an /etc/hosts entry"
+touch "$tmp/relay-remote"
+rm -f "$cache/notified.json"
+: >"$tmp/docker-calls"
+run remote-relay 0 "$tmp/trivy-scan-dev.sh"
+grep -q -- "--add-host mailhog:10.1.2.3 .*curlimages/curl" "$tmp/docker-calls" ||
+  fail "relay elsewhere: mailhog mapping not borrowed: $(grep curlimages "$tmp/docker-calls")"
+rm -f "$tmp/relay-remote"
+pass "a relay on another host is reached through a local container's extra_hosts mapping"
+
+# --- 10. CI verdict ---------------------------------------------------------------------
+verdict() { bash scripts/trivy-ci-summary.sh "$1" >"$tmp/verdict" 2>&1; }
+r="$tmp/reports"; mkdir -p "$r/clean"
+echo 0 >"$r/clean/rc"; : >"$r/clean/scan.log"
+echo '{"status":"ok","images":3,"critical_fixable":4,"kev":0,"per_image":[]}' >"$r/clean/summary.json"
+verdict "$r" || { cat "$tmp/verdict" >&2; fail "verdict: a clean host fails the stage"; }
+mkdir -p "$r/kev" && cp "$tmp/c1/summary.json" "$r/kev/" && echo 0 >"$r/kev/rc" && : >"$r/kev/scan.log"
+verdict "$r" && fail "verdict: a KEV passes the stage"
+grep -q "KEV CVE-2021-44228" "$tmp/verdict" || fail "verdict: the KEV is not listed"
+rm -rf "$r/kev"
+mkdir -p "$r/gone" && echo 255 >"$r/gone/rc" && echo "ssh: connection refused" >"$r/gone/scan.log"
+verdict "$r" && fail "verdict: a host without report passes"
+grep -q "connection refused" "$tmp/verdict" || fail "verdict: the host's error is not shown"
+rm -rf "$r/gone"
+echo "trivy-scan: WARNING: could not mail a@b via postfix:25 on la_internal; will retry next run" >"$r/clean/scan.log"
+verdict "$r" && fail "verdict: an unsent mail passes"
+: >"$r/clean/scan.log"; echo '{"total":0}' >"$r/clean/mailhog.json"
+verdict "$r" && fail "verdict: a mail missing from mailhog passes"
+rm -f "$r/clean/mailhog.json"
+verdict "$r" || fail "verdict: clean again but failing"
+pass "the CI verdict fails on KEV, missing report and lost mail, and passes a clean host"
+
+# --- 11. low disk -----------------------------------------------------------------------
+touch "$tmp/low-disk"
+run lowdisk 0
+grep -q "aquasec/trivy" "$tmp/docker-calls" && fail "low disk: still scanned"
+grep -q "skipping the scan" "$tmp/out" || fail "low disk: no warning"
+[ "$(summary .status)" = skipped ] || fail "low disk: status $(summary .status)"
+[ "$(summary .kev)" = 2 ] || fail "low disk: last good findings lost"
+ls "$cache/out/"*.json >/dev/null 2>&1 || fail "low disk: last good report deleted"
+mkdir -p "$r/low" && cp "$cache/summary.json" "$r/low/" && echo 0 >"$r/low/rc" && : >"$r/low/scan.log"
+jq '.kev = 0 | .per_image = []' "$r/low/summary.json" >"$r/low/s" && mv "$r/low/s" "$r/low/summary.json"
+verdict "$r" && fail "verdict: a skipped scan passes"
+rm -f "$tmp/low-disk"
+pass "a host short of disk skips the scan, keeps the last report, and CI flags it"
 echo "All checks passed."

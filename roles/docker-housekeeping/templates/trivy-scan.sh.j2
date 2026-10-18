@@ -37,6 +37,7 @@ SMTP_HOST="{{ docker_housekeeping_trivy_mail_smtp_host | trim }}"
 SMTP_PORT="{{ docker_housekeeping_trivy_mail_smtp_port | trim }}"
 MAIL_NETWORK="{{ docker_housekeeping_trivy_mail_network }}"
 CURL_IMAGE="{{ docker_housekeeping_trivy_curl_image }}"
+MIN_FREE_GB="{{ docker_housekeeping_trivy_min_free_gb }}"
 MARKER="{{ docker_housekeeping_deploy_marker }}"
 MARKER_MAX_AGE_MIN="{{ docker_housekeeping_deploy_marker_max_age_min }}"
 
@@ -80,8 +81,20 @@ db_args=()
 [ -n "$DB_REPO" ] && db_args+=(--db-repository "$DB_REPO")
 [ -n "$JAVA_DB_REPO" ] && db_args+=(--java-db-repository "$JAVA_DB_REPO")
 
+# The DBs alone are ~2.5 GB. On a host that is already short of disk, a scan must not be
+# what pushes it under the pre-deploy disk assert and blocks the next deploy.
+free_gb=$(df --output=avail -B1G "$CACHE" | tail -1 | tr -dc '0-9')
+images=()
+if [ "${free_gb:-0}" -lt "$MIN_FREE_GB" ]; then
+  log "WARNING: only ${free_gb} GB free under ${CACHE} (want >= ${MIN_FREE_GB}); skipping the scan"
+  low_disk=true
+else
+  low_disk=false
 {% raw %}
-mapfile -t images < <(docker ps --format '{{.Image}}' | sort -u)
+  mapfile -t images < <(docker ps --format '{{.Image}}' | sort -u)
+{% endraw %}
+fi
+{% raw %}
 total=${#images[@]}
 {% endraw %}
 run_dir=$(mktemp -d "$CACHE/run.XXXXXX")
@@ -103,7 +116,10 @@ for img in "${images[@]}"; do
   fi
 done
 
-if [ "$total" -gt 0 ] && [ "$failed" -eq "$total" ]; then
+if [ "$low_disk" = true ]; then
+  status=skipped
+  rm -rf "$run_dir"
+elif [ "$total" -gt 0 ] && [ "$failed" -eq "$total" ]; then
   status=error
   # Keep the last good report: "the scanner broke" must not read as "all clear".
   rm -rf "$run_dir"
@@ -112,11 +128,15 @@ elif [ "$failed" -gt 0 ]; then
 else
   status=ok
 fi
-if [ "$status" != error ]; then
+if [ "$status" = ok ] || [ "$status" = partial ]; then
   rm -rf "$OUT"
   mv "$run_dir" "$OUT"
   chmod 0700 "$OUT"
 fi
+
+# The per-image layer cache grows with every new image; the DBs are what is worth keeping.
+[ "$low_disk" = true ] || docker run --rm -v "$CACHE/db:/root/.cache/trivy" "$IMAGE" clean --scan-cache >/dev/null 2>&1 ||
+  log "could not clear the scan cache"
 
 # --- Findings ------------------------------------------------------------------------
 shopt -s nullglob
@@ -145,7 +165,7 @@ jq -n --arg status "$status" --arg host "$HOST" \
       --argjson images "$total" --argjson failed "$failed" \
       --argjson kev_catalog "$kev_catalog" --argjson per "$per_image" '
   { status: $status, host: $host, scanned_at: $at, images: $images, failed: $failed,
-    stale: ($status == "error"), kev_catalog: $kev_catalog,
+    stale: ($status == "error" or $status == "skipped"), kev_catalog: $kev_catalog,
     critical_fixable: ([ $per[].critical_fixable ] | add // 0),
     kev: ([ $per[].kev | length ] | add // 0),
     per_image: $per }' > "$tmp"
@@ -212,7 +232,20 @@ else
   IFS=', ' read -r -a rcpts <<<"$MAIL_TO"
   for r in "${rcpts[@]}"; do [ -n "$r" ] && rcpt_args+=(--mail-rcpt "$r"); done
 
-  if docker run --rm --network "$MAIL_NETWORK" -v "$msg:/mail.txt:ro" "$CURL_IMAGE" \
+  # The relay may run on another host: development has ONE mailhog per cluster, which the
+  # services reach through their extra_hosts. A throwaway container inherits none of that,
+  # so when no container of that compose service runs here, borrow the mapping from one
+  # that has it.
+  add_host=()
+{% raw %}
+  if [ -z "$(docker ps -q --filter "label=com.docker.compose.service=${SMTP_HOST}")" ]; then
+    mapping=$(docker ps -q | xargs -r docker inspect --format '{{range .HostConfig.ExtraHosts}}{{println .}}{{end}}' 2>/dev/null |
+      grep -m1 -E "^${SMTP_HOST}[:=]" | sed "s/=/:/" || true)
+    [ -n "$mapping" ] && add_host=(--add-host "$mapping")
+  fi
+{% endraw %}
+
+  if docker run --rm --network "$MAIL_NETWORK" "${add_host[@]}" -v "$msg:/mail.txt:ro" "$CURL_IMAGE" \
        --silent --show-error --max-time 60 \
        --url "smtp://${SMTP_HOST}:${SMTP_PORT}" \
        --mail-from "$MAIL_FROM" "${rcpt_args[@]}" --upload-file /mail.txt; then

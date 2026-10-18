@@ -2033,31 +2033,14 @@ ENVEOF
                         }
                     }
                     // A host that cannot be reached is a finding for the summary below, not a FAILURE.
-                    catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') { parallel jobs }
+                    // ~15 images per host and a cold DB cache on a CLEAN_MACHINE build; a hung scan
+                    // must not hold the build, and a timeout here is UNSTABLE like any other finding.
+                    catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
+                        timeout(time: 60, unit: 'MINUTES') { parallel jobs }
+                    }
                     archiveArtifacts artifacts: 'trivy-reports/**', allowEmptyArchive: true
                     catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
-                        sh '''
-                            set -u
-                            bad=0
-                            printf '%-28s %-8s %6s %5s %4s\n' HOST STATUS IMAGES CRIT KEV
-                            for d in trivy-reports/*/; do
-                                h=$(basename "$d")
-                                rc=$(cat "$d/rc" 2>/dev/null || echo missing)
-                                if [ ! -s "$d/summary.json" ]; then
-                                    printf '%-28s scanner rc=%s, no report\n' "$h" "$rc"; sed 's/^/    /' "$d/scan.log" 2>/dev/null || true
-                                    bad=1; continue
-                                fi
-                                jq -r --arg h "$h" '"\($h)\t\(.status)\t\(.images)\t\(.critical_fixable)\t\(.kev)"' "$d/summary.json" |
-                                    awk -F'\t' '{printf "%-28s %-8s %6s %5s %4s\n", $1, $2, $3, $4, $5}'
-                                jq -r '.per_image[] | .image as $i | .kev[] | "    KEV \(.id)  \($i)  \(.pkg) \(.installed) -> \(.fixed)"' "$d/summary.json"
-                                jq -e '.kev == 0 and .status != "error"' "$d/summary.json" >/dev/null || bad=1
-                                if [ -e "$d/mailhog.json" ] && ! jq -e '.total > 0' "$d/mailhog.json" >/dev/null 2>&1; then
-                                    echo "    the scan mailed, but no [trivy] mail is in mailhog"; bad=1
-                                fi
-                            done
-                            [ "$bad" = 0 ] || { echo "TRIVY: known-exploited CVEs or scanner failures - see above and the trivy-reports artifacts."; exit 1; }
-                            echo "TRIVY: no known-exploited CVEs in the running images."
-                        '''
+                        sh 'bash scripts/trivy-ci-summary.sh trivy-reports'
                     }
                 }
             }

@@ -76,10 +76,14 @@ docker_housekeeping_trivy_enabled: true
 docker_housekeeping_trivy_image: "aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969"
 docker_housekeeping_trivy_db_repository: ""
 docker_housekeeping_trivy_java_db_repository: ""
-# Vulnerability DB + Java DB (needed to see jars in WEB-INF/lib, which is where log4j
-# was) take ~1 GB. Outside /data and /var/lib/docker so CLEAN_MACHINE does not make
+# Vulnerability DB (~1.5 GB) + Java DB (~0.9 GB; needed to see jars in WEB-INF/lib, which
+# is where log4j was). Outside /data and /var/lib/docker so CLEAN_MACHINE does not make
 # every CI build download them again.
 docker_housekeeping_trivy_cache_dir: /var/cache/trivy
+# Skip the scan (status "skipped" in the report, UNSTABLE in CI) below this much free
+# space: the DBs are ~2.5 GB and a full root disk is what blocks deploys (the pre-deploy
+# disk assert) and took the cluster down on 2026-08-04.
+docker_housekeeping_trivy_min_free_gb: 8
 # Not on the GC's 02:00, and spread so a cluster does not hit the DB mirrors at once.
 docker_housekeeping_trivy_oncalendar: "Sun *-*-* 04:00:00"
 docker_housekeeping_trivy_randomized_delay: 2h

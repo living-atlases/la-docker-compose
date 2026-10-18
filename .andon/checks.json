@@ -182,6 +182,7 @@
         "roles/docker-housekeeping/defaults/main.yml",
         "roles/docker-housekeeping/tasks/main.yml",
         "scripts/trivy-ci-collect.sh",
+        "scripts/trivy-ci-summary.sh",
         "scripts/test-trivy-scan.sh"
       ],
       "run": "VENV_MOLECULE=.venv-molecule bash scripts/test-trivy-scan.sh"

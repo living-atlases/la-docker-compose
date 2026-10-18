@@ -431,6 +431,7 @@ Knobs (inventory or `[all:vars]`):
 | `docker_housekeeping_trivy_db_repository` / `_java_db_repository` | Trivy's | point at a mirror instead of opting out |
 | `docker_housekeeping_trivy_mail_to` | `support_email` | recipients, comma-separated; empty = no mail |
 | `docker_housekeeping_trivy_ignore_ids_extra` / `_ignore_pkgs_extra` | `[]` | findings that do not apply to your portal (say why in a comment) |
+| `docker_housekeeping_trivy_min_free_gb` | `8` | below this much free disk the scan is skipped; its DBs take ~2.5 GB in `/var/cache/trivy` |
 
 The CI runs the same script on its hosts in the `Trivy scan` stage (`RUN_TRIVY`, on by default) and goes UNSTABLE when it finds a KEV; the JSON reports are in the build artifacts.
 

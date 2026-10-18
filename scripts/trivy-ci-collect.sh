@@ -35,7 +35,14 @@ echo "$rc" >"$w/rc"
 sudo tar -C "$cache" -cf - summary.json out 2>/dev/null | tar -C "$w" -xf - 2>/dev/null || true
 
 if grep -q 'trivy-scan: mailed' "$w/scan.log" && [ "$(var SMTP_HOST)" = mailhog ]; then
-  sudo docker run --rm --network "$(var MAIL_NETWORK)" "$(var CURL_IMAGE)" -s --max-time 30 \
+  # Same trick as the scanner's mail: mailhog may live on another host of the cluster.
+  add_host=()
+  if [ -z "$(sudo docker ps -q --filter label=com.docker.compose.service=mailhog)" ]; then
+    mapping=$(sudo docker ps -q | xargs -r sudo docker inspect --format '{{range .HostConfig.ExtraHosts}}{{println .}}{{end}}' 2>/dev/null |
+      grep -m1 -E '^mailhog[:=]' | sed 's/=/:/' || true)
+    [ -n "$mapping" ] && add_host=(--add-host "$mapping")
+  fi
+  sudo docker run --rm --network "$(var MAIL_NETWORK)" "${add_host[@]}" "$(var CURL_IMAGE)" -s --max-time 30 \
     'http://mailhog:8025/api/v2/search?kind=containing&query=%5Btrivy%5D' >"$w/mailhog.json" 2>/dev/null ||
     echo '{"total":0,"error":"mailhog unreachable"}' >"$w/mailhog.json"
 fi
