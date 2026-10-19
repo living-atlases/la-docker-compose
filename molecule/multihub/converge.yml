@@ -644,3 +644,45 @@
         tc22_remote: "{{ nginx_remote_shared_members | selectattr('hostname', 'equalto', 'far-hub.l-a.site') | list }}"
         tc22_paths: "{{ nginx_remote_stub_paths['far-hub.l-a.site'] }}"
         tc22_proxy: "{{ tc22_paths | map(attribute='proxy_pass') | list }}"
+
+    # ------------------------------------------------------------------ TC23
+    # geoserver and geonetwork run java as PID 1 with no init, so nothing reaps the
+    # curl/grep a healthcheck leaves behind when Docker kills it at its timeout: 18
+    # zombies on gbif-es-docker-cluster-2023-2 (Naemon SYSTEM_ZOMBIES critical).
+    # init: true puts tini in front; curl --max-time below the timeout means the probe
+    # ends on its own instead of being killed.
+    - name: "[TC23] Somewhere to render into"
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: -healthcheck-render
+      register: tc23_dir
+
+    - name: "[TC23] Render the java-as-PID-1 services"
+      ansible.builtin.template:
+        src: "../../roles/la-compose/templates/docker-compose/services/{{ item }}.yml.j2"
+        dest: "{{ tc23_dir.path }}/{{ item }}.yml"
+        mode: "0644"
+      vars:
+        data_dir: /data
+        geoserver_image_tag: test
+        geonetwork_image_tag: test
+        geoserver_stable_extensions: ""
+        geonetwork_db_password: test
+        datastore_endpoints: {}
+      loop: [geoserver, geonetwork]
+
+    - name: "[TC23] init on, and the probe gives up before Docker kills it"
+      ansible.builtin.assert:
+        that:
+          - tc23_svc.init is sameas true
+          - "'--max-time 8' in (tc23_svc.healthcheck.test | join(' '))"
+          - tc23_svc.healthcheck.timeout == '10s'
+        fail_msg: "{{ item }}: init={{ tc23_svc.init | default('unset') }} healthcheck={{ tc23_svc.healthcheck }}"
+      vars:
+        tc23_svc: "{{ (lookup('file', tc23_dir.path ~ '/' ~ item ~ '.yml') | from_yaml).services[item] }}"
+      loop: [geoserver, geonetwork]
+
+    - name: "[TC23] Clean up"
+      ansible.builtin.file:
+        path: "{{ tc23_dir.path }}"
+        state: absent

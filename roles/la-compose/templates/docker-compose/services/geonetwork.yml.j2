@@ -14,6 +14,8 @@ services:
       # GeoNetwork data dir (catalogue). Defaults inside the webapp (ephemeral) — bind it out.
       - {{ data_dir }}/geonetwork:/var/lib/geonetwork/data
     restart: unless-stopped
+    # Same as geoserver: java as PID 1 does not reap timed-out healthcheck children.
+    init: true
     expose:
       # HTTP/tomcat port. NOT geonetwork_port — the inventory sets that to the DB port (5432);
       # use a dedicated var so expose/healthcheck don't collide with the postgres port.
@@ -37,7 +39,7 @@ services:
         condition: service_healthy
 {% endif %}
     healthcheck:
-      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:{{ geonetwork_http_port | default('8080') }}/geonetwork/ || exit 1"]
+      test: ["CMD", "sh", "-c", "curl --fail --silent --max-time 8 http://localhost:{{ geonetwork_http_port | default('8080') }}/geonetwork/ || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5

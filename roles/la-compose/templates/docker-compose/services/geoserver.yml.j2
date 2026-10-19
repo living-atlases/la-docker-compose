@@ -13,6 +13,9 @@ services:
       # Static layer files produced by spatial-service; geoserver only reads them.
       - {{ data_dir }}/spatial-data:/data/spatial-data:ro
     restart: unless-stopped
+    # java runs as PID 1 and never reaps: a healthcheck killed at its timeout leaves its curl/grep
+    # as zombies (18 on gbif-es-docker-cluster-2023-2, Naemon SYSTEM_ZOMBIES critical). tini reaps them.
+    init: true
     expose:
       - {{ geoserver_port | default('8080') }}
     environment:
@@ -52,7 +55,7 @@ services:
     healthcheck:
       # /geoserver/web/ redirects (302) to the login page once the context is up. Accept
       # 2xx/3xx/4xx (server up) and fail on refused/5xx; 404 while still deploying the war.
-      test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' http://localhost:{{ geoserver_port | default('8080') }}/geoserver/web/ | grep -qvE '^(000|404|5)'"]
+      test: ["CMD-SHELL", "curl -s --max-time 8 -o /dev/null -w '%{http_code}' http://localhost:{{ geoserver_port | default('8080') }}/geoserver/web/ | grep -qvE '^(000|404|5)'"]
       interval: 30s
       timeout: 10s
       retries: 5
