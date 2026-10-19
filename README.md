@@ -423,6 +423,8 @@ Every Docker host gets a weekly CVE scan of the images it is running (`trivy-sca
 - The admin (`support_email`) gets one mail when a running image carries a [CISA KEV](https://www.cisa.gov/known-exploited-vulnerabilities-catalog) (known exploited) CVE that was not mailed before, or when the scan starts failing. The same findings the next week send nothing. The mail takes the portal's own path: mailhog in development, and in production the relay that download (`mail_smtp_host`) and account (`mail_host`) mails already use — the per-host postfix relaying via `email_sender_server`, or the external SMTP the inventory names.
 - Nothing is pulled or scanned during a deploy, and the scan skips while one is in progress. Run it by hand with `sudo /usr/local/bin/trivy-scan.sh --force`; `journalctl -u trivy-scan` shows each run.
 
+The role ships a short list of findings triaged as not exploitable (`docker_housekeeping_trivy_ignore_image`), each tied to one image and a review date: it applies to every portal running that exact image, and the alert comes back for any other tag or once the date passes.
+
 Knobs (inventory or `[all:vars]`):
 
 | Variable | Default | Use |
@@ -431,6 +433,7 @@ Knobs (inventory or `[all:vars]`):
 | `docker_housekeeping_trivy_db_repository` / `_java_db_repository` | Trivy's | point at a mirror instead of opting out |
 | `docker_housekeeping_trivy_mail_to` | `support_email` | recipients, comma-separated; empty = no mail |
 | `docker_housekeeping_trivy_ignore_ids_extra` / `_ignore_pkgs_extra` | `[]` | findings that do not apply to your portal (say why in a comment) |
+| `docker_housekeeping_trivy_ignore_image_extra` | `[]` | `{image, id, until, reason}`: a CVE triaged as not exploitable in one image, until a review date |
 | `docker_housekeeping_trivy_min_free_gb` | `8` | below this much free disk the scan is skipped; its DBs take ~3 GB in `/var/cache/trivy` |
 
 The CI runs the same script on its hosts in the `Trivy scan` stage (`RUN_TRIVY`, on by default) and goes UNSTABLE when it finds a KEV; the JSON reports are in the build artifacts.

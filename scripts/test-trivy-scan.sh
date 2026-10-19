@@ -17,7 +17,8 @@
 #      unsent mail or mail missing from mailhog, and passes a clean host;
 #  11. a host short of disk skips the scan (report kept, status skipped) and CI flags it;
 #  12. the mail takes the portal's own path: mailhog in development, the postfix relay in
-#      production, or the external SMTP that downloads/auth already use.
+#      production, or the external SMTP that downloads/auth already use;
+#  13. a per-image ignore hides that CVE in that image only, and only until its date.
 # ~10s, no Docker, no root, no network.
 set -eu
 cd "$(dirname "$0")/.."
@@ -299,4 +300,24 @@ got=$(EXTRA_VARS="-e mail_smtp_host=smtp.example.org -e mail_smtp_port=2525" smt
 got=$(EXTRA_VARS="-e mail_smtp_host=localhost -e mail_host=auth-smtp.example.org -e mail_port=587" smtp_of auth false)
 [ "$got" = auth-smtp.example.org:587 ] || fail "production with the auth SMTP mails $got"
 pass "the mail goes where the portal's own mail goes (mailhog, postfix, or the downloads/auth SMTP)"
+
+# --- 13. per-image ignores --------------------------------------------------------------
+kev_with() { # $1 = label, $2 = docker_housekeeping_trivy_ignore_image_extra as JSON
+  printf '{"docker_housekeeping_trivy_ignore_image_extra": %s}\n' "$2" >"$tmp/ign-$1.json"
+  EXTRA_VARS="-e @$tmp/ign-$1.json" render "$tmp/ign-$1.sh" ""
+  run "ignore-$1" 0 "$tmp/ign-$1.sh"
+  summary .kev
+}
+[ "$(kev_with none '[]')" = 2 ] || fail "per-image ignore: baseline kev is not 2"
+got=$(kev_with match '[{"image":"geonetwork:3.4.4-postgres","id":"CVE-2021-44228","until":"2999-01-01","reason":"test"}]')
+[ "$got" = 1 ] || fail "per-image ignore: the matching image+CVE still counts (kev $got)"
+got=$(kev_with prefix '[{"image":"3.4.4-postgres","id":"CVE-2021-44228"}]')
+[ "$got" = 2 ] || fail "per-image ignore: a partial name matched (kev $got)"
+got=$(kev_with other '[{"image":"solr:9.7.0","id":"CVE-2021-44228","until":"2999-01-01"}]')
+[ "$got" = 2 ] || fail "per-image ignore: an entry for another image hid this one (kev $got)"
+got=$(kev_with expired '[{"image":"geonetwork:3.4.4-postgres","id":"CVE-2021-44228","until":"2020-01-01"}]')
+[ "$got" = 2 ] || fail "per-image ignore: an expired entry still hides the CVE (kev $got)"
+got=$(kev_with quote "[{\"image\":\"geonetwork:3.4.4-postgres\",\"id\":\"CVE-2021-44228\",\"reason\":\"it's quoted\"}]")
+[ "$got" = 1 ] || fail "per-image ignore: a quote in the reason broke the script (kev $got)"
+pass "a per-image ignore hides that CVE in that image only, and only until its date"
 echo "All checks passed."

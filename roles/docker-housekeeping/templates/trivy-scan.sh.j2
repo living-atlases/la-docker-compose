@@ -33,6 +33,7 @@ JAVA_DB_REPO="{{ docker_housekeeping_trivy_java_db_repository }}"
 KEV_URL="{{ docker_housekeeping_trivy_kev_url }}"
 IGNORE_IDS='{{ (docker_housekeeping_trivy_ignore_ids + docker_housekeeping_trivy_ignore_ids_extra) | to_json }}'
 IGNORE_PKGS='{{ (docker_housekeeping_trivy_ignore_pkgs + docker_housekeeping_trivy_ignore_pkgs_extra) | to_json }}'
+IGNORE_IMAGE='{{ (docker_housekeeping_trivy_ignore_image + docker_housekeeping_trivy_ignore_image_extra) | map('dict2items') | map('selectattr', 'key', 'in', ['image', 'id', 'until']) | map('items2dict') | list | to_json }}'
 MAIL_TO="{{ docker_housekeeping_trivy_mail_to }}"
 MAIL_FROM="{{ docker_housekeeping_trivy_mail_from }}"
 SMTP_HOST="{{ docker_housekeeping_trivy_mail_smtp_host | trim }}"
@@ -145,11 +146,16 @@ shopt -s nullglob
 reports=("$OUT"/*.json)
 shopt -u nullglob
 per_image=$(jq -n --slurpfile kev "$KEV" \
-    --argjson ign_ids "$IGNORE_IDS" --argjson ign_pkgs "$IGNORE_PKGS" '
+    --argjson ign_ids "$IGNORE_IDS" --argjson ign_pkgs "$IGNORE_PKGS" \
+    --argjson ign_img "$IGNORE_IMAGE" --arg today "$(date -u +%Y-%m-%d)" '
   ($kev[0].vulnerabilities // [] | map({key: .cveID, value: true}) | from_entries) as $kevset
   | [inputs
+     | .ArtifactName as $img
+     | ([ $ign_img[] | select((.until // "9999-12-31") >= $today)
+          | .image as $i | select($img == $i or ($img | endswith("/" + $i))) | .id ]) as $img_ids
      | { image: .ArtifactName,
          v: [ .Results[]?.Vulnerabilities[]?
+              | select(.VulnerabilityID as $id | $img_ids | any(. == $id) | not)
               | select(.VulnerabilityID as $id | $ign_ids | any(. == $id) | not)
               | select(.PkgName as $p | $ign_pkgs | any(. == $p) | not) ] }
      | { image,

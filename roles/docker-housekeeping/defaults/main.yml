@@ -103,6 +103,33 @@ docker_housekeeping_trivy_ignore_pkgs:
   - linux-libc-dev
 docker_housekeeping_trivy_ignore_ids_extra: []
 docker_housekeeping_trivy_ignore_pkgs_extra: []
+# Findings triaged as not exploitable in ONE image (TASK-83, 2026-10-19). Matched on the
+# image as `docker ps` names it (with or without a registry prefix) plus the CVE, and only
+# until `until`: a portal on another tag, or a date past the review, gets the alert again.
+# These ship with the role, so they apply to every portal deployed with this repo, not
+# only to the CI; they hold because the image (and its JVM) is the same everywhere.
+docker_housekeeping_trivy_ignore_image:
+  - image: geonetwork:3.12.12-postgres
+    id: CVE-2022-22965
+    until: "2027-04-19"
+    reason: Spring4Shell needs JDK 9+; the image runs Java 1.8.0_504. Last 3.x; gone with GeoNetwork 4.
+  - image: livingatlases/cas-management:6.5.5-2
+    id: CVE-2022-22965
+    until: "2027-04-19"
+    reason: Executable war (java -jar, embedded Tomcat), not a WAR on a standalone Tomcat as the exploit needs; behind CAS login.
+  - image: livingatlases/sds-webapp2:1.7.1
+    id: CVE-2021-39144
+    until: "2027-04-19"
+    reason: xstream 1.4.9 is a transitive jar; neither sds-webapp2 nor the sds library deserialize request XML with it. Deprecated app (sds-static-home).
+  - image: docker.elastic.co/elasticsearch/elasticsearch:8.10.0
+    id: CVE-2023-44487
+    until: "2027-04-19"
+    reason: libnghttp2 is curl's client library in the image; Elasticsearch does not serve HTTP/2 with it.
+  - image: atlasoflivingaustralia/ala-sensitive-data-service:1.1.1-20210811-3
+    id: CVE-2023-44487
+    until: "2027-04-19"
+    reason: libnghttp2 is curl's client library in the image; Dropwizard/Jetty does not serve HTTP/2 with it.
+docker_housekeeping_trivy_ignore_image_extra: []
 
 # Who hears about it. Empty recipient = no mail, a warning in the journal instead.
 docker_housekeeping_trivy_mail_to: "{{ support_email | default('') }}"
