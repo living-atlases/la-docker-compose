@@ -1,7 +1,7 @@
   # Solr - Search engine for indexing
 services:
   solr:
-    image: solr:{{ solrcloud_version | default('9.4') }}
+    image: solr:{{ solr_image_tag | trim }}
     container_name: la_solr
     profiles: [dbs, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}

@@ -16,7 +16,7 @@ python3 - "$repo" "$tmp/roles/gn/tasks/main.yml" <<'PY'
 import sys, yaml
 repo, out = sys.argv[1:]
 tasks = yaml.safe_load(open(repo + "/roles/la-compose/tasks/generate-compose.yml"))
-guard = [t for t in tasks if "Log4Shell" in str(t.get("name", ""))]
+guard = [t for t in tasks if "Log4Shell" in str(t.get("name", "")) and "geonetwork" in str(t.get("name", ""))]
 assert len(guard) == 1, "geonetwork Log4Shell guard task not found in generate-compose.yml"
 render = {"ansible.builtin.template": {
     "src": repo + "/roles/la-compose/templates/docker-compose/services/geonetwork.yml.j2",

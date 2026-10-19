@@ -7,7 +7,7 @@
   # (see elasticSearch.client.hosts in doi-service-config.yml). Legacy-service-with-its-legacy-dep.
 services:
   doi-elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:{{ doi_elasticsearch_version | default('7.3.2') }}
+    image: docker.elastic.co/elasticsearch/elasticsearch:{{ doi_elasticsearch_version }}
     container_name: {{ doi_elasticsearch_docker_host | default('la_doi-elasticsearch') }}
     # include app-core so it is always present alongside doi-service (which depends_on it); a
     # depends_on to a service absent from the active profile set is a compose config error.

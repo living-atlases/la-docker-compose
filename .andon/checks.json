@@ -87,6 +87,23 @@
     },
     {
       "match": [
+        "roles/la-compose/templates/docker-compose/infrastructure/solr.yml.j2",
+        "roles/la-compose/defaults/main.yml",
+        "roles/la-compose/tasks/generate-compose.yml",
+        "scripts/test-solr-image-tag.sh"
+      ],
+      "run": "bash scripts/test-solr-image-tag.sh"
+    },
+    {
+      "match": [
+        "roles/la-compose/templates/docker-compose/services/sensitive-data-service.yml.j2",
+        "roles/la-compose/templates/docker-compose/services/namematching-service.yml.j2",
+        "scripts/test-published-ports-private.sh"
+      ],
+      "run": "bash scripts/test-published-ports-private.sh"
+    },
+    {
+      "match": [
         "scripts/refresh-biocache-fields.sh",
         "scripts/test-refresh-biocache-fields.sh"
       ],

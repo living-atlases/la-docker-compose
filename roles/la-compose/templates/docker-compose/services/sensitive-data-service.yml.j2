@@ -8,9 +8,13 @@ services:
      # on this index (it needs a newer/atlas-index one). Override sensitive_data_image to use a
      # different build.
      image: {{ sensitive_data_image | default('atlasoflivingaustralia/ala-sensitive-data-service:1.1.1-20210811-3') }}
+     # Service port on the host's PRIVATE address only, like every other published port
+     # (solr, the databases): a bare "port:port" binds 0.0.0.0, and Docker's NAT rules run
+     # before ufw, so on a host with a public IP it was open to the internet. The Dropwizard
+     # admin port (9190: healthcheck, metrics, thread dump, tasks) is not published at all:
+     # the healthcheck below runs inside the container and nothing else uses it.
      ports:
-       - "{{ sensitive_data_service_port }}:9189"
-       - "{{ sensitive_data_admin_port }}:9190"
+       - "{{ host_private_ip }}:{{ sensitive_data_service_port }}:9189"
      environment:
        - JAVA_OPTS=${SENSITIVEDATASERVICE_JAVA_OPTS:--Xmx2g -Xms1g}
      # The image's CMD is a bare `java -jar ...` that never reads JAVA_OPTS: the JVM ran with

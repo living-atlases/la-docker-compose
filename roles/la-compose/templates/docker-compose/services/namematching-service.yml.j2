@@ -3,9 +3,13 @@ services:
      container_name: la_namematching_service
      profiles: [app-core, full]
      image: {% set svc_reg = namematching_registry | default(docker_registry | default('')) %}{{ svc_reg }}{% if svc_reg %}/{% endif %}ala-namematching-server:{{ namematching_docker_tag | default('latest') }}
+     # Service port on the host's PRIVATE address only, like every other published port
+     # (solr, the databases): a bare "port:port" binds 0.0.0.0, and Docker's NAT rules run
+     # before ufw, so on a host with a public IP it was open to the internet. The Dropwizard
+     # admin port (9180: healthcheck, metrics, thread dump, tasks) is not published at all:
+     # the healthcheck below runs inside the container and nothing else uses it.
      ports:
-       - "{{ namematching_service_port }}:9179"
-       - "{{ namematching_admin_port }}:9180"
+       - "{{ host_private_ip }}:{{ namematching_service_port }}:9179"
      environment:
        - JAVA_OPTS=${NAMEMATCHINGSERVICE_JAVA_OPTS:--Xmx2g -Xms1g}
      # The published image freezes `java -Xmx2g -Xms2g ...` into its CMD, so JAVA_OPTS alone

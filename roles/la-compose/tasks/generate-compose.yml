@@ -3499,6 +3499,22 @@
     - geoserver
     - docker-compose
 
+# Say it out loud when the inventory's Solr pin is swapped for the patched 8.x image (see
+# the Solr block in defaults/main.yml): the running version differs from the inventory.
+- name: Report Solr pins replaced by the patched 8.x image (Log4Shell)
+  ansible.builtin.debug:
+    msg: >-
+      solrcloud_version={{ solrcloud_version }} ships a log4j with Log4Shell; running
+      solr:{{ solr_image_tag | trim }} instead (same major, indexes open as they are).
+      Set solr_image_tag in the inventory to force an exact image.
+  when:
+    - "'solrcloud' in services_enabled or 'solr' in services_enabled"
+    - solrcloud_version is defined
+    - (solr_image_tag | trim) != (solrcloud_version | string)
+  tags:
+    - solr
+    - docker-compose
+
 # An inventory pin to an older geonetwork image would bring Log4Shell back (see the
 # GeoNetwork block in defaults/main.yml). Non-numeric tags (latest, digests) are not judged.
 - name: Refuse geonetwork images older than geonetwork_min_image_version (Log4Shell)

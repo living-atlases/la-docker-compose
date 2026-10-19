@@ -761,6 +761,36 @@ geoserver_image_tag: "{{ geoserver_version | default(la_compose_geoserver_role_d
 geoserver_stable_extensions: "{{ geoserver_extension_urls | default(la_compose_geoserver_role_defaults.geoserver_extension_urls) | map('regex_replace', '^.*-([a-z0-9]+-plugin)\\.zip$', '\\1') | select('match', '^[a-z0-9]+-plugin$') | join(',') }}"
 
 # ============================================
+# Solr image
+# ============================================
+# The tag comes from the inventory's solrcloud_version (the generator / la-toolkit pin,
+# 8.9.0 on most portals). Solr 8.0-8.11.0 ship log4j-core 2.11-2.13 with JndiLookup
+# (Log4Shell, CVE-2021-44228/45046, CISA KEV), and Solr logs every query's params -- the
+# q that biocache-ws, bie and lists pass on from the user -- so it is the one KEV with a
+# public path into it. The official 8.9.0 image happens to set
+# -Dlog4j2.formatMsgNoLookups=true; nothing in this repo does, and another tag or a
+# custom image would not. 8.11.4 (log4j 2.17) is the same major on the same Java 11:
+# the biocache Solr 8 schema and the existing indexes open as they are, no reindex.
+# So a vulnerable 8.x pin runs as solr_patched_8x_tag instead (generate-compose.yml
+# says so). Solr 9 is not a drop-in (the vendored biocache schema is Solr 8). To run an
+# exact image anyway, set solr_image_tag in the inventory.
+solr_patched_8x_tag: "8.11.4"
+solr_image_tag: >-
+  {%- set v = solrcloud_version | default('9.4') | string -%}
+  {%- set n = v | regex_search('^[0-9]+([.][0-9]+)+') or '' -%}
+  {{ solr_patched_8x_tag if (n != '' and n is version('8.0', '>=') and n is version('8.11.1', '<')) else v }}
+
+# ============================================
+# doi-service's Elasticsearch 7 sidecar
+# ============================================
+# 7.3.2 (the old default) ships log4j-core 2.11.1 (Log4Shell, CVE-2021-44228/45046, CISA
+# KEV); its bundled JDK and security manager stop the RCE, not a DNS leak. 7.17.x is the
+# last 7.x (log4j 2.17+). Same major: the TransportClient in doi-service is wire-compatible
+# with any 7.x node (and 6.8+), include_type_name is still accepted, and a 7.3 data
+# directory opens in 7.17 in place.
+doi_elasticsearch_version: "7.17.29"
+
+# ============================================
 # GeoNetwork image
 # ============================================
 # 3.4.4-postgres (the old default, and the WAR ala-install still pins for VMs) ships
