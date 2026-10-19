@@ -805,3 +805,9 @@ doi_elasticsearch_version: "7.17.29"
 # geonetwork_min_image_version.
 geonetwork_image_tag: "3.12.12-postgres"
 geonetwork_min_image_version: "3.12.12"
+# GeoNetwork is not published by default: no ALA code reads it (spatial-service only carries
+# an empty layers_store.GEONETWORK_URL) and an exposed catalogue is attack surface for
+# nothing (2026-10-19: espacial.gbif.es still served 3.4.4 with Log4Shell). The container
+# runs on the internal network; set geonetwork_public: true to register its nginx vhost
+# (<geonetwork_hostname>/geonetwork) for portals that publish a metadata catalogue.
+geonetwork_public: false

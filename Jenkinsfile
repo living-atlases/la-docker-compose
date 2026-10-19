@@ -895,6 +895,8 @@ EOF
                     bash scripts/test-geoserver-url-check.sh
                     # geonetwork < 3.12.12 ships log4j 2.7 + JndiLookup (Log4Shell): default and pin guard.
                     ANSIBLE_PLAYBOOK="$VENV_MOL/bin/ansible-playbook" bash scripts/test-geonetwork-image-tag.sh
+                    # GeoNetwork stays off the public vhost unless geonetwork_public is true.
+                    ANSIBLE_PLAYBOOK="$VENV_MOL/bin/ansible-playbook" bash scripts/test-geonetwork-public.sh
 
                     # Solr 8 < 8.11.1 ships Log4Shell and logs every user query: a vulnerable 8.x pin must
                     # render as the patched 8.x image. Real template + role defaults, ~15s.

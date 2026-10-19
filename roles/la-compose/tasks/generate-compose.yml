@@ -2055,6 +2055,23 @@
   when:
     - "'geonetwork' in services_enabled"
     - "geonetwork_hostname is defined"
+    - "geonetwork_public | default(false) | bool"
+  tags:
+    - geonetwork
+    - config
+    - nginx_vhost
+    - docker-compose
+
+- name: Report geonetwork kept off the public vhost (geonetwork_public is false)
+  ansible.builtin.debug:
+    msg: >-
+      GeoNetwork runs on the internal network only: {{ geonetwork_hostname }}{{ geonetwork_context_path | default('/geonetwork') }}
+      is not published (geonetwork_public defaults to false since no ALA code uses it).
+      Set geonetwork_public=true in the inventory if this portal publishes a metadata catalogue.
+  when:
+    - "'geonetwork' in services_enabled"
+    - "geonetwork_hostname is defined"
+    - "not (geonetwork_public | default(false) | bool)"
   tags:
     - geonetwork
     - config

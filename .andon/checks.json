@@ -87,6 +87,14 @@
     },
     {
       "match": [
+        "roles/la-compose/tasks/generate-compose.yml",
+        "roles/la-compose/defaults/main.yml",
+        "scripts/test-geonetwork-public.sh"
+      ],
+      "run": "bash scripts/test-geonetwork-public.sh"
+    },
+    {
+      "match": [
         "roles/la-compose/templates/docker-compose/infrastructure/solr.yml.j2",
         "roles/la-compose/defaults/main.yml",
         "roles/la-compose/tasks/generate-compose.yml",
