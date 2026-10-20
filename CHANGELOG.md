@@ -10,6 +10,46 @@ edit by hand, write the notes in the annotated tag instead.
 
 ## Unreleased
 
+Nothing yet.
+
+<a name="v1.12.0"></a>
+
+## v1.12.0 - 2026-10-20
+
+**green CI build #484 (89/89 tests, Cypress 83 passing, Gatus 136/136 healthy, Trivy 0 KEV)**
+
+Vulnerability scanning by default, and the known-exploited CVEs it found in the default images fixed or triaged.
+
+Trivy runs weekly on every docker host (docker-housekeeping role, systemd timer) and as the CI `Trivy scan` stage (RUN_TRIVY, UNSTABLE on a CISA KEV, never FAILURE). Reports stay root-only on the host; nothing is served by nginx or Gatus. A new KEV, or a failing scan, mails support_email once through the portal's own mail path (mailhog in dev, the downloads/auth relay in production). Triaged findings are ignored per image with a review date (docker_housekeeping_trivy_ignore_image, plus *_extra for a portal's own).
+
+Fixes found by the scan: Solr pins 8.0-8.11.0 run 8.11.4 (Log4Shell), doi's Elasticsearch 7.3.2 -> 7.17.29, GeoNetwork defaults to 3.12.12-postgres and refuses Log4Shell tags, namematching/SDS ports bound to the private IP only (admin ports no longer published). Also: <service>_extra_java_opts, and init: true on geoserver/geonetwork so healthchecks leave no zombies.
+
+BREAKING: GeoNetwork is no longer published by default. Portals that expose their catalogue must set geonetwork_public=true in the inventory.
+
+### Commits (15 since v1.11.5)
+
+#### Features
+
+- **geonetwork**: not published by default (geonetwork_public) ([2f962dd](https://github.com/living-atlases/la-docker-compose/commit/2f962dd6737ec7d4c439fc86742c8d0e73dabb0f))
+- **trivy**: per-image ignores with a review date for triaged KEVs ([b551fe4](https://github.com/living-atlases/la-docker-compose/commit/b551fe4f24659a1ad30d1b647768d1cdf291e0d1))
+- **housekeeping**: weekly Trivy scan by default, mailed not published ([db057be](https://github.com/living-atlases/la-docker-compose/commit/db057be059d7e8abaad5e3be45625e512dcc8a39))
+- **env**: <service>_extra_java_opts, appended last to its JAVA_OPTS ([a185153](https://github.com/living-atlases/la-docker-compose/commit/a185153acab5459c4098f55d6b91b7cbe2c6107d))
+
+#### Fixes
+
+- **geoserver,geonetwork**: init: true and curl --max-time so healthchecks leave no zombies ([e380ce3](https://github.com/living-atlases/la-docker-compose/commit/e380ce312c7f51864777fdb9d5cf2cc00bfa14ca))
+- **security**: Solr 8.11.4 for Log4Shell pins, doi ES 7.17, private ports ([e275c0c](https://github.com/living-atlases/la-docker-compose/commit/e275c0c6808388f56d2981f182ad18d6e3b10e66))
+- **trivy**: machine name in the mail subject; DBs are ~3 GB ([a4a0d06](https://github.com/living-atlases/la-docker-compose/commit/a4a0d06a8564c0b1d40a6fd0cdadd7f746c4af83))
+- **ci**: Hot Redeploy Test body outside pipeline{} for headroom ([702f1ce](https://github.com/living-atlases/la-docker-compose/commit/702f1ce3bfc661c2f4f9c9dd1acf8a1e8345b519))
+- **ci**: Trivy stage body outside pipeline{} (#479 Method too large) ([a7c44d1](https://github.com/living-atlases/la-docker-compose/commit/a7c44d130eb6e12623db1a6f9057eabffcaf88e5))
+- **trivy**: mail through the portal's own relay (downloads or auth SMTP) ([969442d](https://github.com/living-atlases/la-docker-compose/commit/969442da2c65c5dc040dd7c8b463e4d5a21876b7))
+- **trivy**: parseable Jenkins stage, remote relay, low-disk guard ([e686c0f](https://github.com/living-atlases/la-docker-compose/commit/e686c0f3472076901303461f67246b25df4e7b51))
+- **geonetwork**: default 3.12.12-postgres, refuse Log4Shell tags ([ed36803](https://github.com/living-atlases/la-docker-compose/commit/ed36803c86b7e45e004f0fcee2eb4627ec603873))
+
+#### Documentation
+
+- **changelog**: v1.11.5 ([d14d854](https://github.com/living-atlases/la-docker-compose/commit/d14d8547e86238513fd41b429fe71365ad415f95))
+
 #### Other changes
 
 - e2e(spatial): the hub proxies the species lists ([a085ca7](https://github.com/living-atlases/la-docker-compose/commit/a085ca77642be37c084c9b61467f7c205f809557))
