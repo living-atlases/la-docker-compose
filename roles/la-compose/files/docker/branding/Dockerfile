@@ -6,8 +6,8 @@
 # ============================================
 # GLOBAL BUILD ARGUMENTS
 # ============================================
-ARG NODE_VERSION=18
-ARG NGINX_VERSION=1.27-alpine
+ARG NODE_VERSION=22
+ARG NGINX_VERSION=1.30-alpine
 ARG BUILD_SOURCE=local
 ARG GIT_URL=""
 ARG GIT_REF=master
@@ -16,7 +16,7 @@ ARG TARGET=production
 # ============================================
 # Stage 1: Source from local directory
 # ============================================
-FROM alpine:3.19 AS source-local
+FROM alpine:3.22 AS source-local
 
 WORKDIR /source
 
@@ -31,7 +31,7 @@ RUN echo "✅ Using local source" && \
 # ============================================
 # Stage 2: Source from git repository
 # ============================================
-FROM alpine:3.19 AS source-git
+FROM alpine:3.22 AS source-git
 
 ARG GIT_URL
 ARG GIT_REF

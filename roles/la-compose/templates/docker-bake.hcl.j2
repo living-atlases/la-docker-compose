@@ -9,7 +9,7 @@
 # hubs produces exactly the single-target file it produced before.
 
 variable "NODE_VERSION" {
-  default = "{{ branding_node_version | default('18') }}"
+  default = "{{ branding_node_version | default('22') }}"
 }
 
 {% for b in (branding_render_list | default([{'suffix': '', 'source': branding_source | default(''), 'is_git': branding_is_git_url | default(false), 'build_source': branding_build_source | default('local'), 'git_ref': branding_git_ref | default('HEAD'), 'version': branding_version | default('latest')}])) %}

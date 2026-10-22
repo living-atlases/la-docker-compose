@@ -339,7 +339,7 @@ nginx_access_log: "/var/log/nginx/access.log main"
 use_branding: "{{ branding_source is defined and branding_source is not none }}"
 branding_source: null
 branding_url: "branding"
-branding_node_version: "18"
+branding_node_version: "22"
 branding_version: "latest"
 # HEAD, not a branch name: the git module resolves it to the remote's default
 # branch, and living-atlases/base-branding (and any branding forked from it after

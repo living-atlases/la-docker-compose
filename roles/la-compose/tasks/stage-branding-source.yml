@@ -342,7 +342,7 @@
     branding_build_inputs: >-
       {{ lookup('ansible.builtin.file', 'docker/branding/Dockerfile') | hash('sha1') }}
       {{ lookup('ansible.builtin.file', 'docker/branding/nginx.conf') | hash('sha1') }}
-      node={{ branding_node_version | default('18') }}
+      node={{ branding_node_version | default('22') }}
       source={{ branding_build_source | default('local') }}
       {{ (inst_branding_source ~ '@' ~ (branding_git_ref | default('HEAD'))) if branding_is_git_url | default(false) else '' }}
   register: branding_src_hash
