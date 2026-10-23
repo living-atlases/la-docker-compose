@@ -295,6 +295,34 @@ def trivyScan() {
     }
 }
 
+// Runs in the 'Trivy scan' stage after trivyScan(), under RUN_TRIVY: a stage and a parameter
+// of its own would grow pipeline{}, which sits at the JVM 64 KB method limit (#479).
+// Every running container on every host: system bundle, JVM cacerts and Node roots must not
+// hold a root distrusted after a CA compromise (eMudhra, 2026-10-17). UNSTABLE, never FAILURE:
+// third-party base images can lag behind the distro fix for days.
+def caDistrustCheck() {
+    def hosts = env.TARGET_HOSTS.trim().split(/\s+/)
+    sh 'rm -rf ca-distrust && mkdir -p ca-distrust'
+    for (h in hosts) {
+        def targetHost = h
+        // An unreachable host is UNSTABLE, like in trivyScan(); its missing report shows below.
+        catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
+            sh("""
+                set -eu
+                if [ "${targetHost}" = "localhost" ] || [ "${targetHost}" = "127.0.0.1" ]; then
+                    bash scripts/ca-distrust-ci-collect.sh > "ca-distrust/${targetHost}.tsv"
+                else
+                    ssh ${targetHost} bash -s < scripts/ca-distrust-ci-collect.sh > "ca-distrust/${targetHost}.tsv"
+                fi
+            """.stripIndent())
+        }
+    }
+    archiveArtifacts artifacts: 'ca-distrust/**', allowEmptyArchive: true
+    catchError(buildResult: 'UNSTABLE', stageResult: 'UNSTABLE') {
+        sh 'bash scripts/ca-distrust-ci-summary.sh ca-distrust'
+    }
+}
+
 // 'Hot Redeploy Test' stage body, outside pipeline{}: the declarative block is at the JVM 64 KB
 // method limit (#479/#480 "Method too large").
 def hotRedeployTest() {
@@ -938,6 +966,10 @@ EOF
                     # The weekly Trivy scan reports privately and mails once per new KEV (and
                     # retries a mail it could not send). Shimmed docker/curl, ~10s.
                     VENV_MOLECULE="$VENV_MOL" bash scripts/test-trivy-scan.sh
+
+                    # No running container may trust a root distrusted after a CA compromise
+                    # (eMudhra). Shimmed docker, ~2s.
+                    bash scripts/test-ca-distrust.sh
 
                     # Pinned image tags are pulled only when missing, mutable ones every time
                     # (4.4 min of manifest checks per run in #430/#431). Shimmed docker, ~10s.
@@ -2055,9 +2087,10 @@ ENVEOF
         // converge budget. UNSTABLE when a running image carries a CISA KEV CVE, the scanner
         // fails, or a mail it says it sent never reached mailhog -- never FAILURE, whatever
         // E2E_BLOCKING says. Reports go to the build's artifacts only, never to Gatus.
+        // Then caDistrustCheck(): no image may trust a root distrusted after a CA compromise.
         stage('Trivy scan') {
             when { expression { params.RUN_TRIVY && env.DO_REDEPLOY == 'true' && params.AUTO_DEPLOY && !params.ONLY_CLEAN } }
-            steps { script { trivyScan() } }
+            steps { script { trivyScan(); caDistrustCheck() } }
         }
 
         // See renderSpike() above the pipeline.
