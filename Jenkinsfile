@@ -55,6 +55,15 @@ def gatusGate(Map o) {
     }
 }
 
+// A CLEAN_MACHINE build pulls every image again (la_compose_pull_policy=always): the clean
+// keeps images for speed, and a pinned tag is otherwise only pulled when missing, so a tag
+// re-pushed on Docker Hub (a rebuild for a CA distrust, a base-image fix) never reached CI:
+// #490 deployed an August biocache-service:3.8.1 that the 2026-10-23 rebuild had replaced.
+// Costs the ~4 min of manifest checks per run that build-images.yml otherwise saves.
+def cleanPullVars() {
+    return params.CLEAN_MACHINE ? [la_compose_pull_policy: 'always'] : [:]
+}
+
 // ----- Render spike (opt-in via RENDER_SPIKE) -----
 // Can Ansible render a portal without deploying it? Renders every docker_compose host into a
 // throwaway container on the agent (scripts/bundle/render.sh + playbooks/bundle-render.yml),
@@ -1513,7 +1522,7 @@ EOF
                     if (params.SKIP_SERVICES?.trim()) { skipList += params.SKIP_SERVICES.tokenize(',') }
                     if (env.TOPOLOGY_SKIP_SERVICES?.trim()) { skipList += env.TOPOLOGY_SKIP_SERVICES.tokenize(',') }
                     skipList = skipList.collect { it.trim() }.findAll { it }.unique()
-                    def extraMap = (skipList ? [skip_services: skipList] : [:]) + spatialOverrideVars()
+                    def extraMap = (skipList ? [skip_services: skipList] : [:]) + spatialOverrideVars() + cleanPullVars()
                     if (spatialOverrideVars()) { echo "Spatial overrides: ${spatialOverrideVars()}" }
                     if (extraMap) {
                         skipArg = " --extra-vars '" + groovy.json.JsonOutput.toJson(extraMap) + "'"
