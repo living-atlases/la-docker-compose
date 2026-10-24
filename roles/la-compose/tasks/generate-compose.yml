@@ -3292,6 +3292,16 @@
     # otherwise working host. A first install still fails loudly if they cannot be fetched,
     # which is right: without them no ingest can interpret anything.
     #
+    # Since AtlasOfLivingAustralia/pipelines#19 (feature/ala-upgrade, 2026-09-16) the
+    # interpret stage reads EIGHT vocabularies (la-pipelines.yaml vocabulariesNames):
+    # the four above plus TypeStatus and Sex, fetched the same way, and EventType and
+    # OccurrenceStatus, which the GBIF API has no release of (releases/latest 404s).
+    # Those two are vendored from that repo's test resources (files/pipelines-vocabularies,
+    # at 1abbf5d9f), as upstream's own tools/download-latest-vocabs.sh leaves them out.
+    # A missing one fails interpretation of every dataset ("The vocabulary file doesn't
+    # exist - .../TypeStatus.json", la-docker-compose-tests #488); extra files are
+    # harmless to older pipelines images.
+    #
     # Two steps, because ala-install's one-shot URL is dead: .../releases/latest/export
     # now 404s. The current API returns release METADATA at .../releases/latest, carrying
     # an `exportUrl` pinned to a concrete version (.../releases/1.0.3/export). Resolve it,
@@ -3313,6 +3323,8 @@
         - DegreeOfEstablishment
         - EstablishmentMeans
         - Pathway
+        - TypeStatus
+        - Sex
       tags:
         - pipelines
         - la-pipelines-config
@@ -3333,6 +3345,21 @@
       loop: "{{ pipelines_vocab_release.results }}"
       loop_control:
         label: "{{ item.item }}"
+      tags:
+        - pipelines
+        - la-pipelines-config
+
+    - name: Install the vocabularies the GBIF API publishes no release of
+      ansible.builtin.copy:
+        src: "pipelines-vocabularies/{{ item }}.json"
+        dest: "{{ data_dir }}/la-pipelines/vocabularies/{{ item }}.json"
+        owner: "{{ docker_container_uid }}"
+        group: "{{ docker_container_gid }}"
+        mode: '0644'
+      become: true
+      loop:
+        - EventType
+        - OccurrenceStatus
       tags:
         - pipelines
         - la-pipelines-config

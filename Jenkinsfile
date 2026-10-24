@@ -971,6 +971,10 @@ EOF
                     # (eMudhra). Shimmed docker, ~2s.
                     bash scripts/test-ca-distrust.sh
 
+                    # Every vocabulary the la-pipelines interpret stage reads is provided:
+                    # one missing file empties the index (#488). Static, ~1s.
+                    VENV_MOLECULE="$VENV_MOL" bash scripts/test-pipelines-vocabularies.sh
+
                     # Pinned image tags are pulled only when missing, mutable ones every time
                     # (4.4 min of manifest checks per run in #430/#431). Shimmed docker, ~10s.
                     VENV_MOLECULE="$VENV_MOL" bash scripts/test-compose-pull-policy.sh
