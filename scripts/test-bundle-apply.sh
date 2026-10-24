@@ -34,7 +34,7 @@ cat >"$tmp/config.json" <<EOF
 {"services": {
   "app": {"image": "registry/app:1.2.3"},
   "web": {"image": "registry/web:latest"},
-  "branding": {"image": "branding-builder:HEAD"}},
+  "branding": {"image": "branding-builder:HEAD", "pull_policy": "never"}},
  "volumes": {"data": {"name": "la_app-data", "external": true}, "tmp": {}}}
 EOF
 cat >"$tmp/bin/docker" <<EOF
@@ -103,7 +103,8 @@ grep -qx 'key=v1' "$tmp/data/app/config/app.properties" || fail "1: the bundle w
 grep -qx 'volume create --driver local la_app-data' "$tmp/docker-calls" || fail "1: the missing external volume was not created"
 grep -q 'volume create.*tmp' "$tmp/docker-calls" && fail "1: a non-external volume was created"
 grep -qx 'buildx bake -f docker-bake.hcl branding' "$tmp/docker-calls" || fail "1: no branding bake"
-grep -qx 'compose pull --quiet --policy missing' "$tmp/docker-calls" || fail "1: no pull --policy missing"
+grep -qx 'compose pull --quiet --policy missing app web' "$tmp/docker-calls" ||
+  fail "1: no pull --policy missing of the pullable services (branding is pull_policy: never): $(grep 'compose pull' "$tmp/docker-calls")"
 grep -qx 'compose pull --quiet --policy always web' "$tmp/docker-calls" ||
   fail "1: mutable tags not pulled always: $(grep 'policy always' "$tmp/docker-calls")"
 grep -qx 'compose up -d --remove-orphans --no-recreate' "$tmp/docker-calls" || fail "1: no up --no-recreate"

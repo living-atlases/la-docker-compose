@@ -218,16 +218,27 @@ branding() {
 }
 
 pull() {
-  local policy mutable
+  local policy cfg pullable mutable
   [ "$(meta pull)" = true ] || { echo "no docker_registry: nothing to pull"; return 0; }
   policy=$(meta pull_policy)
-  retry compose pull --quiet --policy "$policy"
+  # --policy overrides each service's pull_policy, so the services are named: the locally
+  # built branding images (pull_policy: never) are not pullable (#491). Same split as
+  # roles/la-compose/tasks/build-images.yml.
+  cfg=$(compose config --format json)
+  pullable=$(printf '%s' "$cfg" | python3 -c '
+import json, sys
+for n, s in json.load(sys.stdin)["services"].items():
+    if "image" in s and s.get("pull_policy") not in ("never", "build"):
+        print(n)')
+  [ -n "$pullable" ] || return 0
+  # shellcheck disable=SC2086
+  retry compose pull --quiet --policy "$policy" $pullable
   [ "$policy" = always ] && return 0
-  mutable=$(compose config --format json | python3 -c '
+  mutable=$(printf '%s' "$cfg" | python3 -c '
 import json, re, sys
 pat = re.compile(r"(:latest$)|(^[^:@]*$)|(/[^/:@]*$)")
 for n, s in json.load(sys.stdin)["services"].items():
-    if "image" in s and pat.search(s["image"]):
+    if "image" in s and s.get("pull_policy") not in ("never", "build") and pat.search(s["image"]):
         print(n)')
   # shellcheck disable=SC2086
   [ -z "$mutable" ] || retry compose pull --quiet --policy always $mutable

@@ -137,13 +137,33 @@
     - build
     - docker-compose
 
+# --policy on the command line overrides each service's pull_policy, so `pull --policy always`
+# with no service list also pulls the locally built images (branding-builder*, pull_policy:
+# never) and fails with "pull access denied" (#491). Only services that may be pulled are named.
 - name: Split the services by image tag
   ansible.builtin.set_fact:
-    compose_mutable_tag_services: >-
+    compose_pullable_services: >-
       {{ (compose_config_for_pull.stdout | from_json).services | dict2items
          | selectattr('value.image', 'defined')
+         | rejectattr('value.pull_policy', 'defined') | list
+         + ((compose_config_for_pull.stdout | from_json).services | dict2items
+         | selectattr('value.image', 'defined')
+         | selectattr('value.pull_policy', 'defined')
+         | rejectattr('value.pull_policy', 'in', ['never', 'build']) | list) }}
+  when:
+    - not (la_compose_render_only | default(false) | bool)
+    - docker_registry | default('') != ''
+  tags:
+    - build
+    - docker-compose
+
+- name: Name the pullable services
+  ansible.builtin.set_fact:
+    compose_mutable_tag_services: >-
+      {{ compose_pullable_services
          | selectattr('value.image', 'search', '(:latest$)|(^[^:@]*$)|(/[^/:@]*$)')
          | map(attribute='key') | list }}
+    compose_pullable_services: "{{ compose_pullable_services | map(attribute='key') | list }}"
   when:
     - not (la_compose_render_only | default(false) | bool)
     - docker_registry | default('') != ''
@@ -157,7 +177,8 @@
 # of the play and leaves it with NO containers at all — which is what emptied
 # gbif-es-docker-cluster-2023-1 and turned every one of its vhosts red in Gatus.
 - name: Pull Docker images
-  ansible.builtin.command: docker compose pull --policy {{ la_compose_pull_policy | default('missing') }}
+  ansible.builtin.command:
+    argv: "{{ ['docker', 'compose', 'pull', '--policy', la_compose_pull_policy | default('missing')] + compose_pullable_services }}"
   args:
     chdir: "{{ docker_compose_data_dir }}"
   become: true
@@ -169,6 +190,8 @@
   when:
     - not (la_compose_render_only | default(false) | bool)
     - docker_registry | default('') != ''
+    # With no service named, compose would pull every service, pull_policy: never included.
+    - compose_pullable_services | default([]) | length > 0
   tags:
     - build
     - docker-compose

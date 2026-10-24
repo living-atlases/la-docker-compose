@@ -7,6 +7,8 @@
 #   1. default: `pull --policy missing`, then `pull --policy always` for exactly the
 #      mutable services (not pinned tags, digests, or build-only services);
 #   2. la_compose_pull_policy=always: one `pull --policy always`, as before.
+# Both name the services: --policy overrides each service's pull_policy, and the locally
+# built branding images (pull_policy: never) must never be pulled (#491).
 # ~10s, no Docker, no root.
 set -eu
 cd "$(dirname "$0")/.."
@@ -33,7 +35,10 @@ cat >"$tmp/config.json" <<'JSON'
   "port-untagged": {"image": "registry:5000/team/app"},
   "port-pinned": {"image": "registry:5000/team/app:2"},
   "digest": {"image": "cassandra@sha256:0123abcd"},
-  "built": {"build": {"context": "."}}
+  "built": {"build": {"context": "."}},
+  "certs": {"image": "livingatlases/l-a-site-certs:latest", "pull_policy": "always"},
+  "branding": {"image": "branding-builder:4e494a8d4bc5", "pull_policy": "never"},
+  "branding-latest": {"image": "branding-builder:latest", "pull_policy": "never"}
 }}
 JSON
 mkdir -p "$tmp/bin"
@@ -51,6 +56,7 @@ chmod +x "$tmp/bin/docker"
 import sys, yaml
 src, out = sys.argv[1:3]
 want = {"List the services whose image tag is mutable", "Split the services by image tag",
+        "Name the pullable services",
         "Pull Docker images", "Pull the images with a mutable tag"}
 tasks = [t for t in yaml.safe_load(open(src)) if t.get("name") in want]
 if len(tasks) != len(want):
@@ -74,17 +80,18 @@ run() {
 }
 
 run
-expected="compose pull --policy missing
-compose pull --policy always latest untagged port-untagged"
+all="pinned latest untagged port-untagged port-pinned digest certs"
+expected="compose pull --policy missing $all
+compose pull --policy always latest untagged port-untagged certs"
 [ "$(cat "$tmp/calls")" = "$expected" ] ||
   fail "default: expected
 $expected
 got
 $(cat "$tmp/calls")"
-pass "pinned tags and digests are pulled only when missing; :latest and untagged images always"
+pass "pinned tags and digests are pulled only when missing; :latest and untagged images always; pull_policy: never never"
 
 run -e la_compose_pull_policy=always
-[ "$(cat "$tmp/calls")" = "compose pull --policy always" ] ||
+[ "$(cat "$tmp/calls")" = "compose pull --policy always $all" ] ||
   fail "la_compose_pull_policy=always: got $(tr '\n' ';' <"$tmp/calls")"
-pass "la_compose_pull_policy=always pulls everything, once"
+pass "la_compose_pull_policy=always pulls everything pullable, once, and no branding image"
 echo "All checks passed."
