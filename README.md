@@ -438,6 +438,27 @@ Knobs (inventory or `[all:vars]`):
 
 The CI runs the same script on its hosts in the `Trivy scan` stage (`RUN_TRIVY`, on by default) and goes UNSTABLE when it finds a KEV; the JSON reports are in the build artifacts.
 
+## Recovering after a Docker or host restart (autoheal)
+
+Docker does not restart an `unhealthy` container: `restart: unless-stopped` only acts when the process dies. After a restart of Docker or of the host (a docker-ce update, a kernel reboot), the stack can come back alive but broken. biocache-service can keep its JVM running with no application context after luke times out against a cold Solr, and the hubs can lose the i18n race, where every page is a 500. The hubs' healthchecks load a real page (biocache-hub runs a search), so Docker does mark them `unhealthy`. Nothing restarts them, though.
+
+`docker_autoheal: true` installs `/usr/local/sbin/la-autoheal` with a systemd timer (`la-autoheal.timer`, every minute) on every docker-compose host. It restarts the unhealthy `la_*` containers with these rules:
+
+- biocache-service goes first; the hubs on the same host wait until it is healthy;
+- at least 10 minutes between two restarts of one container;
+- at most 3 restarts an hour for each container; after that it only logs an `ERROR`;
+- nothing while a deploy is in progress: the deploy's health gate does its own restarts.
+
+It is a script on the host, not a container with the Docker socket. Check what it would do with `sudo la-autoheal --dry-run`, and what it did with `journalctl -t la-autoheal`. Setting it back to `false` removes it.
+
+From the **LA Toolkit**, set `docker_autoheal = true` in the project's advanced variables (or in `[all:vars]` / `*-local-extras.ini`, not in a `[<service>:vars]` section, which does not reach the other hosts) and redeploy the docker-compose hosts.
+
+| Variable | Default | |
+| --- | --- | --- |
+| `docker_autoheal` | `false` | `true` installs the timer; `false` removes it |
+| `docker_autoheal_grace` / `docker_autoheal_max_per_hour` | `600` / `3` | seconds between restarts of a container / restarts an hour |
+| `docker_autoheal_probes` | `[]` | extra `"container url"` checks: a healthy container whose URL answers 5xx three times in a row is restarted too |
+
 ## Migrating an existing portal (VMs → Docker)
 
 Moving a Living Atlas that runs on VMs into this deployment means carrying over

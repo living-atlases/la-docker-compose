@@ -393,6 +393,40 @@
           by digest (it mounts the Docker socket), weekly-ish and not on the GC's slot, and
           its ~1 GB DB cache outside /data (CLEAN_MACHINE wipes /data).
 
+# ── Test case 8d: autoheal is opt-in and keeps the limits the bridge proved ──
+#
+# docker_autoheal restarts containers on its own on production hosts, so it stays off
+# until a portal asks for it, and the limits that were proven on gbif.es staging
+# (2026-10-21) are the defaults: 10 min between restarts of one container, 3 an hour,
+# then only an ERROR in the journal. scripts/test-la-autoheal.sh runs the script itself.
+- name: Unit test autoheal defaults
+  hosts: all
+  gather_facts: false
+  vars_files:
+    - ../../roles/docker-housekeeping/defaults/main.yml
+    - ../../roles/la-compose/defaults/main.yml
+
+  tasks:
+
+    - name: "[TC8d] Assert autoheal is off by default, with a 10 min grace and 3 restarts an hour"
+      ansible.builtin.assert:
+        that:
+          - not (docker_autoheal | bool)
+          - docker_autoheal_grace | int == 600
+          - docker_autoheal_max_per_hour | int == 3
+          - docker_autoheal_first == 'la_biocache-service'
+          - "'la_bie-hub-testhub' is match(docker_autoheal_dependent)"
+          - "'la_biocache-service' is not match(docker_autoheal_dependent)"
+          - docker_autoheal_deploy_marker == docker_housekeeping_deploy_marker
+          - docker_autoheal_probes | length == 0
+        msg: >
+          FAIL TC8d: docker_autoheal={{ docker_autoheal }}, grace={{ docker_autoheal_grace }},
+          max={{ docker_autoheal_max_per_hour }}, first={{ docker_autoheal_first }},
+          dependent={{ docker_autoheal_dependent }},
+          marker={{ docker_autoheal_deploy_marker }} (gc {{ docker_housekeeping_deploy_marker }}).
+          It must be opt-in, keep the proven limits, let data hub instances wait for
+          biocache-service, and skip deploys through the same marker as the image GC.
+
 # ── Test case 9: "local wins" must not disown the rest of the cluster ────────
 #
 # extra_hosts is filtered so a name the local stack serves cannot be pinned to another

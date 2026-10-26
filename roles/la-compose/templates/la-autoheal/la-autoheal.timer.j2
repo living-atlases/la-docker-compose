@@ -1,0 +1,11 @@
+{{ ansible_managed | comment }}
+[Unit]
+Description=Restart the unhealthy la_* containers, every {{ docker_autoheal_interval }}
+
+[Timer]
+OnBootSec={{ docker_autoheal_boot_delay }}
+OnUnitActiveSec={{ docker_autoheal_interval }}
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target

@@ -811,3 +811,42 @@ geonetwork_min_image_version: "3.12.12"
 # runs on the internal network; set geonetwork_public: true to register its nginx vhost
 # (<geonetwork_hostname>/geonetwork) for portals that publish a metadata catalogue.
 geonetwork_public: false
+
+# ============================================
+# Autoheal: restart unhealthy containers after a Docker or host restart
+# ============================================
+# Docker does not restart an unhealthy container (`unless-stopped` only acts when the
+# process dies). After a restart of Docker or of the host the stack can come back alive but
+# broken: on gbif.es (2026-10-21, unattended-upgrades updated docker-ce) biocache-service
+# kept its JVM with no application context after luke timed out against a cold Solr, and
+# bie-hub and biocache-hub lost the i18n race (every page a 500). Nothing recovers that
+# without a `docker restart`.
+#
+# docker_autoheal: true installs /usr/local/sbin/la-autoheal and a systemd timer that runs it
+# every minute on each docker-compose host. It restarts the unhealthy la_* containers,
+# biocache-service before the hubs, at most once per container every
+# docker_autoheal_grace seconds and docker_autoheal_max_per_hour times an hour; after that
+# it only logs an ERROR (journalctl -t la-autoheal). It does nothing while a deploy is in
+# progress (the deploy marker below; the health gate does its own converge restarts).
+# A host script and not a container with the docker socket (willfarrell/autoheal): that is
+# root on the host handed to a third-party image.
+#
+# Off by default. false also removes it from a host that had it.
+docker_autoheal: false
+docker_autoheal_interval: 1min
+# After a boot, leave the stack this long before the first pass (healthchecks have their own
+# start_period on top).
+docker_autoheal_boot_delay: 5min
+docker_autoheal_grace: 600
+docker_autoheal_max_per_hour: 3
+# Restarted first; the dependent containers wait while it is unhealthy. Same host only.
+docker_autoheal_first: la_biocache-service
+docker_autoheal_dependent: "^la_(biocache-hub|bie-hub|bie-index|regions|collectory|species-list|spatial-hub)(-.+)?$"
+# Extra application probes, "container url" (url as seen inside the container): a healthy
+# container whose url answers 5xx or nothing docker_autoheal_probe_fails passes in a row is
+# restarted too. Empty by default: the compose healthchecks already exercise the apps.
+#   docker_autoheal_probes: ["la_bie-hub http://localhost:8080/species/2435261"]
+docker_autoheal_probes: []
+docker_autoheal_probe_fails: 3
+docker_autoheal_deploy_marker: "{{ docker_housekeeping_deploy_marker | default('/run/la-compose-deploy.marker') }}"
+docker_autoheal_deploy_marker_max_age_min: "{{ docker_housekeeping_deploy_marker_max_age_min | default(360) }}"

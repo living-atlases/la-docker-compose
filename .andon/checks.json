@@ -64,9 +64,11 @@
         "roles/la-compose/templates/docker-compose/services/biocache-hub.yml.j2",
         "roles/la-compose/templates/docker-compose/services/bie-hub.yml.j2",
         "roles/la-compose/templates/docker-compose/services/regions.yml.j2",
-        "scripts/test-hub-context-path.sh"
+        "scripts/test-hub-context-path.sh",
+        "roles/la-compose/templates/docker-compose/services/collectory.yml.j2",
+        "scripts/test-hub-healthcheck-exec.sh"
       ],
-      "run": "bash scripts/test-hub-context-path.sh"
+      "run": "bash scripts/test-hub-context-path.sh && bash scripts/test-hub-healthcheck-exec.sh"
     },
     {
       "match": [
@@ -273,6 +275,15 @@
         "scripts/test-skip-services.sh"
       ],
       "run": "VENV_MOLECULE=.venv-molecule bash scripts/test-skip-services.sh"
+    },
+    {
+      "match": [
+        "roles/la-compose/files/la-autoheal/la-autoheal",
+        "roles/la-compose/templates/la-autoheal/*.j2",
+        "roles/la-compose/tasks/autoheal.yml",
+        "scripts/test-la-autoheal.sh"
+      ],
+      "run": "VENV_MOLECULE=.venv-molecule bash scripts/test-la-autoheal.sh"
     }
   ],
   "ignore": [

@@ -98,11 +98,19 @@ services:
       default: {}
       {{ docker_network | default('internal') }}:
     healthcheck:
-      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:8080{{ biocache_hub_context_path | default('') | regex_replace('/+$', '') }}/actuator/health || exit 1"]
+      # Sondea una búsqueda, no /actuator/health: tras un reinicio de docker (gbif.es,
+      # 2026-10-21) el hub cae en la carrera de i18n y TODAS las páginas dan 500 (NPE de
+      # <alatag:message> en occurrence/list.gsp) con /actuator/health en verde, así que
+      # nada lo reiniciaba. Esta página pinta i18n y layout y llama a biocache-service.
+      # Solo 5xx o sin respuesta es fallo (un 4xx es un hub que sirve). URL entre comillas:
+      # sin ellas el `&` manda curl al fondo y el check sale siempre 0. --max-time por
+      # debajo de timeout (un curl que docker mata a mitad queda zombi, e380ce3); holgado
+      # porque la primera búsqueda contra un Solr grande y frío tarda.
+      test: ["CMD-SHELL", "curl -s --max-time 25 -o /dev/null -w '%{http_code}' 'http://localhost:8080{{ biocache_hub_context_path | default('') | regex_replace('/+$', '') }}/occurrences/search?q=*:*&pageSize=1' | grep -qvE '^(000|5)'"]
       interval: 30s
-      timeout: 10s
+      timeout: 30s
       retries: 5
       # 180s (subido de 60s tras #249, consistencia con bie-hub): hub Grails de arranque
       # lento; en cold-boot con volúmenes frescos evita el `unhealthy` prematuro y el
-      # converge-restart contraproducente. Sondea /actuator/health (no depende de branding).
+      # converge-restart contraproducente.
       start_period: 180s

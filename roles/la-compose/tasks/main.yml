@@ -1042,6 +1042,17 @@
         - post-deploy
         - cross-host-ports
 
+    # Restart unhealthy containers after a Docker or host restart (docker_autoheal, off by
+    # default). Last, so the timer never runs against a stack this deploy is still bringing up.
+    - name: "Autoheal: host timer for unhealthy containers"
+      ansible.builtin.include_tasks:
+        file: autoheal.yml
+        apply:
+          tags: [docker-compose, autoheal]
+      tags:
+        - docker-compose
+        - autoheal
+
     - name: "Deployment done: clear the in-progress marker for the image GC"
       ansible.builtin.file:
         path: "{{ docker_housekeeping_deploy_marker | default('/run/la-compose-deploy.marker') }}"

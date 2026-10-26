@@ -1,0 +1,14 @@
+{{ ansible_managed | comment }}
+# Read by /usr/local/sbin/la-autoheal (la-compose role, docker_autoheal*).
+LA_AUTOHEAL_GRACE={{ docker_autoheal_grace | int }}
+LA_AUTOHEAL_MAX={{ docker_autoheal_max_per_hour | int }}
+LA_AUTOHEAL_FIRST='{{ docker_autoheal_first }}'
+LA_AUTOHEAL_DEPENDENT='{{ docker_autoheal_dependent }}'
+LA_AUTOHEAL_PROBE_FAILS={{ docker_autoheal_probe_fails | int }}
+LA_AUTOHEAL_DEPLOY_MARKER='{{ docker_autoheal_deploy_marker }}'
+LA_AUTOHEAL_DEPLOY_MARKER_MAX_AGE_MIN={{ docker_autoheal_deploy_marker_max_age_min | int }}
+LA_AUTOHEAL_PROBES='
+{% for p in docker_autoheal_probes %}
+{{ p }}
+{% endfor %}
+'

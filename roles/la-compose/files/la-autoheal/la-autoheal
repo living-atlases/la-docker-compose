@@ -1,0 +1,105 @@
+#!/bin/bash
+# Managed by Ansible (la-compose role, tasks/autoheal.yml; docker_autoheal). Do not edit.
+#
+# Restarts the LA containers Docker reports as unhealthy. `restart: unless-stopped` only
+# acts when the process dies, and after a Docker or host restart the stack can come back
+# alive but broken: biocache-service with its JVM up and no application context (luke
+# timed out against a cold Solr), and the hubs in the i18n race (every page a 500). Seen on
+# gbif.es on 2026-10-21, when unattended-upgrades updated docker-ce and restarted everything.
+#
+# Rules:
+#  - only containers whose name matches LA_AUTOHEAL_MATCH (default ^la_);
+#  - biocache-service first: while it is unhealthy the hubs that depend on it wait. This only
+#    sees THIS host: a hub whose biocache-service runs on another host is handled on its own;
+#  - at most one restart per container every LA_AUTOHEAL_GRACE seconds (let it boot);
+#  - at most LA_AUTOHEAL_MAX restarts per container and hour; after that it only logs (three
+#    failed boots means the problem is not the boot, and someone has to look);
+#  - nothing while a deploy is in progress (la-compose touches LA_AUTOHEAL_DEPLOY_MARKER for
+#    the length of a deploy, and wait-for-health.sh does its own converge restarts). A marker
+#    older than LA_AUTOHEAL_DEPLOY_MARKER_MAX_AGE_MIN minutes, left by a deploy that died,
+#    stops blocking;
+#  - optional application probes (LA_AUTOHEAL_PROBES, one "container url" per line, url as
+#    seen inside the container): a healthy container whose url answers 5xx or nothing in
+#    LA_AUTOHEAL_PROBE_FAILS consecutive passes counts as unhealthy. For checks a portal
+#    wants on top of the compose healthchecks.
+# Everything goes to the journal with the tag la-autoheal.
+#
+#   la-autoheal --dry-run      # what it would do, without restarting
+#   journalctl -t la-autoheal
+set -u
+DEFAULTS=${LA_AUTOHEAL_DEFAULTS:-/etc/default/la-autoheal}
+# shellcheck disable=SC1090
+[ -r "$DEFAULTS" ] && . "$DEFAULTS"
+MATCH=${LA_AUTOHEAL_MATCH:-^la_}
+GRACE=${LA_AUTOHEAL_GRACE:-600}
+MAX=${LA_AUTOHEAL_MAX:-3}
+FIRST=${LA_AUTOHEAL_FIRST:-la_biocache-service}
+# Data hub instances are la_<hub>-<suffix> (la_biocache-hub-testhub): the suffix is allowed.
+DEPENDENT=${LA_AUTOHEAL_DEPENDENT:-^la_(biocache-hub|bie-hub|bie-index|regions|collectory|species-list|spatial-hub)(-.+)?$}
+STATE=${LA_AUTOHEAL_STATE:-/var/lib/la-autoheal}
+PROBES=${LA_AUTOHEAL_PROBES:-}
+PROBE_FAILS=${LA_AUTOHEAL_PROBE_FAILS:-3}
+MARKER=${LA_AUTOHEAL_DEPLOY_MARKER:-/run/la-compose-deploy.marker}
+MARKER_MAX_AGE_MIN=${LA_AUTOHEAL_DEPLOY_MARKER_MAX_AGE_MIN:-360}
+DRY=${1:-}
+now=${LA_AUTOHEAL_NOW:-$(date +%s)}
+log() { logger -t la-autoheal -- "$*"; [ -n "$DRY" ] && echo "$*"; }
+
+# Every minute during a deploy: say it only when asked, not in the journal.
+if [ -n "$(find "$MARKER" -maxdepth 0 -mmin "-${MARKER_MAX_AGE_MIN}" 2>/dev/null)" ]; then
+  [ -n "$DRY" ] && echo "a deploy is in progress ($MARKER): nothing to do"
+  exit 0
+fi
+
+mkdir -p "$STATE"
+mapfile -t unhealthy < <(docker ps --filter health=unhealthy --format '{{.Names}}' | grep -E "$MATCH" | sort)
+
+# Probes only on healthy containers (the others are already in the list).
+while read -r pc purl; do
+  [ -z "${pc:-}" ] && continue
+  [ "$(docker inspect -f '{{.State.Health.Status}}' "$pc" 2>/dev/null)" = healthy ] || continue
+  code=$(docker exec "$pc" curl -s -m 20 -o /dev/null -w '%{http_code}' "$purl" 2>/dev/null)
+  pf="$STATE/$pc.probe"
+  if [ -z "$code" ] || [ "$code" = 000 ] || [ "${code:0:1}" = 5 ]; then
+    k=$(( $(cat "$pf" 2>/dev/null || echo 0) + 1 )); echo "$k" > "$pf"
+    log "$pc healthy but $purl answers ${code:-nothing} ($k of $PROBE_FAILS)"
+    [ "$k" -ge "$PROBE_FAILS" ] && unhealthy+=("$pc")
+  else
+    rm -f "$pf"
+  fi
+done <<< "$PROBES"
+
+[ ${#unhealthy[@]} -eq 0 ] && exit 0
+mapfile -t unhealthy < <(printf '%s\n' "${unhealthy[@]}" | sort -u)
+
+first_bad=0
+for c in "${unhealthy[@]}"; do [ "$c" = "$FIRST" ] && first_bad=1; done
+
+for c in "${unhealthy[@]}"; do
+  if [ $first_bad = 1 ] && [ "$c" != "$FIRST" ] && [[ "$c" =~ $DEPENDENT ]]; then
+    log "$c unhealthy: waiting for $FIRST to be healthy first"
+    continue
+  fi
+  f="$STATE/$c"
+  touch "$f"
+  # restarts in the last hour
+  recent=$(awk -v t=$((now - 3600)) '$1 > t' "$f")
+  n=$(printf '%s\n' "$recent" | grep -c . || true)
+  last=$(printf '%s\n' "$recent" | tail -1)
+  if [ -n "$last" ] && [ $((now - last)) -lt "$GRACE" ]; then
+    continue
+  fi
+  if [ "$n" -ge "$MAX" ]; then
+    log "ERROR $c still unhealthy after $n restarts in an hour: not restarting it again, it needs a look"
+    continue
+  fi
+  if [ -n "$DRY" ]; then
+    log "(dry) would restart $c"
+    continue
+  fi
+  log "restarting $c (unhealthy; restart $((n + 1)) of $MAX in the last hour)"
+  rm -f "$STATE/$c.probe"
+  printf '%s\n' "$recent" | grep . > "$f.tmp" || true
+  echo "$now" >> "$f.tmp"; mv "$f.tmp" "$f"
+  docker restart "$c" >/dev/null 2>&1 || log "ERROR docker restart $c failed"
+done

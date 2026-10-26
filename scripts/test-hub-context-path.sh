@@ -19,7 +19,9 @@ env.filters["bool"] = lambda v: str(v).lower() in ("1", "true", "yes", "on")
 env.filters["to_json"] = env.filters["tojson"]
 env.filters.setdefault("mandatory", lambda v: v)
 
-cases = [("biocache-hub", "biocache_hub_context_path", "/records", "/actuator/health"),
+# biocache-hub probes a search, not /actuator/health, which stays green through the i18n race
+# (every page a 500). See biocache-hub.yml.j2 and scripts/test-hub-healthcheck-exec.sh.
+cases = [("biocache-hub", "biocache_hub_context_path", "/records", "/occurrences/search?q=*:*&pageSize=1"),
          ("bie-hub", "bie_hub_context_path", "/species", "/"),
          ("regions", "regions_context_path", "/regions", "/")]
 fail = []

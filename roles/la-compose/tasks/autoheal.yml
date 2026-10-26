@@ -1,0 +1,92 @@
+---
+# Host timer that restarts the unhealthy la_* containers (docker_autoheal, see
+# defaults/main.yml). Same paths and unit names as the gbif.es bridge it replaces
+# (prod-gbif-es-ansible-extras playbooks/la-autoheal.yml), so a host that had the bridge is
+# taken over in place, with one timer.
+
+- name: autoheal | install the script
+  ansible.builtin.copy:
+    src: la-autoheal/la-autoheal
+    dest: /usr/local/sbin/la-autoheal
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+  when: docker_autoheal | bool
+
+- name: autoheal | write its settings
+  ansible.builtin.template:
+    src: la-autoheal/la-autoheal.default.j2
+    dest: /etc/default/la-autoheal
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  when: docker_autoheal | bool
+
+- name: autoheal | install the systemd units
+  ansible.builtin.template:
+    src: "la-autoheal/la-autoheal.{{ item }}.j2"
+    dest: "/etc/systemd/system/la-autoheal.{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - service
+    - timer
+  register: autoheal_units
+  become: true
+  when: docker_autoheal | bool
+
+# Skipped under --check like the housekeeping timers: the unit only exists in a live run.
+- name: autoheal | enable the timer
+  ansible.builtin.systemd:
+    name: la-autoheal.timer
+    enabled: true
+    state: started
+    daemon_reload: "{{ autoheal_units is changed }}"
+  become: true
+  when:
+    - docker_autoheal | bool
+    - not ansible_check_mode
+
+# Only what this role installed: a host still on the bridge (its script says
+# "playbooks/la-autoheal.yml") keeps it until that playbook removes it or
+# docker_autoheal: true takes it over.
+- name: autoheal | remove it when docker_autoheal is false
+  when: not docker_autoheal | bool
+  become: true
+  block:
+    - name: autoheal | is the role's script installed
+      ansible.builtin.command: grep -q 'la-compose role' /usr/local/sbin/la-autoheal
+      register: autoheal_ours
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: autoheal | stop the timer
+      ansible.builtin.systemd:
+        name: la-autoheal.timer
+        enabled: false
+        state: stopped
+      when:
+        - autoheal_ours.rc == 0
+        - not ansible_check_mode
+
+    - name: autoheal | remove its files
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/systemd/system/la-autoheal.timer
+        - /etc/systemd/system/la-autoheal.service
+        - /usr/local/sbin/la-autoheal
+        - /etc/default/la-autoheal
+      when: autoheal_ours.rc == 0
+
+    - name: autoheal | reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when:
+        - autoheal_ours.rc == 0
+        - not ansible_check_mode
