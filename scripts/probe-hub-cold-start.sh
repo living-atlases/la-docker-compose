@@ -58,7 +58,9 @@ log()     { printf '%s %s\n' "[hub-probe]" "$*"; }
 verdict() { printf '\n========== HUB COLD-START PROBE: %s ==========\n%s\n===============================================\n\n' "$1" "$2"; }
 
 status_of()  { curl -sk -o /dev/null -w '%{http_code}' --max-time 30 "$1" 2>/dev/null || echo 000; }
-field_count(){ curl -sk --max-time 30 "${RECORDS_WS}/index/fields" 2>/dev/null | grep -o '"name"' | wc -l | tr -d ' '; }
+# `|| true`: on an empty index /index/fields is `[]`, grep -o finds nothing and exits 1, and
+# under pipefail that killed the probe in exactly the state it exists for (#493).
+field_count(){ { curl -sk --max-time 30 "${RECORDS_WS}/index/fields" 2>/dev/null | grep -o '"name"' || true; } | wc -l | tr -d ' '; }
 record_count(){
   curl -sk --max-time 30 "${RECORDS_WS}/occurrences/search?q=*:*&pageSize=0" 2>/dev/null \
     | sed -n 's/.*"totalRecords":[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -1
