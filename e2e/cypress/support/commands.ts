@@ -62,6 +62,25 @@ function ignoreMissingJqueryHere(): void {
 }
 
 /**
+ * Stop the branding's one-time language reload on the CAS login page.
+ *
+ * The branding's i18next-config.js reloads the page once with ?lang=<lng> when it finds no
+ * `la-lang-session` cookie (so that Grails picks the locale up for the session). cy.session
+ * clears every cookie before its setup, so the CAS page ALWAYS reloads on the first visit,
+ * and the reload lands while cy.type() is filling #fm1: "Cannot read properties of undefined
+ * (reading 'KeyboardEvent')", the window it was typing into is gone (#490, #492).
+ *
+ * It never happened before base-branding 169c9ff (2026-10-23): until then the CAS page had no
+ * jQuery, the branding's init died on "$ is not defined" and the reload never ran.
+ *
+ * Setting the cookie the script itself sets (value "/", 30 min) is what a second visit looks
+ * like. The login does not need the locale.
+ */
+function skipBrandingLangReload(authOrigin: string): void {
+  cy.setCookie("la-lang-session", "/", { domain: new URL(authOrigin).hostname });
+}
+
+/**
  * Assert we are really signed in on `serviceKey`, by asking for a page the hub protects.
  *
  * This replaced a UI-state check ("a logout affordance appears"), which was a false positive:
@@ -118,6 +137,7 @@ Cypress.Commands.add(
         // coverage — that the signed-out navbar renders a login link pointing at /login —
         // as an explicit assertion, without depending on dropdown visibility or on the
         // browser's default click action.
+        skipBrandingLangReload(authOrigin);
         cy.visit(serviceUrl("records"));
         cy.get('#dropdown-auth-menu a.loginBtn[href*="/login"]', {
           timeout: 20000,
@@ -201,6 +221,7 @@ Cypress.Commands.add(
         // hubs, so this works uniformly without depending on each hub's navbar markup.
         // cy.login keeps the navbar route because asserting that link exists is its coverage.
         ignoreMissingJqueryHere();
+        skipBrandingLangReload(authOrigin);
         cy.visit(serviceUrl(serviceKey, "/"));
         cy.visit(serviceUrl(serviceKey, "/login?path=%2F"));
 
