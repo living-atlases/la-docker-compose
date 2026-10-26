@@ -10,7 +10,29 @@ edit by hand, write the notes in the annotated tag instead.
 
 ## Unreleased
 
-Nothing yet.
+#### Features
+
+- **la-compose**: autoheal after a Docker or host restart, and a biocache-hub healthcheck that sees the i18n race ([05da764](https://github.com/living-atlases/la-docker-compose/commit/05da764f4b1a5853b784cfc8bd469c48fa08eb2c))
+
+#### Fixes
+
+- **e2e**: stop the branding's one-time ?lang= reload under the CAS login ([bb638a3](https://github.com/living-atlases/la-docker-compose/commit/bb638a3ee338f95a219106b6ef4aef5afcde3764))
+- **pull**: name the pullable services; --policy always pulled the local branding images ([4b6fd58](https://github.com/living-atlases/la-docker-compose/commit/4b6fd5842f475c6c9dc6edef15de8d0e7630ab69))
+- **pipelines**: provide the eight vocabularies interpret reads since pipelines#19 ([fad2093](https://github.com/living-atlases/la-docker-compose/commit/fad2093a47552711d0bdb8a0a4184b1e882b72da))
+- **lists**: /admin and Upload ask for a login again ([d717c85](https://github.com/living-atlases/la-docker-compose/commit/d717c859de63ccbd1ffe3f56e62313beb66a4d97))
+
+#### Tests and CI
+
+- a clean build pulls every image again (la_compose_pull_policy=always) ([0e7ed3d](https://github.com/living-atlases/la-docker-compose/commit/0e7ed3d84fbdf536de9780eda4692eafac0a549a))
+- fail-soft check that no running container trusts a distrusted CA root ([76c53ac](https://github.com/living-atlases/la-docker-compose/commit/76c53ac5372ce1be9a3b2e0c03d669aad5d01a90))
+
+#### Documentation
+
+- **changelog**: v1.12.0 ([4df12ce](https://github.com/living-atlases/la-docker-compose/commit/4df12ce57a4c7e3d26e8c19100c50724a39a1ce6))
+
+#### Other changes
+
+- node 22 (18 is EOL), alpine 3.22 and nginx 1.30-alpine ([8ca5433](https://github.com/living-atlases/la-docker-compose/commit/8ca5433f28d54adb3f526e7ca897a1d108931fde))
 
 <a name="v1.12.0"></a>
 
