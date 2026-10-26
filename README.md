@@ -451,7 +451,19 @@ Docker does not restart an `unhealthy` container: `restart: unless-stopped` only
 
 It is a script on the host, not a container with the Docker socket. Check what it would do with `sudo la-autoheal --dry-run`, and what it did with `journalctl -t la-autoheal`. Setting it back to `false` removes it.
 
-From the **LA Toolkit**, set `docker_autoheal = true` in the project's advanced variables (or in `[all:vars]` / `*-local-extras.ini`, not in a `[<service>:vars]` section, which does not reach the other hosts) and redeploy the docker-compose hosts.
+To turn it on from the **LA Toolkit**:
+
+1. Open the project's **Tune** page and switch on **Advanced options**.
+2. In the **Ansible Extras** tab, add `docker_autoheal = true` under `[all:vars]`. The toolkit saves it in `<project>-local-extras.ini`. Do not put it under a `[<service>:vars]` section: that does not reach the other hosts.
+3. Run a full deploy of the docker hosts.
+
+A fast deploy does not install it: the bundle applier does not run Ansible.
+
+In production (`la_env=production`) a redeploy does not recreate running containers (`docker_recreate_drifted` is off), so an existing biocache-hub keeps its old healthcheck. To pick up the new one, recreate it once, in a maintenance window:
+
+```bash
+cd /data/docker-compose && docker compose up -d --no-deps biocache-hub
+```
 
 | Variable | Default | |
 | --- | --- | --- |
