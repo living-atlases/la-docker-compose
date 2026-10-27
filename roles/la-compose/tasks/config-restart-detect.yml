@@ -24,15 +24,19 @@
 # One line per service: "<service> <sha256-of-config-tree>". The hash covers
 # file paths AND content (sha256sum lines are themselves hashed), so renames,
 # additions and deletions all count as a change. Missing dirs are skipped.
+# extra_paths (the i18n overlay dirs a service mounts) join its tree; without them the hash is
+# the same as before they existed. scripts/bundle/host-apply.sh hashes the same way.
 - name: "Config-change: hash current config trees"
   ansible.builtin.shell: |
-    while read -r svc dir; do
+    while read -r svc dir extra; do
       [ -d "$dir" ] || continue
-      h=$(find "$dir" -type f -print0 | sort -z | xargs -0 -r sha256sum | sha256sum | awk '{print $1}')
+      dirs=("$dir")
+      for x in $extra; do [ -d "$x" ] && dirs+=("$x"); done
+      h=$(find "${dirs[@]}" -type f -print0 | sort -z | xargs -0 -r sha256sum | sha256sum | awk '{print $1}')
       printf '%s %s\n' "$svc" "$h"
     done <<'WATCHLIST'
     {% for e in config_watch %}
-    {{ e.service }} {{ e.path }}
+    {{ e.service }} {{ e.path }} {{ e.extra_paths | default([]) | join(' ') }}
     {% endfor %}
     WATCHLIST
   args:

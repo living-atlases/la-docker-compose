@@ -55,7 +55,7 @@ services:
       # IS emitted from `download_dir`, so mount it at whatever path the config names.
       - {{ data_dir }}/cache:/data/cache
       - {{ download_dir | default(data_dir ~ '/biocache-download') }}:{{ download_dir | default(data_dir ~ '/biocache-download') }}
-{% include '_i18n_volumes.yml.j2' %}
+{% with i18n_svc = 'biocache_service' %}{% include '_i18n_volumes.yml.j2' %}{% endwith %}
     restart: unless-stopped
     expose:
       - 8080

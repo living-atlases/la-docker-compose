@@ -852,7 +852,47 @@ geonetwork_public: false
 # An entry only lands on the hosts that run its service, so the list can live in
 # [docker_compose:vars]. In an .ini, on one line:
 #   docker_config_files = [{"src": "files/ala-hub/charts.json", "dest": "/data/ala-hub/config/charts.json"}]
+# Two more kinds of dest, not under a service config dir:
+#   {{ i18n_custom_dir }}/<app>/<file>        the portal's i18n overlay (below)
+#   {{ nginx_conf_dir }}/conf.d/<name>.conf   http-level nginx conf (map, limit_conn_zone...),
+#                                             on every host that runs nginx; applied by the
+#                                             nginx -t + reload of every deploy, nothing restarts
+# Removing an entry does not delete the file it copied.
 docker_config_files: []
+
+# ============================================
+# The portal's i18n overlay (/var/opt/atlas/i18n)
+# ============================================
+# The ALA apps read /var/opt/atlas/i18n/<app>/messages_<lang>.properties before the packaged
+# pack in /opt/atlas/i18n/<app>/ (the ala-i18n-data volume), key by key. On a VM that is the
+# portal's own dir; here, a docker_config_files entry with dest under i18n_custom_dir:
+#   {"src": "files/i18n/regions/messages_es.properties",
+#    "dest": "/data/i18n-custom/regions/messages_es.properties"}
+# Each service mounts, read-only, only the <app> dirs it reads (i18n_custom_apps) that have an
+# entry, so a service with none renders as before, and a changed file restarts only the
+# services that read its <app> dir. Partial files: a key that is not there comes from the pack.
+i18n_custom_dir: "{{ data_dir }}/i18n-custom"
+# services_enabled key -> the <app> dirs under /var/opt/atlas/i18n that its war reads (grepped
+# from the 2026-10 images). Hub instances read what their portal service reads.
+i18n_custom_apps:
+  ala_hub: [biocache-hubs, downloads-plugin]
+  ala_bie: [bie-plugin]
+  alerts: [alerts]
+  bie_index: [bie-index]
+  biocache_service: [biocache-service]
+  cas: [cas]
+  collectory: [collectory-plugin]
+  regions: [regions]
+  spatial: [spatial-hub]
+  species_lists: [specieslist-webapp]
+  userdetails: [userdetails]
+# The <app> dirs that docker_config_files fills (an .ini gives the list as a string).
+i18n_custom_present: >-
+  {{ ((docker_config_files | from_yaml) if docker_config_files is string else docker_config_files)
+     | map(attribute='dest') | map('string')
+     | select('match', (i18n_custom_dir | regex_escape) ~ '/[^/]+/[^/]+$')
+     | map('regex_replace', '^' ~ (i18n_custom_dir | regex_escape) ~ '/([^/]+)/.*$', '\1')
+     | unique | list }}
 
 # ============================================
 # Autoheal: restart unhealthy containers after a Docker or host restart

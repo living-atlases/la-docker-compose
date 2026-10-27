@@ -15,7 +15,7 @@ services:
       # over zero archives still reports success. ala-install's own bie-index compose
       # template mounts {{ data_dir }}/bie for exactly this reason; ours had dropped it.
       - {{ data_dir }}/bie:/data/bie
-{% include '_i18n_volumes.yml.j2' %}
+{% with i18n_svc = 'bie_index' %}{% include '_i18n_volumes.yml.j2' %}{% endwith %}
     restart: unless-stopped
     expose:
       - 8080

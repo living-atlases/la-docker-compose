@@ -8,7 +8,7 @@ services:
     volumes:
       - {{ data_dir }}/apikey:/data/apikey
       # - {{ docker_compose_data_dir }}/var-log-atlas/apikey:/var/log/atlas/apikey
-{% include '_i18n_volumes.yml.j2' %}
+{% with i18n_svc = 'apikey' %}{% include '_i18n_volumes.yml.j2' %}{% endwith %}
     environment:
       TZ: {{ server_tz | default('UTC') }}
       JAVA_OPTS: ${APIKEY_JAVA_OPTS}

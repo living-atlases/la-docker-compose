@@ -11,7 +11,7 @@ services:
       # LOG_DIR via <variable> (overriding env vars). Mounting the host logs
       # dir lets logback write where it expects.
       - {{ data_dir }}/collectory/logs:/var/log/tomcat9
-{% include '_i18n_volumes.yml.j2' %}
+{% with i18n_svc = 'collectory' %}{% include '_i18n_volumes.yml.j2' %}{% endwith %}
     environment:
       TZ: {{ server_tz | default('UTC') }}
       JAVA_OPTS: ${COLLECTORY_JAVA_OPTS}

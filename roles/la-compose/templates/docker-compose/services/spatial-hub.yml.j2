@@ -90,7 +90,7 @@ services:
       - {{ data_dir }}/spatial-hub/views:/data/spatial-hub/views:ro
       - {{ spatial_hub_extra_assets_dir | default(data_dir ~ '/spatial-hub/assets') }}:/data/spatial-hub/assets:ro
 {% endif %}
-{% include '_i18n_volumes.yml.j2' %}
+{% with i18n_svc = 'spatial' %}{% include '_i18n_volumes.yml.j2' %}{% endwith %}
     restart: unless-stopped
     expose:
       - {{ spatial_hub_port | default('8080') }}

@@ -375,6 +375,19 @@ are redundant now but harmless, since a later `-D` on the command line wins.
   During a deploy ALA's file is back for the few minutes between the ala-install
   role and this copy; the content hash is unchanged, so nothing restarts.
 
+  Two more kinds of `dest`. Removing an entry does not delete the file it copied.
+  - **The portal's i18n overlay**, `/data/i18n-custom/<app>/messages_<lang>.properties`
+    (`i18n_custom_dir`). The apps read `/var/opt/atlas/i18n/<app>/` before the
+    ala-i18n pack, key by key, so a partial file is enough. Each service mounts,
+    read-only, only the `<app>` dirs it reads (`i18n_custom_apps`: `biocache-hubs` and
+    `downloads-plugin` for biocache-hub, `collectory-plugin`, `regions`, `bie-plugin`...)
+    that have an entry, and a changed file restarts only those services.
+  - **http-level nginx conf**, `/data/docker-compose/nginx/conf.d/<name>.conf`
+    (`map`, `limit_conn_zone`, `limit_conn`...), on every host that runs nginx and
+    applied by the deploy's `nginx -t` + reload. To limit only some vhosts, key the
+    zone on a `map` of `$host` that is empty for the others: nginx does not count an
+    empty key.
+
 ### Selecting which services run
 
 - **Per-host**: from inventory groups (`services_enabled`) — a service is

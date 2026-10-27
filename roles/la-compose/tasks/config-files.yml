@@ -8,6 +8,14 @@
 # Each entry goes only to the hosts that run its service: its dest must be inside one of this
 # host's watched config dirs (config-watch.yml, already filtered by services_enabled). The list
 # usually comes from [docker_compose:vars], which every compose host receives.
+#
+# Two dests that are not a service config dir:
+#   {{ i18n_custom_dir }}/<app>/<file>       the i18n overlay: the hosts that run a service
+#                                            mounting <app> (its extra_paths in config_watch)
+#   {{ nginx_conf_dir }}/conf.d/<name>.conf  http-level nginx conf: every host that runs nginx,
+#                                            applied by config-restart-apply.yml's nginx -t +
+#                                            reload (a conf nginx rejects fails the deploy and
+#                                            the running nginx keeps the old one)
 
 # From an .ini inventory the list can arrive as a string; from YAML, as a list.
 - name: "Config files: read docker_config_files"
@@ -19,12 +27,17 @@
     that:
       - item is mapping
       - item.src | default('') | string | length > 0
-      - item.dest | default('') is match('^' ~ (data_dir | regex_escape) ~ '/[^/]+/config/.*[^/]$')
+      - (item.dest | default('') is match('^' ~ (data_dir | regex_escape) ~ '/[^/]+/config/.*[^/]$'))
+        or (item.dest | default('') is match('^' ~ (i18n_custom_dir | regex_escape) ~ '/[^/]+/[^/]+$'))
+        or (item.dest | default('') is match('^' ~ (nginx_conf_dir | regex_escape) ~ '/conf\\.d/[^/]+\\.conf$'))
       - "'/../' not in item.dest"
+      - item.dest | default('') != nginx_conf_dir ~ '/conf.d/metrics.conf'
     fail_msg: >-
-      docker_config_files: {{ item }} is not {src: <file>, dest: {{ data_dir }}/<service>/config/<file>[, mode: '0644']}.
-      dest must be a file inside a service's config dir: only those are hashed to restart the
-      service when the file changes.
+      docker_config_files: {{ item }} is not {src: <file>, dest: <dest>[, mode: '0644']}.
+      dest must be a file inside a service's config dir ({{ data_dir }}/<service>/config/<file>),
+      the i18n overlay ({{ i18n_custom_dir }}/<app>/<file>) or nginx's http-level conf
+      ({{ nginx_conf_dir }}/conf.d/<name>.conf, not metrics.conf): only those are hashed to
+      restart, or reloaded in, the service that reads them.
     quiet: true
   loop: "{{ _config_files }}"
   loop_control:
@@ -42,10 +55,15 @@
       {%- for f in _config_files -%}
         {%- set ns = namespace(service='') -%}
         {%- for w in config_watch -%}
-          {%- if not ns.service and f.dest.startswith(w.path ~ '/') -%}
+          {%- if not ns.service and (f.dest.startswith(w.path ~ '/')
+                                     or (f.dest | dirname) in w.extra_paths | default([])) -%}
             {%- set ns.service = w.service -%}
           {%- endif -%}
         {%- endfor -%}
+        {%- if not ns.service and 'nginx' in services_enabled
+               and f.dest.startswith(nginx_conf_dir ~ '/conf.d/') -%}
+          {%- set ns.service = 'nginx' -%}
+        {%- endif -%}
         {%- if ns.service -%}
           {%- set _ = out.append({'src': f.src if f.src is abs else inventory_dir ~ '/' ~ f.src,
                                   'dest': f.dest, 'mode': f.mode | default('0644') | string,
@@ -53,6 +71,18 @@
         {%- endif -%}
       {%- endfor -%}
       {{ out }}
+
+# The overlay's <app> dirs are ours, not a role's: create them (nginx's conf.d already exists).
+- name: "Config files: create the i18n overlay dirs"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ docker_container_uid }}"
+    group: "{{ docker_container_gid }}"
+    mode: "0755"
+  loop: >-
+    {{ _config_files_here | map(attribute='dest') | select('match', (i18n_custom_dir | regex_escape) ~ '/')
+       | map('dirname') | unique | list }}
 
 - name: "Config files: copy them from the inventory"
   ansible.builtin.copy:

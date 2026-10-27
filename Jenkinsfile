@@ -924,8 +924,12 @@ EOF
                     bash scripts/test-hub-healthcheck-exec.sh
                     # docker_autoheal: order, grace, hourly cap, probes, deploy marker. Fake docker, ~5s.
                     VENV_MOLECULE="$VENV_MOL" bash scripts/test-la-autoheal.sh
-                    # docker_config_files from a real .ini: per-host placement, mode, idempotency. ~10s.
+                    # docker_config_files from a real .ini: per-host placement, mode, idempotency,
+                    # i18n overlay and nginx conf.d dests. ~15s.
                     VENV_MOLECULE="$VENV_MOL" bash scripts/test-config-files.sh
+                    # The i18n overlay: fragments unchanged without one, each service mounts and
+                    # hashes only its <app> dirs, the role and the bundle applier agree. ~20s.
+                    VENV_MOLECULE="$VENV_MOL" bash scripts/test-i18n-overlay.sh
                     # Gatus page checks ask like a browser (Accept-Language), or a Grails app that 500s
                     # only for browsers stays green (TASK-94, #495). Ansible render, ~5s.
                     VENV_MOLECULE="$VENV_MOL" bash scripts/test-gatus-extra-checks.sh

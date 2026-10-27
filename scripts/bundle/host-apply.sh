@@ -263,13 +263,16 @@ gate() {
   echo "allow_service_removal=true: proceeding"
 }
 
+# Same hash as the role's config-restart-detect.yml, extra_paths (i18n overlay dirs) included.
 hashes() {
-  local svc path
+  local svc path extra x dirs
   meta config_watch | python3 -c '
 import json, sys
-for e in json.load(sys.stdin): print(e["service"], e["path"])' | while read -r svc path; do
+for e in json.load(sys.stdin): print(e["service"], e["path"], *e.get("extra_paths", []))' | while read -r svc path extra; do
     [ -d "$path" ] || continue
-    printf '%s %s\n' "$svc" "$(find "$path" -type f -print0 | sort -z | xargs -0 -r sha256sum | sha256sum | awk '{print $1}')"
+    dirs=("$path")
+    for x in $extra; do [ -d "$x" ] && dirs+=("$x"); done
+    printf '%s %s\n' "$svc" "$(find "${dirs[@]}" -type f -print0 | sort -z | xargs -0 -r sha256sum | sha256sum | awk '{print $1}')"
   done
 }
 

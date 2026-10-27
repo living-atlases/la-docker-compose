@@ -3,3 +3,8 @@
 {% elif i18n_package_enabled | default(false) %}
       - /opt/atlas/i18n:/opt/atlas/i18n/:ro
 {% endif %}
+{# The portal's overlay (i18n_custom_apps in defaults/main.yml): the <app> dirs this service
+   reads and the inventory fills, nothing else. i18n_svc is set by the including template. #}
+{% for app in (i18n_custom_apps | default({})).get(i18n_svc | default(''), []) if app in (i18n_custom_present | default([])) %}
+      - {{ i18n_custom_dir }}/{{ app }}:/var/opt/atlas/i18n/{{ app }}:ro
+{% endfor %}

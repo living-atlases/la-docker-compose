@@ -36,6 +36,6 @@
           'budget': health_gate_budget | int,
         },
         'config_watch': config_watch | map('dict2items')
-                        | map('selectattr', 'key', 'in', ['service', 'path'])
+                        | map('selectattr', 'key', 'in', ['service', 'path', 'extra_paths'])
                         | map('items2dict') | list,
       } }}

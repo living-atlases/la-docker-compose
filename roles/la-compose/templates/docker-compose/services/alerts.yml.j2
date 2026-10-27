@@ -29,7 +29,7 @@ services:
       # logback.xml writes to /var/log/tomcat9/alerts.log; the image has no /var/log/tomcat9
       # (not writable by uid 1000) so bind a host dir (created uid 1000 by config-dir-ensure).
       - {{ data_dir }}/alerts/logs:/var/log/tomcat9
-{% include '_i18n_volumes.yml.j2' %}
+{% with i18n_svc = 'alerts' %}{% include '_i18n_volumes.yml.j2' %}{% endwith %}
     restart: unless-stopped
     expose:
       - {{ alerts_port | default('8080') }}

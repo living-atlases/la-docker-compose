@@ -8,7 +8,7 @@ services:
     volumes:
       - {{ data_dir }}/userdetails:/data/userdetails
       # - {{ docker_compose_data_dir }}/var-log-atlas/userdetails:/var/log/atlas/userdetails
-{% include '_i18n_volumes.yml.j2' %}
+{% with i18n_svc = 'userdetails' %}{% include '_i18n_volumes.yml.j2' %}{% endwith %}
     environment:
       TZ: {{ server_tz | default('UTC') }}
       JAVA_OPTS: ${USERDETAILS_JAVA_OPTS}

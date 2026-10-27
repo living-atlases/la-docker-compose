@@ -70,7 +70,7 @@ services:
       # a HOST-shaped path that does not exist behind the /data/ala-hub mount above.
       - {{ data_dir }}/{{ inst.biocache_hub }}:/data/{{ inst.biocache_hub }}
 {% endif %}
-{% include '_i18n_volumes.yml.j2' %}
+{% with i18n_svc = 'ala_hub' %}{% include '_i18n_volumes.yml.j2' %}{% endwith %}
     restart: unless-stopped
     expose:
       - 8080

@@ -6,8 +6,11 @@
 #   2. a second run changes nothing;
 #   3. an entry whose service no host runs is a warning, not a copy;
 #   4. a changed src is copied again (the config hash then restarts that service);
-#   5. a dest outside a service config dir fails the deploy.
-# ~10s.
+#   5. a dest outside a service config dir fails the deploy;
+#   6. an i18n overlay file lands on the host of a service that reads its <app> dir, in a dir
+#      the task creates; one whose <app> no service here reads is a warning;
+#   7. an nginx conf.d/*.conf lands on every host that runs nginx; metrics.conf is refused.
+# ~15s.
 set -u
 cd "$(dirname "$0")/.."
 ROLES="$PWD/roles"
@@ -18,8 +21,11 @@ fail=0
 ok()  { echo "[PASS] $1"; }
 bad() { echo "[FAIL] $1" >&2; fail=1; }
 
-mkdir -p "$T/inv/files/ala-hub" "$T/inv/files/biocache" \
-  "$T/a/ala-hub/config" "$T/a/bie-index/config" "$T/b/biocache/config" "$T/b/ala-hub/config"
+mkdir -p "$T/inv/files/ala-hub" "$T/inv/files/biocache" "$T/inv/files/i18n/biocache-hubs" "$T/inv/files/nginx" \
+  "$T/a/ala-hub/config" "$T/a/bie-index/config" "$T/b/biocache/config" "$T/b/ala-hub/config" \
+  "$T/b/docker-compose/nginx/conf.d" "$T/a/docker-compose/nginx/conf.d"
+echo 'species_subgroup.Accipitriformes=Rapaces diurnas' > "$T/inv/files/i18n/biocache-hubs/messages_es.properties"
+echo 'limit_conn_zone $binary_remote_addr zone=t:1m;' > "$T/inv/files/nginx/zz-limit.conf"
 echo '{"charts": "es"}' > "$T/inv/files/ala-hub/charts.json"
 echo '<p>Hola</p>' > "$T/inv/files/biocache/download-email-es.html"
 echo '[{"id": "dr888"}]' > "$T/conservation-lists.json"   # absolute src, outside the inventory
@@ -28,14 +34,14 @@ uid=$(id -u); gid=$(id -g)
 
 cat > "$T/inv/hosts.ini" <<INI
 [docker_compose]
-host-a ansible_connection=local data_dir=$T/a services_enabled='["ala_hub", "bie_index"]'
-host-b ansible_connection=local data_dir=$T/b services_enabled='["biocache_service"]'
+host-a ansible_connection=local data_dir=$T/a docker_compose_data_dir=$T/a/docker-compose services_enabled='["ala_hub", "bie_index"]'
+host-b ansible_connection=local data_dir=$T/b docker_compose_data_dir=$T/b/docker-compose services_enabled='["biocache_service", "nginx"]'
 
 [docker_compose:vars]
 docker_container_uid=$uid
 docker_container_gid=$gid
 hub_instances=[]
-docker_config_files = [{"src": "files/ala-hub/charts.json", "dest": "/data/ala-hub/config/charts.json"}, {"src": "$T/conservation-lists.json", "dest": "/data/bie-index/config/conservation-lists.json"}, {"src": "{{ inventory_dir }}/files/biocache/download-email-es.html", "dest": "/data/biocache/config/download-email-es.html", "mode": "0640"}, {"src": "files/ala-hub/charts.json", "dest": "/data/ala-hubb/config/charts.json"}]
+docker_config_files = [{"src": "files/ala-hub/charts.json", "dest": "/data/ala-hub/config/charts.json"}, {"src": "$T/conservation-lists.json", "dest": "/data/bie-index/config/conservation-lists.json"}, {"src": "{{ inventory_dir }}/files/biocache/download-email-es.html", "dest": "/data/biocache/config/download-email-es.html", "mode": "0640"}, {"src": "files/ala-hub/charts.json", "dest": "/data/ala-hubb/config/charts.json"}, {"src": "files/i18n/biocache-hubs/messages_es.properties", "dest": "/data/i18n-custom/biocache-hubs/messages_es.properties"}, {"src": "files/i18n/biocache-hubs/messages_es.properties", "dest": "/data/i18n-custom/regions/messages_es.properties"}, {"src": "files/nginx/zz-limit.conf", "dest": "/data/docker-compose/nginx/conf.d/zz-limit.conf"}]
 INI
 # The portal writes /data/...; each test host has its own data_dir.
 sed -i 's#"dest": "/data/#"dest": "{{ data_dir }}/#g' "$T/inv/hosts.ini"
@@ -69,6 +75,20 @@ cmp -s "$T/conservation-lists.json" "$T/a/bie-index/config/conservation-lists.js
 # 3. orphan entry
 grep -q "WARNING docker_config_files: no host of this play runs the service of .*/ala-hubb/config/charts.json" "$T/run1.log" &&
   [ ! -e "$T/a/ala-hubb" ] && ok "an entry for a service no host runs is a warning" || bad "no orphan warning"
+
+# 6. i18n overlay
+f=i18n-custom/biocache-hubs/messages_es.properties
+cmp -s "$T/inv/files/i18n/biocache-hubs/messages_es.properties" "$T/a/$f" &&
+  [ "$(stat -c '%u %a' "$T/a/i18n-custom/biocache-hubs")" = "$uid 755" ] && [ ! -e "$T/b/i18n-custom" ] &&
+  ok "an i18n overlay file lands, in a dir it creates, on the host of the service that reads its <app>" ||
+  bad "i18n overlay: $(find "$T/a/i18n-custom" "$T/b/i18n-custom" 2>&1 | head -5)"
+grep -q "WARNING docker_config_files: no host of this play runs the service of .*/i18n-custom/regions/messages_es.properties" "$T/run1.log" &&
+  [ ! -e "$T/a/i18n-custom/regions" ] && ok "an overlay <app> that no service here reads is a warning" || bad "no overlay orphan warning"
+
+# 7. nginx http-level conf
+cmp -s "$T/inv/files/nginx/zz-limit.conf" "$T/b/docker-compose/nginx/conf.d/zz-limit.conf" &&
+  [ ! -e "$T/a/docker-compose/nginx/conf.d/zz-limit.conf" ] &&
+  ok "an nginx conf.d/*.conf lands on the host that runs nginx only" || bad "nginx conf: $(ls "$T"/?/docker-compose/nginx/conf.d)"
 [ "$(grep -c 'WARNING docker_config_files' "$T/run1.log")" = 1 ] && ok "the warning is printed once" || bad "warning count"
 
 # 2. idempotent
@@ -89,5 +109,14 @@ else
   grep -q "dest must be a file inside a service's config dir" "$T/run4.log" && [ ! -e /etc/charts.json ] &&
     ok "a dest outside a config dir fails the deploy" || bad "wrong failure: $(tail -5 "$T/run4.log")"
 fi
+for d in '{{ docker_compose_data_dir }}/nginx/conf.d/metrics.conf' '{{ docker_compose_data_dir }}/nginx/conf.d/x.inc' \
+         '{{ data_dir }}/i18n-custom/messages_es.properties' '{{ data_dir }}/i18n-custom/a/b/messages_es.properties'; do
+  if run -e "{\"docker_config_files\": [{\"src\": \"files/ala-hub/charts.json\", \"dest\": \"$d\"}]}" >"$T/run5.log" 2>&1; then
+    bad "dest $d was accepted"
+  else
+    grep -q "dest must be a file inside a service's config dir" "$T/run5.log" && ok "dest $d is refused" ||
+      bad "wrong failure for $d: $(tail -5 "$T/run5.log")"
+  fi
+done
 
 exit $fail

@@ -69,3 +69,21 @@
       }}
   tags: [always]
 
+# The portal's i18n overlay (i18n_custom_apps, defaults/main.yml): each service also hashes the
+# <app> dirs it mounts from i18n_custom_dir, so a changed overlay restarts the services that read
+# it and no other. A service without overlay keeps no extra_paths and the same hash as before.
+- name: "Config-change: add the i18n overlay dirs each watched service mounts"
+  ansible.builtin.set_fact:
+    config_watch: >-
+      {%- set out = [] -%}
+      {%- for e in config_watch -%}
+        {%- set apps = (i18n_custom_apps | default({})).get(e.svc, [])
+                       | select('in', i18n_custom_present | default([])) | list -%}
+        {%- if apps | length > 0 -%}
+          {%- set _ = out.append(e | combine({'extra_paths': [i18n_custom_dir] | product(apps) | map('join', '/') | list})) -%}
+        {%- else -%}
+          {%- set _ = out.append(e) -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ out }}
+  tags: [always]
