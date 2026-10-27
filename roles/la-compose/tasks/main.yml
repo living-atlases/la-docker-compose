@@ -111,7 +111,7 @@
 
     # The nightly image GC (docker-housekeeping) skips its run while this marker is
     # fresh: between the pull and `up` the pulled images belong to no container yet, and
-    # it deleted one mid-deploy in #428. Removed at the end of the role.
+    # it deleted one mid-deploy in #428. Removed when the role ends, failed or not (the block's `always`).
     - name: "Deployment preparation: mark a deploy in progress for the image GC"
       ansible.builtin.file:
         path: "{{ docker_housekeeping_deploy_marker | default('/run/la-compose-deploy.marker') }}"
@@ -1096,7 +1096,11 @@
         - docker-compose
         - autoheal
 
-    - name: "Deployment done: clear the in-progress marker for the image GC"
+  # In `always`, not as the block's last task: a deploy that failed left the marker behind,
+  # and autoheal, the image GC and the trivy scan all stood down for its whole max age (6 h)
+  # on a host whose stack needed them most (gbif.es -3, a broken postfix.yml).
+  always:
+    - name: "Deployment done or failed: clear the in-progress marker for the image GC and autoheal"
       ansible.builtin.file:
         path: "{{ docker_housekeeping_deploy_marker | default('/run/la-compose-deploy.marker') }}"
         state: absent

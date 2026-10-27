@@ -933,6 +933,9 @@ EOF
                     # postfix.yml quotes its environment: a [host]:port relay or a password with ': '
                     # or '#' broke every compose command of the host (gbif.es -3). ~2s.
                     VENV_MOLECULE="$VENV_MOL" bash scripts/test-postfix-env-quoting.sh
+                    # The deploy marker goes away on a failed deploy too, or autoheal/GC/trivy stand
+                    # down for 6 h on the host that failed. ~5s.
+                    VENV_MOLECULE="$VENV_MOL" bash scripts/test-deploy-marker-cleanup.sh
                     # Gatus page checks ask like a browser (Accept-Language), or a Grails app that 500s
                     # only for browsers stays green (TASK-94, #495). Ansible render, ~5s.
                     VENV_MOLECULE="$VENV_MOL" bash scripts/test-gatus-extra-checks.sh

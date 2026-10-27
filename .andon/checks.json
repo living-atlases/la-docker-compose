@@ -313,6 +313,13 @@
     },
     {
       "match": [
+        "roles/la-compose/tasks/main.yml",
+        "scripts/test-deploy-marker-cleanup.sh"
+      ],
+      "run": "VENV_MOLECULE=.venv-molecule bash scripts/test-deploy-marker-cleanup.sh"
+    },
+    {
+      "match": [
         "roles/la-compose/templates/docker-compose/gatus/extra-checks.yaml.j2",
         "roles/la-compose/vars/gatus-extra-endpoints.yml",
         "scripts/test-gatus-extra-checks.sh"
