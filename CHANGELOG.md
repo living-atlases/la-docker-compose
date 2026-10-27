@@ -12,7 +12,7 @@ edit by hand, write the notes in the annotated tag instead.
 
 #### Features
 
-- **la-compose**: docker_config_files, the portal's own versions of files ala-install overwrites ([046fad2](https://github.com/living-atlases/la-docker-compose/commit/046fad22f0f858eb4a8f9abb8cb6f0f94e8a07b7))
+- **la-compose**: docker_config_files, the portal's own versions of files ala-install overwrites ([c0096f3](https://github.com/living-atlases/la-docker-compose/commit/c0096f3270947ca24a174e276057fbfe660ae5c0))
 - **la-compose**: autoheal on by default ([0a2f231](https://github.com/living-atlases/la-docker-compose/commit/0a2f231d19b441289aec3535ad9be21de78e1bd0))
 - **la-compose**: autoheal after a Docker or host restart, and a biocache-hub healthcheck that sees the i18n race ([05da764](https://github.com/living-atlases/la-docker-compose/commit/05da764f4b1a5853b784cfc8bd469c48fa08eb2c))
 
