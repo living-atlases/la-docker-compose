@@ -11,17 +11,21 @@ services:
     restart: unless-stopped
     ports:
       - "25"
+    # Every value quoted (and `$` doubled for compose's interpolation): the standard Postfix
+    # relay form [smtp.example.org]:587 is a YAML flow sequence unquoted, and a password with
+    # ': ', ' #', or a leading '*', '&', '!' or '%' breaks the file the same way; one broken
+    # value fails every `docker compose` command of the host, not only postfix's.
     environment:
-      TZ: {{ server_tz | default('UTC') }}
-      HOSTNAME: {{ email_hostname | default('') }}
-      RELAYHOST: {{ email_sender_server | default('') }}
-      RELAYHOST_USERNAME: {{ email_sender | default('') }}
-      RELAYHOST_PASSWORD: {{ email_sender_password | default('') }}
+      TZ: {{ server_tz | default('UTC') | string | replace('$', '$$') | to_json }}
+      HOSTNAME: {{ email_hostname | default('') | string | replace('$', '$$') | to_json }}
+      RELAYHOST: {{ email_sender_server | default('') | string | replace('$', '$$') | to_json }}
+      RELAYHOST_USERNAME: {{ email_sender | default('') | string | replace('$', '$$') | to_json }}
+      RELAYHOST_PASSWORD: {{ email_sender_password | default('') | string | replace('$', '$$') | to_json }}
       # Derived from this deployment's sender address, never from a hardcoded
       # domain: email_allowed_domains is not emitted by the toolkit, so a literal
       # default here would apply to every deployment. Empty (authorise nobody)
       # beats authorising someone else's domain.
-      ALLOWED_SENDER_DOMAINS: {{ email_allowed_domains | default(email_sender | default('') | regex_replace('^.*@', '')) }}
+      ALLOWED_SENDER_DOMAINS: {{ email_allowed_domains | default(email_sender | default('') | regex_replace('^.*@', '')) | string | replace('$', '$$') | to_json }}
     networks:
       default: {}
       {{ docker_network | default('internal') }}:

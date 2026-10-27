@@ -930,6 +930,9 @@ EOF
                     # The i18n overlay: fragments unchanged without one, each service mounts and
                     # hashes only its <app> dirs, the role and the bundle applier agree. ~20s.
                     VENV_MOLECULE="$VENV_MOL" bash scripts/test-i18n-overlay.sh
+                    # postfix.yml quotes its environment: a [host]:port relay or a password with ': '
+                    # or '#' broke every compose command of the host (gbif.es -3). ~2s.
+                    VENV_MOLECULE="$VENV_MOL" bash scripts/test-postfix-env-quoting.sh
                     # Gatus page checks ask like a browser (Accept-Language), or a Grails app that 500s
                     # only for browsers stays green (TASK-94, #495). Ansible render, ~5s.
                     VENV_MOLECULE="$VENV_MOL" bash scripts/test-gatus-extra-checks.sh
