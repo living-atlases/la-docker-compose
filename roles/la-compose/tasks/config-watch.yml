@@ -2,7 +2,7 @@
 # The services whose bind-mounted config content is hashed into .config-hashes, so a change
 # restarts them after `compose up` (see config-restart-detect.yml / config-restart-apply.yml).
 # Shared with bundle-meta.yml: the Ansible deploy and the bundle applier must watch the same set.
-- name: "Config-change: build the watch list (enabled services with bind-mounted config)"
+- name: "Config-change: the hub instances' config dirs"
   ansible.builtin.set_fact:
     # svc: services_enabled key (per-host gating) / service: compose service name
     # (container la_<service>) / path: host config dir the container mounts.
@@ -32,6 +32,13 @@
         {%- endif -%}
       {%- endfor -%}
       {{ out }}
+  tags: [always]
+
+# A task of its own: in the set_fact above, config_watch saw the hub_config_watch of the
+# PREVIOUS include (none on the first), so the first watch list of a play left the hubs out and
+# a hub's config change did not restart it unless config-files.yml had built the list before.
+- name: "Config-change: build the watch list (portal services + hub instances)"
+  ansible.builtin.set_fact:
     config_watch: >-
       {{
         [
@@ -61,3 +68,4 @@
         + (hub_config_watch | default([]))
       }}
   tags: [always]
+
