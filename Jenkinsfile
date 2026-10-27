@@ -924,6 +924,8 @@ EOF
                     bash scripts/test-hub-healthcheck-exec.sh
                     # docker_autoheal: order, grace, hourly cap, probes, deploy marker. Fake docker, ~5s.
                     VENV_MOLECULE="$VENV_MOL" bash scripts/test-la-autoheal.sh
+                    # docker_config_files from a real .ini: per-host placement, mode, idempotency. ~10s.
+                    VENV_MOLECULE="$VENV_MOL" bash scripts/test-config-files.sh
                     # The post-ingest hub restart must cover data hubs too, not only the portal.
                     bash scripts/test-refresh-biocache-fields.sh
                     # The e2e ingest must put its dataset in every data hub, or the hubs show no records.

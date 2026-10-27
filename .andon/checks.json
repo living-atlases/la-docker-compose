@@ -284,6 +284,14 @@
         "scripts/test-la-autoheal.sh"
       ],
       "run": "VENV_MOLECULE=.venv-molecule bash scripts/test-la-autoheal.sh"
+    },
+    {
+      "match": [
+        "roles/la-compose/tasks/config-files.yml",
+        "roles/la-compose/tasks/config-watch.yml",
+        "scripts/test-config-files.sh"
+      ],
+      "run": "VENV_MOLECULE=.venv-molecule bash scripts/test-config-files.sh"
     }
   ],
   "ignore": [

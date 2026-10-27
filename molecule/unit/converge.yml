@@ -805,3 +805,52 @@
       ansible.builtin.file:
         path: "{{ tc12_dir.path }}"
         state: absent
+
+# ── Test case 13: docker_config_files as a YAML list (group_vars/host_vars) ─────────────
+# scripts/test-config-files.sh covers the .ini form, several hosts and idempotency.
+- name: Unit test docker_config_files from YAML
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: "[TC13] A scratch data dir with the hub's config dir"
+      ansible.builtin.tempfile:
+        state: directory
+      register: tc13_dir
+
+    - name: "[TC13] The portal's charts.json, and ALA's in the hub's config dir"
+      ansible.builtin.shell: |
+        mkdir -p "{{ tc13_dir.path }}/data/ala-hub/config"
+        echo '{"charts": "es"}' > "{{ tc13_dir.path }}/charts.json"
+        echo '{"charts": "ALA"}' > "{{ tc13_dir.path }}/data/ala-hub/config/charts.json"
+      changed_when: true
+
+    - name: "[TC13] Copy the list"
+      ansible.builtin.include_role:
+        name: "{{ playbook_dir }}/../../roles/la-compose"
+        tasks_from: config-files.yml
+      vars:
+        data_dir: "{{ tc13_dir.path }}/data"
+        services_enabled: [ala_hub]
+        hub_instances: []
+        docker_container_uid: "{{ lookup('pipe', 'id -u') }}"
+        docker_container_gid: "{{ lookup('pipe', 'id -g') }}"
+        docker_config_files:
+          - src: "{{ tc13_dir.path }}/charts.json"
+            dest: "{{ tc13_dir.path }}/data/ala-hub/config/charts.json"
+
+    - name: "[TC13] Read it back"
+      ansible.builtin.slurp:
+        src: "{{ tc13_dir.path }}/data/ala-hub/config/charts.json"
+      register: tc13_charts
+
+    - name: "[TC13] Assert the portal's file replaced ALA's"
+      ansible.builtin.assert:
+        that:
+          - (tc13_charts.content | b64decode | from_json).charts == 'es'
+          - _config_files_here | map(attribute='service') | list == ['biocache-hub']
+        msg: "FAIL TC13: {{ tc13_charts.content | b64decode }} / {{ _config_files_here }}"
+
+    - name: "[TC13] Clean up"
+      ansible.builtin.file:
+        path: "{{ tc13_dir.path }}"
+        state: absent

@@ -1,0 +1,82 @@
+---
+# docker_config_files (see defaults/main.yml): the portal's own versions of files that the
+# ala-install roles copy from their own templates with force=yes and no variable (charts.json,
+# bie-index's conservation-lists.json, biocache-service's download-email-*.html...). Runs after
+# the configs are generated, so it has the last word, and before config-restart-detect.yml, so a
+# changed file restarts only the service that mounts it (the same content hash as the rest).
+#
+# Each entry goes only to the hosts that run its service: its dest must be inside one of this
+# host's watched config dirs (config-watch.yml, already filtered by services_enabled). The list
+# usually comes from [docker_compose:vars], which every compose host receives.
+
+# From an .ini inventory the list can arrive as a string; from YAML, as a list.
+- name: "Config files: read docker_config_files"
+  ansible.builtin.set_fact:
+    _config_files: "{{ (docker_config_files | from_yaml) if docker_config_files is string else docker_config_files }}"
+
+- name: "Config files: each entry is a src and a file in a service config dir"
+  ansible.builtin.assert:
+    that:
+      - item is mapping
+      - item.src | default('') | string | length > 0
+      - item.dest | default('') is match('^' ~ (data_dir | regex_escape) ~ '/[^/]+/config/.*[^/]$')
+      - "'/../' not in item.dest"
+    fail_msg: >-
+      docker_config_files: {{ item }} is not {src: <file>, dest: {{ data_dir }}/<service>/config/<file>[, mode: '0644']}.
+      dest must be a file inside a service's config dir: only those are hashed to restart the
+      service when the file changes.
+    quiet: true
+  loop: "{{ _config_files }}"
+  loop_control:
+    label: "{{ item.dest | default(item) }}"
+
+- name: "Config files: build the watch list"
+  ansible.builtin.include_tasks: config-watch.yml
+
+# A relative src is relative to the inventory, not to this role: the ini can also say
+# src={{ inventory_dir }}/files/... explicitly.
+- name: "Config files: keep the entries whose service runs on this host"
+  ansible.builtin.set_fact:
+    _config_files_here: >-
+      {%- set out = [] -%}
+      {%- for f in _config_files -%}
+        {%- set ns = namespace(service='') -%}
+        {%- for w in config_watch -%}
+          {%- if not ns.service and f.dest.startswith(w.path ~ '/') -%}
+            {%- set ns.service = w.service -%}
+          {%- endif -%}
+        {%- endfor -%}
+        {%- if ns.service -%}
+          {%- set _ = out.append({'src': f.src if f.src is abs else inventory_dir ~ '/' ~ f.src,
+                                  'dest': f.dest, 'mode': f.mode | default('0644') | string,
+                                  'service': ns.service}) -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ out }}
+
+- name: "Config files: copy them from the inventory"
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: "{{ docker_container_uid }}"
+    group: "{{ docker_container_gid }}"
+    mode: "{{ item.mode }}"
+  loop: "{{ _config_files_here }}"
+  loop_control:
+    label: "{{ item.dest }} ({{ item.service }})"
+
+# A dest that no host of the play watches is a typo in the service dir, or a service this
+# portal does not run: nothing copies it and nothing fails. A warning only, since a --limit
+# run leaves out the hosts that do run it.
+- name: "Config files: entries that no host of this play runs"
+  ansible.builtin.debug:
+    msg: >-
+      WARNING docker_config_files: no host of this play runs the service of {{ _orphans | join(', ') }};
+      not copied.
+  run_once: true
+  when: _orphans | length > 0
+  vars:
+    _copied: >-
+      {{ ansible_play_hosts | map('extract', hostvars, '_config_files_here') | map('default', [])
+         | flatten | map(attribute='dest') | list }}
+    _orphans: "{{ _config_files | map(attribute='dest') | reject('in', _copied) | list }}"

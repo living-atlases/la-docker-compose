@@ -481,6 +481,19 @@
       tags:
         - docker-compose
 
+    # The portal's own versions of files ala-install overwrites with ALA's (docker_config_files).
+    # After every config is generated, before config-restart-detect.yml hashes them.
+    - name: "Install the portal's config files from the inventory (docker_config_files)"
+      ansible.builtin.include_tasks:
+        file: config-files.yml
+        apply:
+          become: true
+          tags: [docker-compose, config-files]
+      when: docker_config_files | length > 0
+      tags:
+        - docker-compose
+        - config-files
+
     - name: "LAYER 2: Pre-deployment validation"
       ansible.builtin.include_tasks: validate-pre-deploy.yml
       when: auto_deploy | default(true) | bool

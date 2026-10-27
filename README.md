@@ -344,6 +344,28 @@ are redundant now but harmless, since a later `-D` on the command line wins.
   and species-list load a single generated external config and have **no**
   second-level local-override file. Change them via `*-local-extras.ini` /
   inventory and regenerate.
+- **Files ala-install overwrites with ALA's (`docker_config_files`).** Some
+  ala-install roles copy files from their own templates with `force=yes` and no
+  variable: `charts.json` (biocache-hub, bie-hub, collectory), bie-index's
+  `conservation-lists.json` / `vernacular-lists.json` / `favourites.json` /
+  `wiki-lists.json`, biocache-service's `download-email-*.html` and
+  `messages*.properties`. Keep the portal's versions in the inventory and list
+  them; each deploy copies them over ALA's, after the configs are generated and
+  before the containers start. A changed file restarts only the service that
+  mounts it (the same config hash as the rest). In `[docker_compose:vars]`, on
+  one line:
+
+  ```ini
+  docker_config_files = [{"src": "files/ala-hub/charts.json", "dest": "/data/ala-hub/config/charts.json"}, {"src": "files/biocache/download-email-es.html", "dest": "/data/biocache/config/download-email-es.html", "mode": "0640"}]
+  ```
+
+  `src` is relative to the inventory's directory (or absolute, or
+  `{{ inventory_dir }}/...`). `dest` must be a file in a service's config dir,
+  `/data/<service>/config/`, or the deploy fails; an entry only lands on the
+  hosts that run that service, and one that no host runs is a warning. `mode` is
+  a quoted string, `'0644'` by default; the owner is `docker_container_uid`.
+  During a deploy ALA's file is back for the few minutes between the ala-install
+  role and this copy; the content hash is unchanged, so nothing restarts.
 
 ### Selecting which services run
 

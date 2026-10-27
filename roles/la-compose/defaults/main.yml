@@ -813,6 +813,24 @@ geonetwork_min_image_version: "3.12.12"
 geonetwork_public: false
 
 # ============================================
+# Portal config files from the inventory
+# ============================================
+# Several ala-install roles copy files from their own templates with force=yes and no variable,
+# so every deploy puts ALA's version back: charts.json (biocache-hub, bie-hub, collectory),
+# bie-index's conservation-lists.json / vernacular-lists.json / favourites.json /
+# wiki-lists.json, biocache-service's download-email-*.html and messages*.properties.
+# docker_config_files copies the portal's own versions over them on every deploy, after the
+# configs are generated and before the containers start; a changed file restarts only the
+# service that mounts it (tasks/config-files.yml). Each entry:
+#   src:  file on the controller; relative to inventory_dir, or absolute
+#   dest: {{ data_dir }}/<service>/config/<file> (the service's config dir; it must exist)
+#   mode: optional, a quoted string, default '0644'
+# An entry only lands on the hosts that run its service, so the list can live in
+# [docker_compose:vars]. In an .ini, on one line:
+#   docker_config_files = [{"src": "files/ala-hub/charts.json", "dest": "/data/ala-hub/config/charts.json"}]
+docker_config_files: []
+
+# ============================================
 # Autoheal: restart unhealthy containers after a Docker or host restart
 # ============================================
 # Docker does not restart an unhealthy container (`unless-stopped` only acts when the
