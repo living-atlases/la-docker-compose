@@ -442,22 +442,22 @@ The CI runs the same script on its hosts in the `Trivy scan` stage (`RUN_TRIVY`,
 
 Docker does not restart an `unhealthy` container: `restart: unless-stopped` only acts when the process dies. After a restart of Docker or of the host (a docker-ce update, a kernel reboot), the stack can come back alive but broken. biocache-service can keep its JVM running with no application context after luke times out against a cold Solr, and the hubs can lose the i18n race, where every page is a 500. The hubs' healthchecks load a real page (biocache-hub runs a search), so Docker does mark them `unhealthy`. Nothing restarts them, though.
 
-`docker_autoheal: true` installs `/usr/local/sbin/la-autoheal` with a systemd timer (`la-autoheal.timer`, every minute) on every docker-compose host. It restarts the unhealthy `la_*` containers with these rules:
+The role installs `/usr/local/sbin/la-autoheal` with a systemd timer (`la-autoheal.timer`, every minute) on every docker-compose host (`docker_autoheal`, on by default). It restarts the unhealthy `la_*` containers with these rules:
 
 - biocache-service goes first; the hubs on the same host wait until it is healthy;
 - at least 10 minutes between two restarts of one container;
 - at most 3 restarts an hour for each container; after that it only logs an `ERROR`;
 - nothing while a deploy is in progress: the deploy's health gate does its own restarts.
 
-It is a script on the host, not a container with the Docker socket. Check what it would do with `sudo la-autoheal --dry-run`, and what it did with `journalctl -t la-autoheal`. Setting it back to `false` removes it.
+It is a script on the host, not a container with the Docker socket. Check what it would do with `sudo la-autoheal --dry-run`, and what it did with `journalctl -t la-autoheal`. `docker_autoheal: false` removes it.
 
-To turn it on from the **LA Toolkit**:
+To turn it off from the **LA Toolkit**:
 
 1. Open the project's **Tune** page and switch on **Advanced options**.
-2. In the **Ansible Extras** tab, add `docker_autoheal = true` under `[all:vars]`. The toolkit saves it in `<project>-local-extras.ini`. Do not put it under a `[<service>:vars]` section: that does not reach the other hosts.
+2. In the **Ansible Extras** tab, add `docker_autoheal = false` under `[all:vars]`. The toolkit saves it in `<project>-local-extras.ini`. Do not put it under a `[<service>:vars]` section: that does not reach the other hosts.
 3. Run a full deploy of the docker hosts.
 
-A fast deploy does not install it: the bundle applier does not run Ansible.
+A fast deploy neither installs nor removes it: the bundle applier does not run Ansible.
 
 In production (`la_env=production`) a redeploy does not recreate running containers (`docker_recreate_drifted` is off), so an existing biocache-hub keeps its old healthcheck. To pick up the new one, recreate it once, in a maintenance window:
 
@@ -467,7 +467,7 @@ cd /data/docker-compose && docker compose up -d --no-deps biocache-hub
 
 | Variable | Default | |
 | --- | --- | --- |
-| `docker_autoheal` | `false` | `true` installs the timer; `false` removes it |
+| `docker_autoheal` | `true` | `true` installs the timer; `false` removes it |
 | `docker_autoheal_grace` / `docker_autoheal_max_per_hour` | `600` / `3` | seconds between restarts of a container / restarts an hour |
 | `docker_autoheal_probes` | `[]` | extra `"container url"` checks: a healthy container whose URL answers 5xx three times in a row is restarted too |
 

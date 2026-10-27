@@ -831,8 +831,10 @@ geonetwork_public: false
 # A host script and not a container with the docker socket (willfarrell/autoheal): that is
 # root on the host handed to a third-party image.
 #
-# Off by default. false also removes it from a host that had it.
-docker_autoheal: false
+# On by default, like the housekeeping timers: CI build #494 (all gates green) and a real
+# `systemctl restart docker` on a CI host proved it. false removes what this role installed
+# (a host still on the gbif.es bridge keeps the bridge).
+docker_autoheal: true
 docker_autoheal_interval: 1min
 # After a boot, leave the stack this long before the first pass (healthchecks have their own
 # start_period on top).

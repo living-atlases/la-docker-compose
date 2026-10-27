@@ -408,10 +408,10 @@
 
   tasks:
 
-    - name: "[TC8d] Assert autoheal is off by default, with a 10 min grace and 3 restarts an hour"
+    - name: "[TC8d] Assert autoheal is on by default, with a 10 min grace and 3 restarts an hour"
       ansible.builtin.assert:
         that:
-          - not (docker_autoheal | bool)
+          - docker_autoheal | bool
           - docker_autoheal_grace | int == 600
           - docker_autoheal_max_per_hour | int == 3
           - docker_autoheal_first == 'la_biocache-service'
@@ -424,7 +424,7 @@
           max={{ docker_autoheal_max_per_hour }}, first={{ docker_autoheal_first }},
           dependent={{ docker_autoheal_dependent }},
           marker={{ docker_autoheal_deploy_marker }} (gc {{ docker_housekeeping_deploy_marker }}).
-          It must be opt-in, keep the proven limits, let data hub instances wait for
+          It must be on by default, keep the proven limits, let data hub instances wait for
           biocache-service, and skip deploys through the same marker as the image GC.
 
 # ── Test case 9: "local wins" must not disown the rest of the cluster ────────

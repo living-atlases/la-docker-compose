@@ -12,10 +12,12 @@ edit by hand, write the notes in the annotated tag instead.
 
 #### Features
 
+- **la-compose**: autoheal on by default ([1f69cc4](https://github.com/living-atlases/la-docker-compose/commit/1f69cc4608c6febda0ea88f048ab33197530892f))
 - **la-compose**: autoheal after a Docker or host restart, and a biocache-hub healthcheck that sees the i18n race ([05da764](https://github.com/living-atlases/la-docker-compose/commit/05da764f4b1a5853b784cfc8bd469c48fa08eb2c))
 
 #### Fixes
 
+- **probe**: survive an empty /index/fields under pipefail ([37b561d](https://github.com/living-atlases/la-docker-compose/commit/37b561d1b43aba3552fac84dccf271b72adf9851))
 - **e2e**: stop the branding's one-time ?lang= reload under the CAS login ([bb638a3](https://github.com/living-atlases/la-docker-compose/commit/bb638a3ee338f95a219106b6ef4aef5afcde3764))
 - **pull**: name the pullable services; --policy always pulled the local branding images ([4b6fd58](https://github.com/living-atlases/la-docker-compose/commit/4b6fd5842f475c6c9dc6edef15de8d0e7630ab69))
 - **pipelines**: provide the eight vocabularies interpret reads since pipelines#19 ([fad2093](https://github.com/living-atlases/la-docker-compose/commit/fad2093a47552711d0bdb8a0a4184b1e882b72da))
@@ -28,6 +30,8 @@ edit by hand, write the notes in the annotated tag instead.
 
 #### Documentation
 
+- **autoheal**: enable it from the toolkit's Ansible Extras; recreate biocache-hub once in production ([785edaa](https://github.com/living-atlases/la-docker-compose/commit/785edaa9a8ab912011e3e9b826c6df4191aaf7e1))
+- **changelog**: unreleased (autoheal, biocache-hub healthcheck, e2e login fix) ([ec19bfc](https://github.com/living-atlases/la-docker-compose/commit/ec19bfc477c7fddaf358e00fed41fc76b0c7d6c2))
 - **changelog**: v1.12.0 ([4df12ce](https://github.com/living-atlases/la-docker-compose/commit/4df12ce57a4c7e3d26e8c19100c50724a39a1ce6))
 
 #### Other changes
