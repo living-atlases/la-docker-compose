@@ -2,6 +2,7 @@
 # infrastructure/postfix.yml.j2 renders every environment value quoted, with `$` doubled:
 #   - the Postfix relay form [smtp.example.org]:587 and passwords with ': ', ' #', or a leading
 #     '*', '&', '!', '%' or '@' parse as the same string, not as a YAML sequence/comment/alias;
+#   - an empty value is left out, not rendered "" (HOSTNAME="" lost the relay, see the template);
 #   - `docker compose config` accepts the file and hands the container the literal value
 #     (a broken postfix.yml fails every compose command of its host, not only postfix's).
 # ~2s with Docker's compose plugin, the YAML half alone without it.
@@ -37,12 +38,17 @@ for name, v in cases.items():
            "ALLOWED_SENDER_DOMAINS": v.get("email_sender", "").split("@")[-1] if v.get("email_sender") else "",
            "TZ": "UTC"}
     for k, x in exp.items():
+        if x == "":
+            # Unset, never "": HOSTNAME="" makes boky drop relayhost and smtp_sasl_auth_enable
+            # (its myhostname delete also eats the two lines after it; gbif.es -3).
+            assert k not in env, f"{name}: empty {k} rendered as {env[k]!r} instead of left out"
+            continue
         # YAML sees the compose-escaped string; compose turns $$ back into $.
         got = env[k]
         assert isinstance(got, str) and got.replace("$$", "$") == x, f"{name}: {k} = {got!r}, want {x!r}"
     want_env[name] = exp
 json.dump(want_env, open(f"{out}/want.json", "w"))
-print("[PASS] every postfix environment value parses as the literal string ([host]:port, ': ', '#', '*', '&', '$', unicode, quotes, empty)")
+print("[PASS] every postfix environment value parses as the literal string ([host]:port, ': ', '#', '*', '&', '$', unicode, quotes); empty ones are left out")
 PY
 
 if docker compose version >/dev/null 2>&1; then

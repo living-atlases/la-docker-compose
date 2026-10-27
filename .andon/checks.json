@@ -313,6 +313,13 @@
     },
     {
       "match": [
+        "roles/la-compose/tasks/validate-postfix-relay.yml",
+        "scripts/test-postfix-relay-check.sh"
+      ],
+      "run": "VENV_MOLECULE=.venv-molecule bash scripts/test-postfix-relay-check.sh"
+    },
+    {
+      "match": [
         "roles/la-compose/tasks/main.yml",
         "scripts/test-deploy-marker-cleanup.sh"
       ],

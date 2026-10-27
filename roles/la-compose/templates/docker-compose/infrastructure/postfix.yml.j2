@@ -15,17 +15,27 @@ services:
     # relay form [smtp.example.org]:587 is a YAML flow sequence unquoted, and a password with
     # ': ', ' #', or a leading '*', '&', '!' or '%' breaks the file the same way; one broken
     # value fails every `docker compose` command of the host, not only postfix's.
+    # An empty value is left out, not rendered "": unset is what boky expects. HOSTNAME=""
+    # makes boky "delete" myhostname after it set up the relay, and its sed for that also
+    # deletes the two lines after an active myhostname -- relayhost and smtp_sasl_auth_enable
+    # when main.cf (an image VOLUME, kept across recreates) has one from an earlier start.
+    # Unset, Docker gives the container hostname, as before the quoting.
+{% set postfix_env = {
+     'HOSTNAME': email_hostname | default(''),
+     'RELAYHOST': email_sender_server | default(''),
+     'RELAYHOST_USERNAME': email_sender | default(''),
+     'RELAYHOST_PASSWORD': email_sender_password | default(''),
+     'ALLOWED_SENDER_DOMAINS': email_allowed_domains | default(email_sender | default('') | regex_replace('^.*@', '')),
+   } %}
     environment:
       TZ: {{ server_tz | default('UTC') | string | replace('$', '$$') | to_json }}
-      HOSTNAME: {{ email_hostname | default('') | string | replace('$', '$$') | to_json }}
-      RELAYHOST: {{ email_sender_server | default('') | string | replace('$', '$$') | to_json }}
-      RELAYHOST_USERNAME: {{ email_sender | default('') | string | replace('$', '$$') | to_json }}
-      RELAYHOST_PASSWORD: {{ email_sender_password | default('') | string | replace('$', '$$') | to_json }}
-      # Derived from this deployment's sender address, never from a hardcoded
-      # domain: email_allowed_domains is not emitted by the toolkit, so a literal
-      # default here would apply to every deployment. Empty (authorise nobody)
-      # beats authorising someone else's domain.
-      ALLOWED_SENDER_DOMAINS: {{ email_allowed_domains | default(email_sender | default('') | regex_replace('^.*@', '')) | string | replace('$', '$$') | to_json }}
+{% for k, v in postfix_env.items() if v | string | length > 0 %}
+      {{ k }}: {{ v | string | replace('$', '$$') | to_json }}
+{% endfor %}
+      # ALLOWED_SENDER_DOMAINS derives from this deployment's sender address, never from a
+      # hardcoded domain: email_allowed_domains is not emitted by the toolkit, so a literal
+      # default here would apply to every deployment. Unset (boky refuses to start) beats
+      # authorising someone else's domain.
     networks:
       default: {}
       {{ docker_network | default('internal') }}:

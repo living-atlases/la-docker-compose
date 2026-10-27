@@ -1069,6 +1069,22 @@
         - post-deploy
       register: post_deploy_result
 
+    # boky can log the relay and still run without it (validate-postfix-relay.yml): mail
+    # then goes straight to the recipients' MX and bounces. One restart fixes it; a relay
+    # still wrong after that fails the deploy.
+    - name: "Postfix: the running relay is the rendered one"
+      ansible.builtin.include_tasks:
+        file: validate-postfix-relay.yml
+        apply:
+          tags: [docker-compose, mail, post-deploy]
+      when:
+        - auto_deploy | default(true) | bool
+        - not (docker_mail_development_mode | default(false) | bool)
+      tags:
+        - docker-compose
+        - mail
+        - post-deploy
+
     # Cross-host datastore port reachability (firewall sanity). On a healthy deploy
     # this prints an OPEN/BLOCKED matrix for every remote datastore this host
     # consumes; on a blocked port it is the clearest single signal of "services are

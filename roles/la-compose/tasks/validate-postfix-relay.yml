@@ -1,0 +1,62 @@
+---
+# The postfix relay is what the deploy rendered, not only what boky logged.
+#
+# boky/postfix logs "Forwarding all emails to <RELAYHOST>" and can still end up without
+# relayhost in main.cf: its "delete myhostname" sed also deletes the two lines after an
+# active myhostname, and main.cf is an image VOLUME that compose keeps across recreates, so
+# a main.cf from an earlier start can lose relayhost and smtp_sasl_auth_enable on this one.
+# Postfix then delivers straight to the recipients' MX, which rejects it (gbif.es -3: 554
+# from mail.gbif.es, while the log said [smtp.gbif.es]:587). The empty-HOSTNAME trigger is
+# gone from postfix.yml.j2; this catches it and any other boky regression.
+#
+# After up: wait for la_postfix to be healthy (its config is written by then), compare
+# `postconf -h relayhost` with the rendered RELAYHOST, and smtp_sasl_auth_enable with yes
+# when there is a username and password. Wrong -> one restart (the bad line is gone after
+# one start) and a re-check; still wrong -> the deploy fails. No container (a profile
+# without mail) -> nothing to check.
+- name: "Postfix: the running relay is the rendered one (restart once, then fail)"
+  ansible.builtin.shell: |
+    set -uo pipefail
+    c={{ postfix_container_name | default('la_postfix') | quote }}
+    want_relay={{ (email_sender_server | default('')) | string | quote }}
+    want_sasl={{ 'yes' if ((email_sender_server | default('')) | string | length > 0
+                          and (email_sender | default('')) | string | length > 0
+                          and (email_sender_password | default('')) | string | length > 0) else '' }}
+    timeout={{ postfix_relay_check_timeout | default(180) | int }}
+    {% raw %}
+    if [ "$(docker inspect -f '{{.State.Running}}' "$c" 2>/dev/null)" != true ]; then
+      echo "SKIP: $c is not running here"; exit 0
+    fi
+    wait_healthy() {
+      local i=0 h
+      while [ "$i" -lt "$timeout" ]; do
+        h=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$c" 2>/dev/null)
+        case "$h" in healthy|none) return 0 ;; esac
+        sleep 5; i=$((i + 5))
+      done
+      echo "WARN: $c not healthy after ${timeout}s, checking anyway"
+    }
+    check() {
+      got_relay=$(docker exec "$c" postconf -h relayhost 2>&1)
+      got_sasl=$(docker exec "$c" postconf -h smtp_sasl_auth_enable 2>&1)
+      [ "$got_relay" = "$want_relay" ] && { [ "$want_sasl" != yes ] || [ "$got_sasl" = yes ]; }
+    }
+    {% endraw %}
+    wait_healthy
+    if check; then echo "OK: relayhost='$got_relay' smtp_sasl_auth_enable=$got_sasl"; exit 0; fi
+    echo "WRONG: relayhost='$got_relay' (want '$want_relay'), smtp_sasl_auth_enable=$got_sasl (want ${want_sasl:-any}); restarting $c once"
+    docker restart "$c" >/dev/null && sleep 5
+    wait_healthy
+    if check; then echo "FIXED by one restart: relayhost='$got_relay' smtp_sasl_auth_enable=$got_sasl"; exit 2; fi
+    echo "STILL WRONG after a restart: relayhost='$got_relay' (want '$want_relay'), smtp_sasl_auth_enable=$got_sasl (want ${want_sasl:-any})"
+    exit 1
+  args:
+    executable: /bin/bash
+  become: true
+  register: postfix_relay_check
+  changed_when: postfix_relay_check.rc == 2
+  failed_when: postfix_relay_check.rc not in [0, 2]
+
+- name: "Postfix: relay check result"
+  ansible.builtin.debug:
+    msg: "{{ postfix_relay_check.stdout_lines }}"
