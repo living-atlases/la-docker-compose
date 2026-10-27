@@ -28,8 +28,12 @@ mkdir -p "$T/base"
 # The fragments as they were before the overlay: the parent of the commit that added it, or
 # HEAD while it is not committed yet.
 added=$(git log --format=%H -S i18n_svc -- "$SVC/_i18n_volumes.yml.j2" | tail -1)
+base_ref=HEAD
+[ -n "$added" ] && base_ref="$added~1"
+# A shallow clone may not have that parent: compare against HEAD (only the mounts are tested).
+git rev-parse -q --verify "$base_ref^{commit}" >/dev/null || { echo "[INFO] no $base_ref here (shallow clone?): no before/after comparison"; base_ref=HEAD; }
 for f in $(grep -l "_i18n_volumes" "$SVC"/*.j2) "$SVC/_i18n_volumes.yml.j2"; do
-  git show "${added:+$added~1}${added:-HEAD}:$f" > "$T/base/$(basename "$f")" || bad "no base for $f"
+  git show "$base_ref:$f" > "$T/base/$(basename "$f")" || bad "no base for $f"
 done
 "$PY" - "$T/base" "$SVC" <<'PY' && ok "no overlay: the 14 fragments render as before; with one, each mounts only its <app> dirs" || bad "compose fragments"
 import re, sys, jinja2, yaml
