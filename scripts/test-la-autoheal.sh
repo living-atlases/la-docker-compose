@@ -4,7 +4,7 @@
 # role defaults, so a quoting slip in it (the dependent regex) breaks this test too.
 #   1. nothing unhealthy: no restart;          6. only la_* containers;
 #   2. biocache-service before the hubs;      7. application probes (3 strikes, reset, 000);
-#   3. 10 min grace between restarts;          8. --dry-run restarts nothing;
+#   3. 10 min grace between restarts;          8. --dry-run restarts nothing (nor counts probes);
 #   4. the hub once biocache-service is fine;  9. a data hub instance (la_bie-hub-<hub>) waits too;
 #   5. at most 3 restarts an hour, then ERROR; 10. a deploy in progress (fresh marker) is left alone,
 #                                                  a stale one (dead deploy) is not.
@@ -101,6 +101,12 @@ echo 500 > "$T/code.la_biocache-hub"; run 401120; run 401180
 [ -z "$(restarted)" ] && ok "probe: a 200 resets the count" || bad "probe not reset: $(restarted)"
 rm -f "$T/state/la_biocache-hub.probe"; echo 000 > "$T/code.la_biocache-hub"; run 402000; run 402060; run 402120
 [ "$(restarted)" = "la_biocache-hub" ] && ok "probe: no answer counts as a failure" || bad "probe 000: $(restarted)"
+# a dry run of a failing probe reports the attempt but does not count it (seen on gbif.es: a
+# --dry-run took the count from 1 to 2 of 3)
+rm -f "$T/state/"*; echo 500 > "$T/code.la_biocache-hub"; run 403000
+out=$(run 403060 --dry-run); out2=$(run 403070 --dry-run)
+[ "$(cat "$T/state/la_biocache-hub.probe")" = 1 ] && echo "$out$out2" | grep -q "(2 of 3)" && ! echo "$out2" | grep -q "(3 of 3)" &&
+  ok "probe: --dry-run reports the attempt but leaves the count" || bad "dry-run probe count: $(cat "$T/state/la_biocache-hub.probe") / $out / $out2"
 cp "$T/role-defaults" "$T/defaults"; : > "$T/healthy"
 
 # 8. --dry-run restarts nothing

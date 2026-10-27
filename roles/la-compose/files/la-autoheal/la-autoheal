@@ -61,11 +61,13 @@ while read -r pc purl; do
   code=$(docker exec "$pc" curl -s -m 20 -o /dev/null -w '%{http_code}' "$purl" 2>/dev/null)
   pf="$STATE/$pc.probe"
   if [ -z "$code" ] || [ "$code" = 000 ] || [ "${code:0:1}" = 5 ]; then
-    k=$(( $(cat "$pf" 2>/dev/null || echo 0) + 1 )); echo "$k" > "$pf"
+    k=$(( $(cat "$pf" 2>/dev/null || echo 0) + 1 ))
+    # A dry run reports the attempt it would count but leaves the count alone.
+    [ -n "$DRY" ] || echo "$k" > "$pf"
     log "$pc healthy but $purl answers ${code:-nothing} ($k of $PROBE_FAILS)"
     [ "$k" -ge "$PROBE_FAILS" ] && unhealthy+=("$pc")
   else
-    rm -f "$pf"
+    [ -n "$DRY" ] || rm -f "$pf"
   fi
 done <<< "$PROBES"
 
@@ -81,9 +83,9 @@ for c in "${unhealthy[@]}"; do
     continue
   fi
   f="$STATE/$c"
-  touch "$f"
+  [ -n "$DRY" ] || touch "$f"
   # restarts in the last hour
-  recent=$(awk -v t=$((now - 3600)) '$1 > t' "$f")
+  recent=$(awk -v t=$((now - 3600)) '$1 > t' "$f" 2>/dev/null)
   n=$(printf '%s\n' "$recent" | grep -c . || true)
   last=$(printf '%s\n' "$recent" | tail -1)
   if [ -n "$last" ] && [ $((now - last)) -lt "$GRACE" ]; then
