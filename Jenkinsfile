@@ -929,6 +929,9 @@ EOF
                     # Gatus page checks ask like a browser (Accept-Language), or a Grails app that 500s
                     # only for browsers stays green (TASK-94, #495). Ansible render, ~5s.
                     VENV_MOLECULE="$VENV_MOL" bash scripts/test-gatus-extra-checks.sh
+                    # Legacy sds: its name index mounted, a healthcheck that sees the uninitialised
+                    # finder, the index task under Ansible with a local tarball (TASK-95). ~15s.
+                    VENV_MOLECULE="$VENV_MOL" bash scripts/test-sds-webapp-nameindex.sh
                     # The post-ingest hub restart must cover data hubs too, not only the portal.
                     bash scripts/test-refresh-biocache-fields.sh
                     # The e2e ingest must put its dataset in every data hub, or the hubs show no records.

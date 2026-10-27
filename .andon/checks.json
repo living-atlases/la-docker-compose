@@ -300,6 +300,14 @@
         "scripts/test-gatus-extra-checks.sh"
       ],
       "run": "VENV_MOLECULE=.venv-molecule bash scripts/test-gatus-extra-checks.sh"
+    },
+    {
+      "match": [
+        "roles/la-compose/tasks/sds-webapp-nameindex.yml",
+        "roles/la-compose/templates/docker-compose/services/sds.yml.j2",
+        "scripts/test-sds-webapp-nameindex.sh"
+      ],
+      "run": "VENV_MOLECULE=.venv-molecule bash scripts/test-sds-webapp-nameindex.sh"
     }
   ],
   "ignore": [

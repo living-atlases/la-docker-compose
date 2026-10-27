@@ -1,0 +1,60 @@
+---
+# The name index of the legacy sds (sds-webapp2), see sds_webapp_nameindex_* in
+# defaults/main.yml. Two phases around the render, like the other artifacts in main.yml:
+#   start  : check the variable, start the background download into the artifact cache
+#   finish : wait for it and unpack into sds_webapp_nameindex_dir, which
+#            services/sds.yml.j2 mounts at /data/lucene/namematching
+# Vars: sds_webapp_nameindex_phase (start | finish).
+
+- name: "SDS (legacy) name index: the variable says where it is"
+  ansible.builtin.assert:
+    that:
+      - sds_webapp_nameindex_url | default('') | length > 0
+    fail_msg: >-
+      The legacy sds (sds-webapp2) needs a Lucene 8 name index: set sds_webapp_nameindex_url
+      (by default ala_sensitive_data_service_namematching_source). Without it every
+      /ws/<name> answers "The SDS finder has not been initialised".
+    quiet: true
+  when: sds_webapp_nameindex_phase == 'start'
+
+- name: "SDS (legacy) name index: start the background download"
+  ansible.builtin.include_tasks: artifact-fetch-start.yml
+  vars:
+    artifact_name: sds-webapp-nameindex
+    artifact_url: "{{ sds_webapp_nameindex_url }}"
+    artifact_checksum: "{{ sds_webapp_nameindex_checksum }}"
+    artifact_skip_if_exists: "{{ sds_webapp_nameindex_dir }}/cb"
+  when: sds_webapp_nameindex_phase == 'start'
+
+# The tarball's top directory (namematching-<build>/) is stripped, so its name does not have
+# to match anything here.
+- name: "SDS (legacy) name index: wait for the download and unpack"
+  ansible.builtin.include_tasks: artifact-fetch-finish.yml
+  vars:
+    artifact_name: sds-webapp-nameindex
+    artifact_url: "{{ sds_webapp_nameindex_url }}"
+    artifact_checksum: "{{ sds_webapp_nameindex_checksum }}"
+    artifact_dest: "{{ sds_webapp_nameindex_dir }}"
+    artifact_creates: "{{ sds_webapp_nameindex_dir }}/cb"
+    artifact_extra_opts: ["--strip-components=1"]
+    artifact_owner: "{{ docker_container_uid }}"
+    artifact_group: "{{ docker_container_gid }}"
+  when: sds_webapp_nameindex_phase == 'finish'
+
+# A tarball that is not a name index (no cb/ one level down) would leave the mount pointing at
+# a directory the finder cannot use: fail here, not as a finder that never initialises.
+- name: "SDS (legacy) name index: check it unpacked where the mount expects it"
+  ansible.builtin.stat:
+    path: "{{ sds_webapp_nameindex_dir }}/cb"
+  register: sds_webapp_nameindex_cb
+  become: true
+  when: sds_webapp_nameindex_phase == 'finish'
+
+- name: "SDS (legacy) name index: fail when it is not there"
+  ansible.builtin.fail:
+    msg: >-
+      {{ sds_webapp_nameindex_url }} unpacked into {{ sds_webapp_nameindex_dir }}/ with no cb/
+      inside: it is not a name index with a single top directory (namematching-<build>/cb, ...).
+  when:
+    - sds_webapp_nameindex_phase == 'finish'
+    - not sds_webapp_nameindex_cb.stat.exists

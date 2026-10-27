@@ -68,6 +68,14 @@ test, but treat the whole area as a preview.
   instead of id), which this repo does for you — but it means the service is
   pinned to that legacy combination.
 - `sds-static-home` (the nextgen static home) is not deployed.
+- The legacy `sds` (sds-webapp2 1.7.1) needs a **Lucene 8** name index, mounted at
+  `/data/lucene/namematching`. la-compose downloads and unpacks it from
+  `sds_webapp_nameindex_url`, which defaults to the nextgen SDS's own tarball
+  (`ala_sensitive_data_service_namematching_source`). A Lucene 6 build such as the
+  pipelines' `custom_namematching_url` does not work: the app fails with
+  `IndexFormatTooOldException`. The finder also needs at least one species list
+  flagged SDS. Without one, every `/ws/<name>` lookup answers 500, as on a portal
+  with no data.
 - The `ala-install` submodule points at
   [`vjrj/ala-install@docker-compose-min-pr`](https://github.com/vjrj/ala-install/tree/docker-compose-min-pr),
   a fork carrying the container-mode adaptations. Splitting it into minimal PRs

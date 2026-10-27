@@ -78,6 +78,11 @@ gatus_url_sources:
     group: "sensitive-data-service"
     url_var: "sensitive_data_service_url"
     host_var: "sensitive_data_service_hostname"
+  # The legacy sds-webapp2 (group `sds`), not to be confused with `sds` above (nextgen).
+  sds-webapp:
+    group: "sds"
+    url_var: "sds_url"
+    host_var: "sds_hostname"
   images:
     group: "image-service"
     url_var: "image_service_url"
@@ -245,6 +250,17 @@ gatus_extra_endpoints:
     service: "species-ws"
     path: "/search?q=*:*&pageSize=0"
     conditions: ["[STATUS] < 400", "[BODY].searchResults.totalRecords > 0"]
+
+  # The legacy sds without a name index it can read serves its pages and answers every name
+  # lookup with 200 and {"status": "The SDS finder has not been initialised, ..."} (TASK-95).
+  # Any name will do: the check looks for that status, not for a match. No status condition:
+  # with no species list flagged SDS (a portal without data, like the CI) the finder is never
+  # built and every lookup 500s (NPE in SDSService.lookupSpecies), which is data, not this.
+  - name: "sds legacy finder initialised"
+    group: "Deep checks"
+    service: "sds-webapp"
+    path: "/ws/Acacia%20dealbata"
+    conditions: ["[CONNECTED] == true", "[BODY] != pat(*has not been initialised*)"]
 
   # `/ws` on collectory serves the HTML home page, not a web service, so a status-only check
   # here proves only that Grails answered. `html: true` applies the shared error markers, which

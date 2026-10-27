@@ -180,6 +180,30 @@ species_list_port: 8080
 # directory would advertise a Lucene major the index inside does not have.
 sds_nameindex_datestamp: sds
 
+# The name index the LEGACY sds (sds-webapp2, group `sds`) reads. Its config has
+# namematching-index=/data/lucene/namematching, and nothing mounted it: the finder never
+# initialised and every /ws/<name> answered 200 with "The SDS finder has not been initialised"
+# (TASK-95). la-compose unpacks the tarball (its top directory stripped, whatever its name) into
+# {{ data_dir }}/lucene/sds-webapp-<tarball name> and mounts that read-only there.
+#
+# sds-webapp2 1.7.1 reads Lucene 8 indexes. A Lucene 6 build (the pipelines' backbone index,
+# custom_namematching_url) fails with IndexFormatTooOldException "Format version is not
+# supported ... 6 (needs to be between 7 and 9)", measured on the CI with
+# nameindex-gbif-backbone-lucene-6-2026-07-23. By default it is the same tarball the nextgen
+# sensitive-data-service is configured with, a Lucene 8 build.
+#   sds_webapp_nameindex_url = https://example.org/nameindex-<build>-lucene-8.tgz
+#   sds_webapp_nameindex_checksum = sha1:...   (optional)
+sds_webapp_nameindex_url: >-
+  {{ ala_sensitive_data_service_namematching_source
+     | default('https://archives.ala.org.au/archives/nameindexes/20210811-3/namematching-20210811-3.tgz') }}
+sds_webapp_nameindex_checksum: ""
+sds_webapp_nameindex_dir: >-
+  {{ data_dir }}/lucene/sds-webapp-{{ sds_webapp_nameindex_url | urlsplit('path') | basename
+     | regex_replace('\.(tgz|tar\.gz)$', '') }}
+# A name for the healthcheck and the Gatus checks to look up. Any name will do for the "not
+# been initialised" check, which looks at the status, not at a match.
+sds_webapp_probe_name: "Acacia dealbata"
+
 # ============================================
 # Docker Container Hostnames for Nginx
 # ============================================

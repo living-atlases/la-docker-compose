@@ -25,14 +25,21 @@ services:
       # logback.xml writes to /var/log/tomcat9; the image has no writable /var/log/tomcat9 (uid
       # 1000), so bind a host dir (created uid 1000 by config-dir-ensure), mirroring doi-service.
       - {{ data_dir }}/sds/logs:/var/log/tomcat9
+      # Its Lucene 8 name index (sds_webapp_nameindex_*, unpacked by sds-webapp-nameindex.yml):
+      # sds-config.properties reads namematching-index=/data/lucene/namematching.
+      - {{ sds_webapp_nameindex_dir }}:/data/lucene/namematching:ro
     networks:
       default: {}
       {{ docker_network | default('internal') }}:
     healthcheck:
-      # Served at the context root (sds_context_path is empty). Accept 2xx/3xx/4xx (server up) and
-      # fail on refused/5xx.
-      test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' http://localhost:{{ sds_port | default('8080') }}/ | grep -qvE '^(000|5)'"]
+      # A name lookup, not /: without a name index it can read, the app serves / and answers
+      # every /ws/<name> with 200 and "The SDS finder has not been initialised" (TASK-95), which
+      # is unhealthy. The finder loads in the background after boot, hence start_period.
+      # A 500 is NOT unhealthy here: with no SDS list in species-lists (a portal without data,
+      # like the CI) the finder is never built and every lookup 500s, which is a data state, not
+      # a broken container.
+      test: ["CMD-SHELL", "curl -sS -m 20 -o /tmp/sds-healthcheck 'http://localhost:{{ sds_port | default('8080') }}/ws/{{ sds_webapp_probe_name | default('Acacia dealbata') | urlencode }}' && ! grep -q 'has not been initialised' /tmp/sds-healthcheck"]
       interval: 30s
-      timeout: 10s
+      timeout: 25s
       retries: 5
-      start_period: 90s
+      start_period: 300s

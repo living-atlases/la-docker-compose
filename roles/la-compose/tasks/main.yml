@@ -159,6 +159,21 @@
         - sensitive-data-service
         - docker-compose
 
+    - name: "SDS (legacy sds-webapp2) name index: check and start the background download"
+      ansible.builtin.include_tasks:
+        file: sds-webapp-nameindex.yml
+        apply:
+          tags: [sds, docker-compose]
+      vars:
+        sds_webapp_nameindex_phase: start
+      when:
+        - not (la_compose_render_only | default(false) | bool)
+        - "'sds' in services_enabled"
+        - "service_aliases.get('sds') is defined"
+      tags:
+        - sds
+        - docker-compose
+
     - name: Load variables from collectory role if present on this server
       ansible.builtin.include_vars:
         file: "{{ playbook_dir }}/../ala-install/ansible/roles/collectory/vars/main.yml"
@@ -654,6 +669,21 @@
         - "service_aliases.get('sensitive-data-service') is defined"
       tags:
         - sensitive-data-service
+        - docker-compose
+
+    - name: "SDS (legacy sds-webapp2) name index: wait for the download and unpack"
+      ansible.builtin.include_tasks:
+        file: sds-webapp-nameindex.yml
+        apply:
+          tags: [sds, docker-compose]
+      vars:
+        sds_webapp_nameindex_phase: finish
+      when:
+        - not (la_compose_render_only | default(false) | bool)
+        - "'sds' in services_enabled"
+        - "service_aliases.get('sds') is defined"
+      tags:
+        - sds
         - docker-compose
 
     # block/rescue: on `docker compose up` failure, capture root-cause diagnostics
