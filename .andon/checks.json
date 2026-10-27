@@ -292,6 +292,14 @@
         "scripts/test-config-files.sh"
       ],
       "run": "VENV_MOLECULE=.venv-molecule bash scripts/test-config-files.sh"
+    },
+    {
+      "match": [
+        "roles/la-compose/templates/docker-compose/gatus/extra-checks.yaml.j2",
+        "roles/la-compose/vars/gatus-extra-endpoints.yml",
+        "scripts/test-gatus-extra-checks.sh"
+      ],
+      "run": "VENV_MOLECULE=.venv-molecule bash scripts/test-gatus-extra-checks.sh"
     }
   ],
   "ignore": [

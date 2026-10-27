@@ -13,13 +13,14 @@ cd "$(dirname "$0")/.."
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/bin"
-# Fake curl: honours -w '%{http_code}' and --fail like the real one, answering $FAKE_CODE.
+# Fake curl: honours -w '%{http_code}' and --fail like the real one, answering $FAKE_CODE,
+# or $FAKE_LANG_CODE when the request carries Accept-Language (a browser's request).
 cat >"$tmp/bin/curl" <<'EOF'
 #!/bin/sh
 echo "$*" >>"$FAKE_CALLS"
 fail=0; w=0
 for a in "$@"; do
-  case "$a" in --fail|-f|-fsS) fail=1 ;; -w) w=1 ;; esac
+  case "$a" in --fail|-f|-fsS) fail=1 ;; -w) w=1 ;; Accept-Language:*) FAKE_CODE="${FAKE_LANG_CODE:-$FAKE_CODE}" ;; esac
 done
 [ "$w" = 1 ] && printf '%s' "$FAKE_CODE"
 [ "$FAKE_CODE" = 000 ] && exit 7  # no connection: curl fails whatever the flags
@@ -69,6 +70,18 @@ for svc, path, ctx in cases:
             fail.append("%s: HTTP %s must be healthy, the check exited %d" % (label, code, rc))
         if want_ok is False and rc == 0:
             fail.append("%s: HTTP %s must be UNHEALTHY, the check exited 0" % (label, code))
+
+# collectory 6.0.0 in build #495 (TASK-94): its remote facets i18n failed to load once and
+# every locale not loaded yet answered 500, while the JVM default locale, loaded at boot,
+# kept answering 200. A check that does not send Accept-Language stays green on that.
+for svc, ctx in (("collectory", {"datastore_endpoints": {}}),):
+    test = next(iter(yaml.safe_load(env.get_template("docker-compose/services/%s.yml.j2" % svc).render(**ctx))["services"].values()))["healthcheck"]["test"]
+    calls = "%s/calls" % tmp
+    open(calls, "w").close()
+    rc = subprocess.run(test[1:], env={"PATH": "%s/bin:/usr/bin:/bin" % tmp, "FAKE_CODE": "200", "FAKE_LANG_CODE": "500", "FAKE_CALLS": calls},
+                        capture_output=True, timeout=10).returncode
+    if rc == 0:
+        fail.append("%s: 500 for a browser (Accept-Language) and 200 without it must be UNHEALTHY, the check exited 0 (%r)" % (svc, open(calls).read().strip()))
 if fail:
     print("[FAIL] hub healthchecks:", *fail, sep="\n  ", file=sys.stderr)
     sys.exit(1)

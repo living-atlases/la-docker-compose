@@ -56,7 +56,12 @@ services:
       # servía aún, cachean null y toda página da 500 (NPE <g:message> _main.gsp:107). Con /
       # el hub sale `unhealthy` (no un falso `healthy`) y el converge de wait-for-health.sh lo
       # reinicia -> re-fetch con branding up -> 200. Verificado: restart con branding up -> 200.
-      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:8080/ || exit 1"]
+      # Con Accept-Language, como un navegador: collectory carga los mensajes de
+      # records-ws/facets/i18n*.properties y, si esa descarga falla una vez, Grails cachea el
+      # fallo para siempre y todo idioma no cargado aún da 500 (NPE Map.size). Sin cabecera
+      # se usa el locale por defecto, ya cargado al arrancar, y el healthcheck seguía en 200
+      # (TASK-94, #495). Unhealthy -> autoheal/converge lo reinicia, que es lo que lo cura.
+      test: ["CMD", "sh", "-c", "curl --fail --silent -H 'Accept-Language: {{ default_locale | default('en') }}' http://localhost:8080/ || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5

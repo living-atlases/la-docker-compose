@@ -54,6 +54,17 @@ endpoints:
       - "[BODY] != pat(*{{ marker }}*)"
 {% endfor %}
 {% endif %}
+{# A rendered page is asked for the way a browser asks: with Accept-Language. Without it a
+   Grails app renders the JVM's default locale, whose messages it loaded at boot, and stays
+   200 while every browser gets a 500 (TASK-94: collectory whose remote facets i18n failed
+   to load once). `headers` on an endpoint adds to or overrides this. #}
+{% set ep_headers = ({'Accept-Language': default_locale | default('en')} if ep.html | default(false) else {}) | combine(ep.headers | default({})) %}
+{% if ep_headers | length > 0 %}
+    headers:
+{% for k, v in ep_headers.items() %}
+      {{ k }}: {{ v | to_json }}
+{% endfor %}
+{% endif %}
 {% if ep.client is defined %}
     client:
 {% for k, v in ep.client.items() %}
