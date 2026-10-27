@@ -26,6 +26,11 @@ pfx() { docker run -d --name "$C" -v "$V:/etc/postfix" -e ALLOWED_SENDER_DOMAINS
   --health-cmd "nc -w 3 127.0.0.1 25 </dev/null | grep -q '^220'" --health-interval 3s --health-start-period 5s \
   "$@" "$IMG" >/dev/null; }
 relay_now() { docker exec "$C" postconf -h relayhost; }
+# Healthy = postfix answers, so boky's startup script (all of main.cf) is done. A fixed sleep
+# raced it in CI (#500): the earlier start had not written myhostname yet.
+healthy() { local i; for i in $(seq 60); do
+  [ "$(docker inspect -f '{{.State.Health.Status}}' "$C" 2>/dev/null)" = healthy ] && return 0; sleep 2; done
+  echo "[FAIL] $C never got healthy" >&2; docker logs "$C" 2>&1 | tail -20 >&2; return 1; }
 
 cat > "$T/play.yml" <<YML
 - hosts: localhost
@@ -43,14 +48,20 @@ recap() { grep -oE 'changed=[0-9]+ +unreachable=[0-9]+ +failed=[0-9]+' "$T/run.l
 
 docker image inspect "$IMG" >/dev/null 2>&1 || docker pull -q "$IMG" >/dev/null
 # An earlier start that wrote an active myhostname into the volume.
-pfx -e HOSTNAME=old.example.org; sleep 8; docker rm -f "$C" >/dev/null
-pfx -e HOSTNAME= -e "RELAYHOST=$RELAY" -e RELAYHOST_USERNAME=a@example.org -e RELAYHOST_PASSWORD=p; sleep 8
-[ -z "$(relay_now)" ] || echo "[INFO] boky kept the relay this time: case 1 does not exercise the restart"
+pfx -e HOSTNAME=old.example.org; healthy || exit 1
+docker exec "$C" grep -qE '^myhostname\s*=' /etc/postfix/main.cf || { bad "the earlier start left no active myhostname"; exit 1; }
+docker rm -f "$C" >/dev/null
+pfx -e HOSTNAME= -e "RELAYHOST=$RELAY" -e RELAYHOST_USERNAME=a@example.org -e RELAYHOST_PASSWORD=p; healthy || exit 1
 
-run -e "email_sender_server=$RELAY"
-[ "$(recap)" = "changed=1 unreachable=0 failed=0" ] && [ "$(relay_now)" = "$RELAY" ] && grep -q "FIXED by one restart" "$T/run.log" &&
-  ok "a relay boky dropped is caught, one restart brings it back, the task reports changed" ||
-  { bad "case 1: $(recap), relay now '$(relay_now)'"; cat "$T/run.log" >&2; }
+if [ -n "$(relay_now)" ]; then
+  # Not a failure of the check: this boky no longer drops the relay, so there is nothing to fix.
+  echo "[INFO] $IMG kept the relay over a main.cf with an active myhostname: case 1 cannot run"
+else
+  run -e "email_sender_server=$RELAY"
+  [ "$(recap)" = "changed=1 unreachable=0 failed=0" ] && [ "$(relay_now)" = "$RELAY" ] && grep -q "FIXED by one restart" "$T/run.log" &&
+    ok "a relay boky dropped is caught, one restart brings it back, the task reports changed" ||
+    { bad "case 1: $(recap), relay now '$(relay_now)'"; cat "$T/run.log" >&2; }
+fi
 
 run -e "email_sender_server=$RELAY"
 [ "$(recap)" = "changed=0 unreachable=0 failed=0" ] && grep -qF "OK: relayhost='$RELAY'" "$T/run.log" &&
