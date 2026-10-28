@@ -340,6 +340,24 @@
         "scripts/test-sds-webapp-nameindex.sh"
       ],
       "run": "VENV_MOLECULE=.venv-molecule bash scripts/test-sds-webapp-nameindex.sh"
+    },
+    {
+      "match": [
+        "scripts/config-baseline.py",
+        "scripts/compare-rendered-config.py",
+        "scripts/render-properties-offline.sh",
+        "scripts/test-config-baseline-ala-hosts.sh",
+        "e2e/cypress/support/ala-hosts.json"
+      ],
+      "run": "bash scripts/test-config-baseline-ala-hosts.sh"
+    },
+    {
+      "match": [
+        "e2e/cypress/**/*.ts",
+        "e2e/tsconfig.json",
+        "e2e/cypress/fixtures/viewconfig/*.html"
+      ],
+      "run": "cd e2e && npx tsc --noEmit"
     }
   ],
   "ignore": [

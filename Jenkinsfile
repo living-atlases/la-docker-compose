@@ -971,7 +971,7 @@ EOF
                     bash scripts/test-spatial-hub-lists-version.sh
                     # The pre-deploy ALA-host guard classifies what it must: planted ALA service
                     # and test hosts are findings, declared fallbacks and docs links are not. ~1s.
-                    "$VENV_MOL/bin/python3" scripts/config-baseline.py ala-hosts --self-test
+                    PYTHON="$VENV_MOL/bin/python3" bash scripts/test-config-baseline-ala-hosts.sh
 
                     # `JAVA_OPTS: ${<SERVICE>_JAVA_OPTS}` REPLACES the image's own ENV
                     # rather than adding to it, so a -D missing from .env is simply not
