@@ -16,6 +16,8 @@
 // is the proof the guard actually bites; it plants known-bad rows and asserts they are caught,
 // and plants the known false-positive traps and asserts they are not.
 
+import alaHosts from "./ala-hosts.json";
+
 export interface DeclaredFallback {
   /** Hostname the deployment deliberately still depends on, e.g. "pdfgen.ala.org.au". */
   host: string;
@@ -63,44 +65,25 @@ export interface AuditResult {
 /**
  * ALA hosts that serve a role we deploy ourselves. A config value pointing here means the
  * deployment is using ALA's instance instead of its own — the class of defect behind the
- * 127.0.0.1 proxies, the swarm-era ZooKeeper, and data-quality's userDetails.url.
+ * 127.0.0.1 proxies, the swarm-era ZooKeeper, data-quality's userDetails.url and spatial-hub's
+ * lists.urlUi.
  *
- * Deliberately a table of SERVICE hosts only. Documentation and content hosts
- * (support., www., bare ala.org.au) are absent on purpose: they are legitimate links, and
- * flagging them would make this check permanently noisy, which is how a guard dies.
+ * Read from ala-hosts.json, which the offline pre-deploy check (scripts/config-baseline.py
+ * ala-hosts) reads too, so the two guards cannot drift apart. Deliberately SERVICE hosts only:
+ * documentation and content hosts are left out, because flagging them would make this check
+ * permanently noisy, which is how a guard dies.
  */
-export const ALA_SERVICE_HOSTS: Record<string, string> = {
-  "auth.ala.org.au": "auth (CAS/userdetails)",
-  "api.ala.org.au": "apikey",
-  "biocache.ala.org.au": "records",
-  "biocache-ws.ala.org.au": "recordsWs",
-  "bie.ala.org.au": "species",
-  "bie-ws.ala.org.au": "speciesWs",
-  "collections.ala.org.au": "collections",
-  "lists.ala.org.au": "lists",
-  "images.ala.org.au": "images",
-  "logger.ala.org.au": "logger",
-  "regions.ala.org.au": "regions",
-  "spatial.ala.org.au": "spatial",
-  "spatial-service.ala.org.au": "spatial-service",
-  "sds.ala.org.au": "sensitive-data-service",
-  "namematching-ws.ala.org.au": "namematching",
-  "alerts.ala.org.au": "alerts",
-  "doi.ala.org.au": "doi",
-  "dashboard.ala.org.au": "dashboard",
-  "pdfgen.ala.org.au": "pdfgen (ecodata/biocollect stack)",
-  "profiles-ws.ala.org.au": "profiles",
-};
+export const ALA_SERVICE_HOSTS: Record<string, string> = alaHosts.serviceHosts;
 
 /** ALA-family domains. Anything here that is not a service host is informational. */
-const ALA_FAMILY = /(^|\.)(ala\.org\.au|csiro\.au)$/i;
+const ALA_FAMILY = new RegExp(alaHosts.familyPattern, "i");
 
 /**
  * Non-production ALA infrastructure. Always a finding, whatever the service: depending on
  * somebody else's test/staging environment is never a defensible production configuration.
  * This is the rule that would have caught auth-test.ala.org.au in gbif.es production.
  */
-const NONPROD_ALA_HOST = /(^|[.-])(test|tests|staging|stage|sandbox|dev|nectar)([.-]|$)/i;
+const NONPROD_ALA_HOST = new RegExp(alaHosts.nonProdPattern, "i");
 
 /**
  * JVM and container system-property namespaces. These are dotted and lower-cased just like
@@ -135,6 +118,14 @@ const SYSTEM_NAMESPACES = [
   "jna.",
 ];
 
+/**
+ * Grails `environments.<env>.*` blocks: the compiled defaults for each environment, listed raw
+ * by viewConfig. Inert as such -- the value in force is the same key without the prefix, which
+ * is audited -- and noisy: lists and logger carry dev/test/production blocks full of ALA hosts
+ * (lists-test.ala.org.au, logger.ala.org.au), which made every one of them a "finding".
+ */
+const INERT_PREFIXES: string[] = alaHosts.inertKeyPrefixes;
+
 /** Keys whose value must never be emitted anywhere. Handoff rule 3: when in doubt, redact. */
 const SECRET_SHAPED = /pass|secret|key|token|credential|salt|private/i;
 
@@ -166,6 +157,7 @@ export function isSecretShaped(key: string): boolean {
  */
 export function isConfigProperty(key: string): boolean {
   if (!key || !key.includes(".")) return false; // PATH, HOME, JAVA_OPTS, CATALINA_BASE
+  if (INERT_PREFIXES.some((p) => key.startsWith(p))) return false; // environments.test.*
   return !SYSTEM_NAMESPACES.some((ns) => key.startsWith(ns)); // java.vendor.url, user.home
 }
 

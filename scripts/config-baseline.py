@@ -21,8 +21,17 @@ are dropped on top of that, and credentials and query strings are stripped from 
 that is kept, so the guarantee does not depend on anyone reviewing the diff.
 
 Usage
-    scripts/config-baseline.py extract --from <rendered-dir> [--out config-baseline.json]
-    scripts/config-baseline.py check   --from <rendered-dir> [--baseline config-baseline.json]
+    scripts/config-baseline.py extract   --from <rendered-dir> [--out config-baseline.json]
+    scripts/config-baseline.py check     --from <rendered-dir> [--baseline config-baseline.json]
+    scripts/config-baseline.py ala-hosts --from <rendered-dir>
+    scripts/config-baseline.py ala-hosts --self-test
+
+`ala-hosts` is the other question. The baseline answers "did anything change"; a URL that was
+already wrong when the baseline was frozen passes it forever. spatial-hub rendered
+lists.urlUi = https://lists.ala.org.au, ALA's own lists UI, for exactly that reason. So this
+rejects any ALA service or test host in the rendered config that ala_upstream_fallbacks does
+not declare, using the same host table as the live /alaAdmin/viewConfig audit
+(e2e/cypress/support/ala-hosts.json).
 
 <rendered-dir> comes from scripts/render-properties-offline.sh. Deliberately NOT a live
 /data: that tree accumulates hand-kept variants (.last, .es, .tests) beside the real files,
@@ -33,11 +42,15 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import re
 import sys
+import tempfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 DEFAULT_BASELINE = HERE.parent / "config-baseline.json"
+ALA_HOSTS = HERE.parent / "e2e" / "cypress" / "support" / "ala-hosts.json"
+FALLBACKS = HERE.parent / "roles" / "la-compose" / "defaults" / "main.yml"
 
 
 def _load_compare_module():
@@ -103,6 +116,122 @@ def compare(baseline: dict, current: dict) -> list[str]:
     return problems
 
 
+def load_fallbacks(path: Path = FALLBACKS) -> list[dict]:
+    """ala_upstream_fallbacks from the la-compose role defaults: the declared ALA dependencies."""
+    import yaml
+
+    return (yaml.safe_load(path.read_text()) or {}).get("ala_upstream_fallbacks") or []
+
+
+def audit_ala_hosts(rendered: Path, table: dict, fallbacks: list[dict]
+                    ) -> tuple[list[str], list[str]]:
+    """(findings, informational) for every ALA-family URL in a rendered tree.
+
+    Same classification as auditEffectiveConfig() in e2e/cypress/support/config-audit.ts:
+    a declared fallback (host, optionally scoped to one key) is informational; an undeclared
+    ALA test/staging host or ALA service host is a finding; any other ALA-family host is a
+    documentation/content link and informational. Secret-shaped keys are audited too -- the
+    gbif.es apikey defect was on one -- and every reported URL goes through safe_url.
+    """
+    family = re.compile(table["familyPattern"], re.I)
+    nonprod = re.compile(table["nonProdPattern"], re.I)
+    services = table["serviceHosts"]
+    inert = tuple(table.get("inertKeyPrefixes", []))
+    findings: list[str] = []
+    info: list[str] = []
+    for path in sorted(rendered.iterdir()):
+        if not path.is_file() or path.suffix not in (".properties", ".yml", ".yaml"):
+            continue
+        for key, value in sorted(C.load(path).items()):
+            if key.startswith(inert):  # environments.test.*: inert per-environment defaults
+                continue
+            host = C.url_host(value)
+            if not host or not family.search(host):
+                continue
+            line = f"{path.name}: {key} = {C.safe_url(value)}"
+            fb = next((f for f in fallbacks
+                       if str(f.get("host", "")).lower() == host
+                       and (not f.get("property") or f["property"] == key)), None)
+            if fb:
+                info.append(f"{line}   [declared fallback]")
+            elif nonprod.search(host):
+                findings.append(f"{line}   [ALA non-production infrastructure]")
+            elif host in services:
+                findings.append(f"{line}   [ALA's {services[host]}, which we deploy ourselves]")
+            else:
+                info.append(f"{line}   [ALA documentation/content link]")
+    return findings, info
+
+
+def ala_hosts_self_test() -> int:
+    """Plant the known-bad and known-acceptable rows and check each lands where it should."""
+    table = json.loads(ALA_HOSTS.read_text())
+    fallbacks = [{"host": "spatial.ala.org.au", "property": "openstreetmap.tileUrl"}]
+    with tempfile.TemporaryDirectory() as d:
+        Path(d, "spatial-hub-config.yml").write_text(
+            "lists:\n"
+            "  url: https://lists.example.org\n"
+            "  urlUi: https://lists.ala.org.au\n"           # the spatial-hub defect
+            "openstreetmap:\n"
+            "  tileUrl: https://spatial.ala.org.au/osm/{z}/{x}/{y}.png\n"  # declared
+            "spatial:\n"
+            "  url: https://spatial.ala.org.au\n"            # same host, undeclared key
+            "environments:\n"
+            "  test:\n"
+            "    grails:\n"
+            "      serverURL: https://lists-test.ala.org.au\n"  # inert per-environment block
+        )
+        Path(d, "collectory-config.properties").write_text(
+            "security.apikey.auth.serviceUrl=https://auth-test.ala.org.au/apikey/\n"
+            "skin.helpUrl=https://support.ala.org.au/help\n"
+            "gbif.api=https://api.gbif.org/v1\n"
+        )
+        findings, info = audit_ala_hosts(Path(d), table, fallbacks)
+    expect_findings = ["lists.urlUi", "spatial.url", "security.apikey.auth.serviceUrl"]
+    expect_info = ["openstreetmap.tileUrl", "skin.helpUrl"]
+    errors = []
+    for key in expect_findings:
+        if not any(f": {key} = " in f for f in findings):
+            errors.append(f"{key} should be a finding")
+    for key in expect_info:
+        if not any(f": {key} = " in f for f in info):
+            errors.append(f"{key} should be informational")
+    if any("environments." in x for x in findings + info):
+        errors.append("environments.* blocks are inert and should be ignored")
+    if any("gbif.api" in x for x in findings + info):
+        errors.append("gbif.api is a third party and should be ignored")
+    if len(findings) != len(expect_findings):
+        errors.append(f"expected {len(expect_findings)} findings, got {len(findings)}")
+    for e in errors:
+        print(f"SELF-TEST FAIL: {e}", file=sys.stderr)
+    if not errors:
+        print(f"ala-hosts self-test OK: {len(findings)} findings, {len(info)} informational")
+    return 1 if errors else 0
+
+
+def run_ala_hosts(src: Path) -> int:
+    findings, info = audit_ala_hosts(src, json.loads(ALA_HOSTS.read_text()), load_fallbacks())
+    if info:
+        print(f"{len(info)} accepted ALA reference(s):")
+        for i in info:
+            print(f"  {i}")
+    if not findings:
+        print("ala-hosts OK: no undeclared ALA service or test hosts in the rendered config")
+        return 0
+    print(f"\nala-hosts: {len(findings)} undeclared ALA reference(s) in the rendered config\n",
+          file=sys.stderr)
+    for f in findings:
+        print(f"  {f}", file=sys.stderr)
+    print(
+        "\nEach is either a bug to fix in the ala-install role / la-compose template (usually a\n"
+        "`| default('https://...ala.org.au')` for a variable the inventory never sets), or a\n"
+        "deliberate dependency to declare in ala_upstream_fallbacks with a reason\n"
+        "(roles/la-compose/defaults/main.yml).",
+        file=sys.stderr,
+    )
+    return 1
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -115,10 +244,21 @@ def main() -> int:
     c.add_argument("--from", dest="src", required=True, type=Path)
     c.add_argument("--baseline", type=Path, default=DEFAULT_BASELINE)
 
+    a = sub.add_parser("ala-hosts",
+                       help="fail on undeclared ALA service/test hosts in a rendered tree")
+    src_or_test = a.add_mutually_exclusive_group(required=True)
+    src_or_test.add_argument("--from", dest="src", type=Path)
+    src_or_test.add_argument("--self-test", action="store_true")
+
     args = ap.parse_args()
+    if args.cmd == "ala-hosts" and args.self_test:
+        return ala_hosts_self_test()
     if not args.src.is_dir():
         print(f"ERROR: not a directory: {args.src}", file=sys.stderr)
         return 1
+
+    if args.cmd == "ala-hosts":
+        return run_ala_hosts(args.src)
 
     current = extract(args.src)
     n_keys = sum(len(v) for v in current["files"].values())

@@ -62,7 +62,17 @@ SERVICES=(
   "spatial-service|spatial-service|templates/spatial-service-config.yml|spatial-service-config.yml||spatial-service|spatial"
   "data-quality|data_quality_filter_service|templates/config/config.properties|data-quality-config.properties||data_quality_filter_service"
   "sensitive-data-service|sensitive-data-service|templates/sensitive-data-service-config.yml|sensitive-data-service-config.yml||sensitive-data-service|sds"
+  "spatial-hub|spatial-hub|templates/@PORTAL@/spatial-hub-config.yml|spatial-hub-config.yml||spatial-hub|spatial"
+  "lists|species-list|templates/specieslist-webapp-config.properties|specieslist-webapp-config.properties||species-list|species-lists|lists"
+  "sds|sds|templates/sds-config.properties|sds-config.properties||sds"
+  "doi|doi-service|templates/doi-service-config.yml|doi-service-config.yml||doi-service|doi"
+  "userdetails|userdetails|templates/userdetails-config.yml|userdetails-config.yml||userdetails|cas-servers|cas"
 )
+
+# spatial-hub keeps one config template per portal flavour (templates/ala/, templates/default/)
+# and picks it from spatial_hub_portal, the way its own task does. The row says @PORTAL@ and the
+# play resolves it, so the render follows the inventory instead of one flavour fixed here.
+PORTAL_EXPR="{{ spatial_hub_portal | lower }}"
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
@@ -178,6 +188,7 @@ for row in "${SERVICES[@]}"; do
   IFS='|' read -r svc role tpl dest params _ <<< "$row"
   groups="${row#*|*|*|*|*|}"
   [[ -z "$ONLY_SERVICE" || "$ONLY_SERVICE" == "$svc" ]] || continue
+  tpl="${tpl//@PORTAL@/$PORTAL_EXPR}"
 
   if ! host="$(resolve_host "$groups")"; then
     # Not a failure: an inventory that does not deploy a service legitimately has no group for

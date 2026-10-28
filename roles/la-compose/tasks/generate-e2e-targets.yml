@@ -40,6 +40,18 @@
       # resolve it from here instead of hardcoding a hostname.
       namematching: "{{ (namematching_service_url | default('')) | regex_replace('/+$', '') }}"
       regions: "{{ ((regions_base_url | default('')) ~ (regions_context_path | default(''))) | regex_replace('/+$', '') }}"
+      # The rest of the services that serve /alaAdmin/viewConfig, built from the same vars as
+      # the OIDC client list in init-cas-admin.yml. The effective-config audit logs into each
+      # one and fails on ALA service URLs in its running config; a service missing from here
+      # would be silently left out of that audit. spatialService is its own key, not
+      # spatial + '/ws': it is a different OIDC client, and the per-service login needs that.
+      spatialService: "{{ ((spatial_service_base_url | default('')) ~ (spatial_service_context_path | default(''))) | regex_replace('/+$', '') }}"
+      alerts: "{{ ((alerts_base_url | default('')) ~ (alerts_context_path | default(''))) | regex_replace('/+$', '') }}"
+      doi: "{{ ((doi_service_url | default('')) ~ (doi_service_context_path | default(''))) | regex_replace('/+$', '') }}"
+      dashboard: "{{ ((dashboard_base_url | default('')) ~ (dashboard_context_path | default(''))) | regex_replace('/+$', '') }}"
+      sds: "{{ ((sds_url | default('')) ~ (sds_context_path | default(''))) | regex_replace('/+$', '') }}"
+      dataQuality: "{{ ((data_quality_url | default('')) ~ (data_quality_context_path | default(''))) | regex_replace('/+$', '') }}"
+      userdetails: "{{ ((userdetails_base_url | default('')) ~ '/' ~ (userdetails_context_path | default(''))) | regex_replace('/+$', '') }}"
       # gatus_url is a bare hostname in the inventory (no scheme) — add https:// when missing.
       # Read through groups['gatus'], NOT from play scope. The generator gives every service
       # its own inventory alias, so `gatus_url` in [gatus:vars] belongs to `<host>.gatus`

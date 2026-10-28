@@ -763,10 +763,42 @@ ala_upstream_fallbacks:
     property: openstreetmap.tileUrl
     reason: >-
       no alternative OSM tile server available to us.
+  - host: spatial.ala.org.au
+    property: openstreetmap.url
+    reason: >-
+      the same OSM tile source, as spatial-service spells the key.
   - host: nectar-spatial-staging.ala.org.au
     property: spatialService.remoteUrl
     reason: >-
       used to copy spatial layers from ALA; a new portal has no equivalent source.
+  - host: nectar-spatial-staging.ala.org.au
+    property: spatialService.remote
+    reason: >-
+      the same layer source, as the rendered spatial-service config spells the key.
+  - host: sandbox.ala.org.au
+    property: sandbox.url
+    reason: >-
+      sds links to ALA's sandbox (a compiled default); the sandbox is not part of the stack, so
+      there is no own one to point at.
+  # Alerts' example searches. generator-living-atlas hardcoded them to ALA's hubs up to 1.9.15;
+  # the generator now points them at the portal's own hubs. Drop these four once the inventory
+  # that CI deploys is regenerated with a generator that has the fix.
+  - host: biocache.ala.org.au
+    property: occurrence.searchURL
+    reason: >-
+      alerts example search; hardcoded by generator <= 1.9.15, fixed there, pending a regen.
+  - host: regions.ala.org.au
+    property: regions.searchURL
+    reason: >-
+      alerts example search; hardcoded by generator <= 1.9.15, fixed there, pending a regen.
+  - host: bie.ala.org.au
+    property: speciesPages.searchURL
+    reason: >-
+      alerts example search; hardcoded by generator <= 1.9.15, fixed there, pending a regen.
+  - host: collections.ala.org.au
+    property: collection.searchURL
+    reason: >-
+      alerts example search; hardcoded by generator <= 1.9.15, fixed there, pending a regen.
 
 # ============================================
 # GeoServer image

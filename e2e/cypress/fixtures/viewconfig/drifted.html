@@ -7,12 +7,16 @@
                                auth-test.ala.org.au, a value present in no rendered file
     events.graphql             api.test.ala.org.au -- ALA test infrastructure
     biocacheService.baseUrl    ALA's records service instead of our own
+    lists.urlUi                spatial-hub linking every species list to lists.ala.org.au
+                               (espacial.gbif.es and CI), from a template default
 
   It also carries every known false-positive trap, which must stay silent:
     JAVA_OPTS / SPRING_...     ALL_CAPS environment, with ala.org.au URLs in them
     java.vendor.url            dotted, lower-cased, URL-valued -- but a JVM system property
     dataquality.learnmore_link ALA documentation
     spatial.tileUrl            a DECLARED fallback (informational, not a finding)
+    environments.*.…           Grails per-environment default blocks: inert, the key in force
+                               is the unprefixed one (lists.urlUi above)
 -->
 <html>
   <head><title>Configuration</title></head>
@@ -31,14 +35,18 @@
         <tr><td>user.home</td><td>/root</td></tr>
         <tr><td>dataquality.learnmore_link</td><td>https://support.ala.org.au/support/solutions/articles/6000240256</td></tr>
 
+        <tr><td>environments.development.userdetails.web.url</td><td>https://userdetails.test.ala.org.au/</td></tr>
+        <tr><td>environments.production.grails.serverURL</td><td>https://lists.ala.org.au/</td></tr>
+
         <!-- Declared fallback: informational, with its reason, never a failure. -->
         <tr><td>spatial.tileUrl</td><td>https://spatial.ala.org.au/osm/</td></tr>
 
-        <!-- Real drift: all four must be findings. -->
+        <!-- Real drift: all five must be findings. -->
         <tr><td>biocacheService.baseUrl</td><td>https://biocache.ala.org.au/ws</td></tr>
         <tr><td>events.graphql</td><td>https://api.test.ala.org.au/event/graphql</td></tr>
         <tr><td>security.apikey.auth.serviceUrl</td><td>https://auth-test.ala.org.au/apikey/</td></tr>
         <tr><td>userDetails.url</td><td>https://auth.ala.org.au/userdetails/</td></tr>
+        <tr><td>lists.urlUi</td><td>https://lists.ala.org.au</td></tr>
 
         <!-- Correct values, for contrast. -->
         <tr><td>collectory.baseUrl</td><td>https://collections.l-a.site</td></tr>

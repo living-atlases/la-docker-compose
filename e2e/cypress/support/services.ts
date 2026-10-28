@@ -74,6 +74,11 @@ export function hasService(key: string): boolean {
   return Boolean(targets().services[key]);
 }
 
+/** Every portal service key the manifest carries, i.e. every service this inventory deploys. */
+export function deployedServiceKeys(): string[] {
+  return Object.keys(targets().services);
+}
+
 /** Declared ALA upstream fallbacks, or [] on a manifest generated before the field existed. */
 export function declaredAlaFallbacks(): AlaUpstreamFallback[] {
   return targets().alaUpstreamFallbacks ?? [];

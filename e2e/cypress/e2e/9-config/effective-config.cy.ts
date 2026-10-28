@@ -1,5 +1,6 @@
 import {
   declaredAlaFallbacks,
+  deployedServiceKeys,
   hasService,
   ownHosts,
   serviceUrl,
@@ -26,10 +27,51 @@ import {
 // and offline by config-audit.selftest.cy.ts, so a build with auth tests off still verifies
 // the rules; what it cannot verify is the live values.
 
-// Services confirmed to expose the page in this stack. `lists` answers 403 with no redirect
-// (species-list-webapp does not carry the ala-admin plugin), so it is left out rather than
-// skipped at runtime — an empty result there would be indistinguishable from "no findings".
-const AUDITED = ["collections", "species", "regions", "records"] as const;
+// Every manifest key whose service carries the ala-admin plugin, i.e. serves
+// /alaAdmin/viewConfig. Started from la-toolkit's list (la_service_desc.dart, alaAdmin: true)
+// plus spatial-hub, which serves the page too although the toolkit does not mark it -- and
+// spatial-hub is exactly where lists.urlUi = https://lists.ala.org.au went unseen while this
+// spec audited only four services. A service that is not deployed is skipped; a deployed one
+// is audited, or listed in UNREADABLE with the reason.
+const VIEWCONFIG_SERVICES = [
+  "collections",
+  "records",
+  "species",
+  "speciesWs",
+  "lists",
+  "images",
+  "regions",
+  "logger",
+  "spatial",
+  "spatialService",
+  "alerts",
+  "doi",
+  "dashboard",
+  "sds",
+  "dataQuality",
+  "userdetails",
+] as const;
+
+// Services that carry the plugin but whose page an admin session still cannot read here.
+// Not audited, but not forgotten either: the "still unreadable" test below fails the day one
+// of them starts answering, so it gets moved into the audit instead of staying exempt.
+const UNREADABLE: Record<string, string> = {
+  spatialService:
+    "403 with an admin session: the login completes, but spatial-service's /ws/alaAdmin " +
+    "does not grant the CAS admin",
+};
+
+// Manifest keys that are not ala-admin services, so the coverage test below can tell a key
+// nobody classified from one that was deliberately left out.
+const NOT_VIEWCONFIG = [
+  "recordsWs", // biocache-service: no ala-admin plugin, /alaAdmin/viewConfig is a 404
+  "namematching", // namematching-service: not a Grails app
+  "recordsDownload", // static download area of the records hub
+  "gatus",
+  "mailhog",
+];
+
+const AUDITED = VIEWCONFIG_SERVICES.filter((k) => !(k in UNREADABLE));
 
 // Aggregated across services: a fallback is stale only if NO service uses it. Per-service
 // staleness is meaningless — the pdfgen fallback lives in ala-hub and is legitimately absent
@@ -153,11 +195,30 @@ describe("Effective configuration (/alaAdmin/viewConfig)", () => {
     });
   });
 
+  Object.entries(UNREADABLE).forEach(([key, reason]) => {
+    it(`${key}: viewConfig is still unreadable (${reason})`, function () {
+      if (!hasService(key)) {
+        this.skip();
+      }
+      cy.loginTo(key, "/");
+      cy.request({
+        url: serviceUrl(key, "/alaAdmin/viewConfig"),
+        failOnStatusCode: false,
+      }).then((resp) => {
+        const doc = new DOMParser().parseFromString(String(resp.body || ""), "text/html");
+        expect(
+          Object.keys(parseConfigTable(doc)).length,
+          `${key}: /alaAdmin/viewConfig is readable now -- move it from UNREADABLE into the audit`,
+        ).to.be.lessThan(21);
+      });
+    });
+  });
+
   it("the declared ALA fallback list has not rotted", function () {
     // A fallback that no service resolves any more is a dependency somebody removed without
     // removing the exemption. Left alone, the list slowly becomes fiction and stops meaning
-    // "these are our ALA dependencies". Reported, not fatal: the audited set is only four
-    // services, and a fallback may legitimately live in one we cannot read.
+    // "these are our ALA dependencies". Reported, not fatal: a fallback may legitimately live
+    // in a service that is not deployed here, or in one we cannot read.
     if (auditedServices.length === 0) {
       this.skip();
     }
@@ -172,5 +233,22 @@ describe("Effective configuration (/alaAdmin/viewConfig)", () => {
           `If the dependency is gone, drop the entry from ala_upstream_fallbacks.\n`,
       );
     }
+  });
+});
+
+// Outside the auth-gated block on purpose: it reads only the manifest, so it holds on every
+// build, including the ones that run with auth tests off.
+describe("Effective configuration audit coverage", () => {
+  it("every deployed service is classified for this audit", () => {
+    // A new manifest key is a new service. Unless somebody decides whether it serves
+    // viewConfig, it is neither audited nor exempt -- which is how spatial-hub sat outside
+    // this spec while serving ALA's lists URL. Fail until it is classified.
+    const known = new Set<string>([...VIEWCONFIG_SERVICES, ...NOT_VIEWCONFIG]);
+    const unclassified = deployedServiceKeys().filter((k) => !known.has(k));
+    expect(
+      unclassified,
+      "manifest services not classified in effective-config.cy.ts: add each to " +
+        "VIEWCONFIG_SERVICES (it serves /alaAdmin/viewConfig) or NOT_VIEWCONFIG (it does not)",
+    ).to.have.length(0);
   });
 });

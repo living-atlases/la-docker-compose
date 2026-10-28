@@ -969,6 +969,9 @@ EOF
                     bash scripts/test-published-ports-private.sh
                     # spatial-hub compares lists.version with ints: a quoted one empties the list picker.
                     bash scripts/test-spatial-hub-lists-version.sh
+                    # The pre-deploy ALA-host guard classifies what it must: planted ALA service
+                    # and test hosts are findings, declared fallbacks and docs links are not. ~1s.
+                    "$VENV_MOL/bin/python3" scripts/config-baseline.py ala-hosts --self-test
 
                     # `JAVA_OPTS: ${<SERVICE>_JAVA_OPTS}` REPLACES the image's own ENV
                     # rather than adding to it, so a -D missing from .env is simply not
@@ -1404,6 +1407,10 @@ EOF
                         \$(printf -- '--inventory %s ' "${INVENTORY_DIR}"/*.ini) \
                         --output "\$BASE_TMP"
                     scripts/config-baseline.py check --from "\$BASE_TMP"
+                    # The baseline only sees CHANGE: a URL already wrong when it was frozen
+                    # passes it forever, which is how spatial-hub's lists.urlUi kept pointing
+                    # at lists.ala.org.au. This rejects any undeclared ALA service/test host.
+                    scripts/config-baseline.py ala-hosts --from "\$BASE_TMP"
                 """
             }
         }

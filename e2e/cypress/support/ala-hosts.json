@@ -1,0 +1,46 @@
+{
+  "_comment": [
+    "The one table of ALA hosts both config-URL guards classify against: the live audit of",
+    "/alaAdmin/viewConfig (e2e/cypress/support/config-audit.ts) and the offline check of the",
+    "rendered config before deploy (scripts/config-baseline.py ala-hosts). Kept in e2e/ because",
+    "CI mounts only that directory into the Cypress container. Edit it here, never in a copy.",
+    "serviceHosts: ALA hosts serving a role we deploy ourselves; a config value pointing at one",
+    "means the deployment uses ALA's instance instead of its own. Documentation and content",
+    "hosts (www., support., bare ala.org.au) are absent on purpose: they are legitimate links.",
+    "familyPattern: ALA-family domains; anything there that is not a service host is informational.",
+    "nonProdPattern: ALA test/staging infrastructure; always a finding unless declared.",
+    "inertKeyPrefixes: keys never audited. Grails 'environments.<env>.*' blocks are the compiled",
+    "per-environment defaults; viewConfig lists them raw, but the value in force is the same key",
+    "without the prefix, which IS audited -- so an ALA value there is reported where it applies."
+  ],
+  "serviceHosts": {
+    "auth.ala.org.au": "auth (CAS/userdetails)",
+    "api.ala.org.au": "apikey",
+    "biocache.ala.org.au": "records",
+    "biocache-ws.ala.org.au": "recordsWs",
+    "bie.ala.org.au": "species",
+    "bie-ws.ala.org.au": "speciesWs",
+    "collections.ala.org.au": "collections",
+    "lists.ala.org.au": "lists",
+    "lists-ws.ala.org.au": "lists",
+    "images.ala.org.au": "images",
+    "logger.ala.org.au": "logger",
+    "regions.ala.org.au": "regions",
+    "spatial.ala.org.au": "spatial",
+    "spatial-service.ala.org.au": "spatial-service",
+    "sds.ala.org.au": "sensitive-data-service",
+    "namematching-ws.ala.org.au": "namematching",
+    "alerts.ala.org.au": "alerts",
+    "doi.ala.org.au": "doi",
+    "dashboard.ala.org.au": "dashboard",
+    "data-quality-service.ala.org.au": "data-quality",
+    "userdetails.ala.org.au": "userdetails",
+    "pdfgen.ala.org.au": "pdfgen (ecodata/biocollect stack)",
+    "profiles-ws.ala.org.au": "profiles"
+  },
+  "familyPattern": "(^|\\.)(ala\\.org\\.au|csiro\\.au)$",
+  "nonProdPattern": "(^|[.-])(test|tests|staging|stage|sandbox|dev|nectar)([.-]|$)",
+  "inertKeyPrefixes": [
+    "environments."
+  ]
+}

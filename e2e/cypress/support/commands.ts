@@ -189,6 +189,43 @@ Cypress.Commands.add(
   },
 );
 
+/**
+ * Log in when the CAS form is in the TOP window, so cy.origin cannot be used (it refuses an
+ * origin equal to top's).
+ *
+ * Two kinds of service end up here. Some gate their root behind login, so visiting "/" already
+ * lands on CAS: spatial-hub and alerts do. And userdetails lives on the CAS host itself
+ * (auth/userdetails), so its hub origin IS the auth origin. Either way the form is already
+ * scriptable without cy.origin; only reach it through /login when the root did not put us on it.
+ */
+function loginOnTopCasPage(
+  serviceKey: string,
+  hubOrigin: string,
+  authOrigin: string,
+  username: string,
+  password: string,
+): void {
+  cy.location("pathname").then((path) => {
+    if (!/\/cas\/login/.test(path)) cy.visit(serviceUrl(serviceKey, "/login?path=%2F"));
+  });
+  // Same #fm1 scoping as the cy.origin path, for the same reason: the branding navbar carries a
+  // search form whose submit button comes first in the DOM.
+  cy.get("#fm1", { timeout: 20000 }).within(() => {
+    cy.get("#username").type(username);
+    cy.get("#password").type(password, { log: false });
+    cy.get('[name="submit"], input[type="submit"], button[type="submit"]').first().click();
+  });
+  if (hubOrigin === authOrigin) {
+    cy.location("pathname", { timeout: 30000 }).should("not.match", /\/cas\/login/);
+  } else {
+    // CAS sends us back to the hub, a different origin from top's, so the wait for the
+    // callback to finish has to run there.
+    cy.origin(hubOrigin, () => {
+      cy.location("pathname", { timeout: 30000 }).should("not.match", /\/callback/);
+    });
+  }
+}
+
 Cypress.Commands.add(
   "loginTo",
   (
@@ -223,50 +260,56 @@ Cypress.Commands.add(
         ignoreMissingJqueryHere();
         skipBrandingLangReload(authOrigin);
         cy.visit(serviceUrl(serviceKey, "/"));
-        cy.visit(serviceUrl(serviceKey, "/login?path=%2F"));
+        cy.location("origin").then((landed) => {
+          if (landed === authOrigin) {
+            loginOnTopCasPage(serviceKey, hubOrigin, authOrigin, username, password);
+            return;
+          }
+            cy.visit(serviceUrl(serviceKey, "/login?path=%2F"));
 
-        cy.origin(
-          authOrigin,
-          { args: { username, password } },
-          ({ username, password }) => {
-            // The CAS login page loads Bootstrap's JS before jQuery and throws
-            // "ReferenceError: jQuery is not defined". Cypress fails a test on any uncaught
-            // application exception, and a handler registered in the spec does NOT reach
-            // inside cy.origin -- it has to be registered here, in the origin's own context.
-            // Narrow match: any other application error must still fail the login.
-            cy.on("uncaught:exception", (err) =>
-              !/(^|\s)(jQuery|\$) is not defined/.test(err.message),
+            cy.origin(
+              authOrigin,
+              { args: { username, password } },
+              ({ username, password }) => {
+                // The CAS login page loads Bootstrap's JS before jQuery and throws
+                // "ReferenceError: jQuery is not defined". Cypress fails a test on any uncaught
+                // application exception, and a handler registered in the spec does NOT reach
+                // inside cy.origin -- it has to be registered here, in the origin's own context.
+                // Narrow match: any other application error must still fail the login.
+                cy.on("uncaught:exception", (err) =>
+                  !/(^|\s)(jQuery|\$) is not defined/.test(err.message),
+                );
+
+                // Scope EVERYTHING to the CAS form (#fm1).
+                //
+                // The old selector was an unscoped union ending in `.first()`, and cy.get returns
+                // matches in document order. The CAS login page is wrapped in the portal's
+                // branding, whose navbar carries
+                //     <form action="https://species.l-a.site/search"> <button type="submit">
+                // which appears BEFORE the login form. So `.first()` clicked the navbar's search
+                // button and submitted a search: the browser left for species.l-a.site/search?q=
+                // and no session was ever created. It looked like a login because the navbar
+                // renders a logout link whether or not anyone is signed in.
+                //
+                // The real control is <input name="submit" type="submit" value="Login"> inside
+                // <form method="post" id="fm1">.
+                cy.get("#fm1", { timeout: 20000 }).within(() => {
+                  cy.get("#username").type(username);
+                  cy.get("#password").type(password, { log: false });
+                  cy.get('[name="submit"], input[type="submit"], button[type="submit"]')
+                    .first()
+                    .click();
+                });
+              },
             );
 
-            // Scope EVERYTHING to the CAS form (#fm1).
-            //
-            // The old selector was an unscoped union ending in `.first()`, and cy.get returns
-            // matches in document order. The CAS login page is wrapped in the portal's
-            // branding, whose navbar carries
-            //     <form action="https://species.l-a.site/search"> <button type="submit">
-            // which appears BEFORE the login form. So `.first()` clicked the navbar's search
-            // button and submitted a search: the browser left for species.l-a.site/search?q=
-            // and no session was ever created. It looked like a login because the navbar
-            // renders a logout link whether or not anyone is signed in.
-            //
-            // The real control is <input name="submit" type="submit" value="Login"> inside
-            // <form method="post" id="fm1">.
-            cy.get("#fm1", { timeout: 20000 }).within(() => {
-              cy.get("#username").type(username);
-              cy.get("#password").type(password, { log: false });
-              cy.get('[name="submit"], input[type="submit"], button[type="submit"]')
-                .first()
-                .click();
-            });
-          },
-        );
-
-        // Only assert that we LEFT the auth origin. Where a hub sends you after login is a
-        // deployment decision, not this command's business: collectory lands on
-        // species.l-a.site/search here, because the plugin's post-login redirect goes to the
-        // portal root and the root serves the species hub. Asserting the hub origin instead
-        // failed for a deployment that was working perfectly.
-        cy.location("origin", { timeout: 30000 }).should("not.eq", authOrigin);
+            // Only assert that we LEFT the auth origin. Where a hub sends you after login is a
+            // deployment decision, not this command's business: collectory lands on
+            // species.l-a.site/search here, because the plugin's post-login redirect goes to the
+            // portal root and the root serves the species hub. Asserting the hub origin instead
+            // failed for a deployment that was working perfectly.
+            cy.location("origin", { timeout: 30000 }).should("not.eq", authOrigin);
+        });
       },
       {
         validate: () => {

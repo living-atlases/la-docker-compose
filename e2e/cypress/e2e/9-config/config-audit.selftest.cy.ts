@@ -93,7 +93,7 @@ describe("Effective-config audit (offline self-test)", () => {
   });
 
   describe("a drifted deployment", () => {
-    it("flags exactly the four known-bad references, and nothing else", () => {
+    it("flags exactly the five known-bad references, and nothing else", () => {
       loadFixture("drifted.html").then((props) => {
         const r = auditEffectiveConfig({
           props,
@@ -104,6 +104,7 @@ describe("Effective-config audit (offline self-test)", () => {
         expect(keys, JSON.stringify(r.findings, null, 2)).to.deep.eq([
           "biocacheService.baseUrl", // ALA's records service, which we deploy ourselves
           "events.graphql", // ALA test infrastructure
+          "lists.urlUi", // spatial-hub's list links, on espacial.gbif.es and CI
           "security.apikey.auth.serviceUrl", // the gbif.es production defect, case-variant
           "userDetails.url", // the data-quality defect
         ]);
@@ -123,6 +124,10 @@ describe("Effective-config audit (offline self-test)", () => {
         );
         expect(flagged).to.not.include("dataquality.learnmore_link");
         expect(flagged).to.not.include("spatial.tileUrl");
+        expect(
+          flagged.filter((k) => k.startsWith("environments.")),
+          "Grails per-environment default blocks are inert",
+        ).to.be.empty;
       });
     });
 
