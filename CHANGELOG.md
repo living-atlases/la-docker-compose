@@ -10,14 +10,47 @@ edit by hand, write the notes in the annotated tag instead.
 
 ## Unreleased
 
+Nothing yet.
+
+<a name="v1.13.0"></a>
+
+## v1.13.0 - 2026-10-28
+
+**UNSTABLE on #501 (3370216), only from the ca-distrust and Trivy KEV audits, not green**
+
+NOT a green tag. Validated on 3370216 by build #501 (UNSTABLE, CLEAN_MACHINE=true, FORCE_REDEPLOY=true, TOPOLOGY=default, 194 min). What #501 proved: 91/91 tests, Cypress 85 passing (2 pending), Gatus all 139 endpoints healthy through the total-green gate, Deep + Data checks 15/15 after the Airflow ingest, spatial e2e passed. The four full builds before it (#494, #495, #497, #499) passed the same gates. What kept it UNSTABLE, both report-only audits on third-party images, nothing from these commits: ca-distrust (22 trust stores in upstream images still trust the distrusted eMudhra roots: solr, elasticsearch, postgis, geoserver, mailhog, cadvisor, sds, airflow...; TASK-91) and Trivy, CVE-2026-111497 (brotli, CISA KEV) in nginx:1.30, nfrastack/db-backup:5.0.2, chainguard/minio:latest and the Airflow overlay images.
+
+Autoheal on by default, the portal's own config files and i18n overlay from the inventory, and fixes found on gbif.es staging.
+
+- autoheal (docker_autoheal, now default true): restarts unhealthy containers after a Docker or host restart, biocache-service before the hubs, rate-limited, idle while a deploy runs. biocache-hub gets a healthcheck that sees the i18n race (a search under its context path).
+- docker_config_files: {src, dest} files from the inventory copied after config generation, for files ala-install overwrites (charts.json, bie-index lists, download emails, messages), the i18n overlay the ALA apps read at /var/opt/atlas/i18n/<app>/, and http-level nginx conf (conf.d/*.conf). A changed file restarts only the services that mount it.
+- Legacy sds-webapp2 gets a Lucene 8 name index it can read (sds_webapp_nameindex_url), and a healthcheck and Gatus check that see an uninitialised finder.
+- Gatus page checks ask like a browser (Accept-Language), so a Grails app that 500s only for browsers no longer stays green; geoserver checked with a light WFS GetCapabilities.
+- postfix: every environment value quoted, empty ones left out (an empty HOSTNAME made boky drop the relay), and the relay checked after up (one restart, then the deploy fails). The deploy marker is cleared when a deploy fails too.
+- pipelines: the eight vocabularies interpret reads since pipelines#19 are provided (one missing file emptied the index, #488).
+- Branding on node 22, alpine 3.22, nginx 1.30-alpine; species lists /admin and Upload ask for a login again.
+- CI: a fail-soft ca-distrust check of every running container, and clean builds pull every image again.
+
+Operator notes: autoheal is now on (docker_autoheal: false removes only what the role installed). Removing a docker_config_files entry does not delete the file it copied.
+
+### Commits (26 since v1.12.0)
+
 #### Features
 
+- **config-files**: the portal's i18n overlay and http-level nginx conf from the inventory ([017b2a3](https://github.com/living-atlases/la-docker-compose/commit/017b2a3dacc6543a6449ab382dfdb8d1e7502f7e))
+- **sds**: the legacy sds gets a name index it can read, and checks that see without one ([6c66ab1](https://github.com/living-atlases/la-docker-compose/commit/6c66ab1e2d1fe2134d5cc1e3a4bc417a7b87018d))
 - **la-compose**: docker_config_files, the portal's own versions of files ala-install overwrites ([c0096f3](https://github.com/living-atlases/la-docker-compose/commit/c0096f3270947ca24a174e276057fbfe660ae5c0))
 - **la-compose**: autoheal on by default ([0a2f231](https://github.com/living-atlases/la-docker-compose/commit/0a2f231d19b441289aec3535ad9be21de78e1bd0))
 - **la-compose**: autoheal after a Docker or host restart, and a biocache-hub healthcheck that sees the i18n race ([05da764](https://github.com/living-atlases/la-docker-compose/commit/05da764f4b1a5853b784cfc8bd469c48fa08eb2c))
 
 #### Fixes
 
+- **postfix**: keep the relay boky dropped, and check it after up ([250484f](https://github.com/living-atlases/la-docker-compose/commit/250484f0dffb5beb928d6976ce54da4913e467d8))
+- **deploy**: clear the deploy marker when the deploy fails too ([e41465c](https://github.com/living-atlases/la-docker-compose/commit/e41465c1885d4f0948785e1798cbcc3a636ca5cf))
+- **postfix**: quote every environment value of postfix.yml ([17b7c20](https://github.com/living-atlases/la-docker-compose/commit/17b7c20405946c9e390f646cc2160471a3a3399f))
+- **config-watch**: the first watch list of a play includes the hub instances ([b07f0fe](https://github.com/living-atlases/la-docker-compose/commit/b07f0fef9b98049abb28bed5fac45a6fd72e0e28))
+- **autoheal**: --dry-run reports a failing probe but no longer counts it ([4c0c3ba](https://github.com/living-atlases/la-docker-compose/commit/4c0c3ba81b6084a39a7423354e0281c13e62de3c))
+- **gatus,collectory**: page checks ask like a browser, with Accept-Language ([ed4ba54](https://github.com/living-atlases/la-docker-compose/commit/ed4ba542cf9a05cbc46d89411e6b7e2dd84b501d))
 - **probe**: survive an empty /index/fields under pipefail ([37b561d](https://github.com/living-atlases/la-docker-compose/commit/37b561d1b43aba3552fac84dccf271b72adf9851))
 - **e2e**: stop the branding's one-time ?lang= reload under the CAS login ([bb638a3](https://github.com/living-atlases/la-docker-compose/commit/bb638a3ee338f95a219106b6ef4aef5afcde3764))
 - **pull**: name the pullable services; --policy always pulled the local branding images ([4b6fd58](https://github.com/living-atlases/la-docker-compose/commit/4b6fd5842f475c6c9dc6edef15de8d0e7630ab69))
@@ -26,11 +59,14 @@ edit by hand, write the notes in the annotated tag instead.
 
 #### Tests and CI
 
+- **postfix-relay**: wait for boky to be healthy, not a fixed sleep ([3370216](https://github.com/living-atlases/la-docker-compose/commit/33702169393daa5bb63d7551eda5e56a1f8d93dc))
+- **i18n-overlay**: compare against the parent of the overlay commit once it exists ([30b1127](https://github.com/living-atlases/la-docker-compose/commit/30b1127b750ecd22505510350268564ae8373b84))
 - a clean build pulls every image again (la_compose_pull_policy=always) ([0e7ed3d](https://github.com/living-atlases/la-docker-compose/commit/0e7ed3d84fbdf536de9780eda4692eafac0a549a))
 - fail-soft check that no running container trusts a distrusted CA root ([76c53ac](https://github.com/living-atlases/la-docker-compose/commit/76c53ac5372ce1be9a3b2e0c03d669aad5d01a90))
 
 #### Documentation
 
+- **changelog**: unreleased (docker_config_files, autoheal on by default) ([430fe75](https://github.com/living-atlases/la-docker-compose/commit/430fe754a3ee5ee615db0b745fe6a9305a49e103))
 - **autoheal**: enable it from the toolkit's Ansible Extras; recreate biocache-hub once in production ([785edaa](https://github.com/living-atlases/la-docker-compose/commit/785edaa9a8ab912011e3e9b826c6df4191aaf7e1))
 - **changelog**: unreleased (autoheal, biocache-hub healthcheck, e2e login fix) ([ec19bfc](https://github.com/living-atlases/la-docker-compose/commit/ec19bfc477c7fddaf358e00fed41fc76b0c7d6c2))
 - **changelog**: v1.12.0 ([4df12ce](https://github.com/living-atlases/la-docker-compose/commit/4df12ce57a4c7e3d26e8c19100c50724a39a1ce6))
@@ -38,6 +74,7 @@ edit by hand, write the notes in the annotated tag instead.
 #### Other changes
 
 - node 22 (18 is EOL), alpine 3.22 and nginx 1.30-alpine ([8ca5433](https://github.com/living-atlases/la-docker-compose/commit/8ca5433f28d54adb3f526e7ca897a1d108931fde))
+- check de geoserver con GetCapabilities WFS ligero en vez de /web/ (redirect sin cookie) ([9d0621b](https://github.com/living-atlases/la-docker-compose/commit/9d0621b6ca2b042c17ba593385a73dc05ae2b5d3))
 
 <a name="v1.12.0"></a>
 
