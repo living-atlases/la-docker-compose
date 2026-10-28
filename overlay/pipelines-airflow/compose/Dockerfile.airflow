@@ -4,9 +4,12 @@ ARG AIRFLOW_VERSION=2.10.3
 FROM apache/airflow:${AIRFLOW_VERSION}-python3.11
 
 USER root
-# docker CLI only (uses the host daemon via the mounted socket)
+# docker CLI only (uses the host daemon via the mounted socket). libbrotli1 is
+# upgraded for CVE-2026-111497 (brotli decoder OOB write; fixed in
+# 1.0.9-2+deb12u1): curl and libcurl in the base image link it.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends docker.io \
+ && apt-get install -y --only-upgrade libbrotli1 \
  && rm -rf /var/lib/apt/lists/*
 USER airflow
 
