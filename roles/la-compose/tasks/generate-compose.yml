@@ -719,6 +719,29 @@
   tags:
     - docker-compose
 
+# Pruning is only safe when this run renders every vhost again: a run restricted with
+# --tags, or one that skips the vhost tags, would leave the pruned ones out.
+- name: Decide whether this run renders every vhost
+  ansible.builtin.set_fact:
+    nginx_full_vhost_run: >-
+      {{ 'all' in ansible_run_tags
+         and ansible_skip_tags | intersect(['nginx', 'nginx_vhost', 'docker-compose', 'config']) | length == 0 }}
+  tags:
+    - always
+
+- name: Prune the vhosts of services no longer on this host
+  ansible.builtin.include_tasks: prune-orphan-vhosts.yml
+  vars:
+    nginx_vhost_keep_names: "{{ nginx_docker_internal_aliases | default([]) }}"
+  when:
+    - "'nginx' in services_enabled"
+    - nginx_full_vhost_run | bool
+    # An empty list would make every vhost an orphan.
+    - nginx_docker_internal_aliases | default([]) | length > 0
+  tags:
+    - docker-compose
+    - nginx
+
 # conf.d is ours: nginx_vhost only ever writes sites-available/sites-enabled, so
 # a drop-in here is safe from being clobbered on the next deploy.
 - name: Ensure nginx serves the internal disk metric
@@ -2789,6 +2812,34 @@
     - docker-compose
     - nginx
 
+# What the inventory list above misses — vhosts ldc or a service role renders on its
+# own — is in the server_name directives nginx is about to load. Read on every host:
+# the gatus host needs the whole cluster's to tell a removed service from a moved one.
+- name: Read the server names this host's nginx loads
+  ansible.builtin.include_tasks: nginx-served-hostnames.yml
+  when: "'nginx' in services_enabled"
+  tags:
+    - docker-compose
+    - nginx
+
+# Checks are pruned only when every docker host is in this run and none failed before
+# this point: a host missing here would have all its names taken for gone.
+- name: Gather the names every docker host serves
+  ansible.builtin.set_fact:
+    gatus_cluster_served_names: >-
+      {{ groups['docker_compose']
+         | map('extract', hostvars, 'nginx_served_hostnames') | select('defined') | flatten
+         | union(groups['docker_compose']
+                 | map('extract', hostvars, 'nginx_local_server_names') | select('defined') | flatten)
+         | unique | list }}
+    gatus_prune_orphan_checks: >-
+      {{ nginx_full_vhost_run | default(false) | bool
+         and groups['docker_compose'] | difference(ansible_play_hosts) | length == 0 }}
+  when: "'gatus' in services_enabled"
+  tags:
+    - docker-compose
+    - nginx
+
 # Collect every FQDN that gatus monitors and add it as a docker-network alias on the
 # nginx container, so checks done from inside the docker network resolve to nginx.
 # IMPORTANT: gatus runs on ONE host; only that host's nginx needs the aliases.
@@ -2822,23 +2873,11 @@
     - docker-compose
     - nginx
 
-# Only for names this host can legitimately answer. A monitored FQDN that extra_hosts
-# maps somewhere else belongs to another host: aliasing it onto the local nginx makes
-# every container here (and gatus itself) reach an nginx with no matching server_name,
-# which answers from the default vhost — a 404 that reads like the service is broken.
-# Those names keep resolving through extra_hosts to their owner.
-- name: Extract monitored hostnames into nginx_docker_internal_aliases
-  ansible.builtin.set_fact:
-    nginx_docker_internal_aliases: >-
-      {{ nginx_docker_internal_aliases | default([])
-         | union([((item.content | b64decode | from_yaml).endpoints | first).group]
-                 if ((item.content | b64decode | from_yaml).endpoints | first).group
-                    not in (docker_extra_hosts_dict | default({}))
-                 else [])
-         | unique }}
-  loop: "{{ gatus_endpoint_blobs.results | default([]) }}"
-  loop_control:
-    label: "{{ item.item.path | basename }}"
+# Prunes the checks nobody serves any more and runs
+# "Extract monitored hostnames into nginx_docker_internal_aliases": only names this
+# host's nginx has a server_name for become aliases (see the file).
+- name: Prune orphan gatus checks and alias the monitored names served here
+  ansible.builtin.include_tasks: gatus-monitored-aliases.yml
   when: gatus_endpoint_blobs.results is defined
   tags:
     - docker-compose

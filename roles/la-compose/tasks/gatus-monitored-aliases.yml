@@ -1,0 +1,79 @@
+---
+# On the gatus host: drop the checks of names nobody serves any more, then alias onto the
+# local nginx the monitored names it really serves.
+#
+# Inputs:
+#   gatus_endpoint_blobs        — the slurped *-http.yaml files (one per nginx_vhost call)
+#   nginx_served_hostnames      — server_names of this host's sites-enabled (after render)
+#   gatus_cluster_served_names  — the same for every docker host, plus their inventory lists
+#   docker_extra_hosts_dict     — names other hosts (VMs included) own, before "local wins"
+#   gatus_prune_orphan_checks   — true only when every docker host is in this run
+#
+# Free of group_names and services_enabled so molecule/unit can include it with fixtures.
+
+- name: Start the orphan check list empty
+  ansible.builtin.set_fact:
+    gatus_orphan_checks: []
+  tags:
+    - always
+
+# nginx_vhost writes <appname>-http.yaml here from every host, and nothing removes it
+# when the service leaves: the branding-home check of gbif.es outlived branding on
+# gbif-es-docker-prod-2026-1 and, through the alias below, kept probing the local nginx.
+# A check is an orphan when none of its groups is served by a docker host of this run
+# nor mapped by extra_hosts to another owner (a VM of a hybrid project, typically).
+# Those owners write their checks in runs of their own, so they never count as gone.
+- name: Pick the gatus checks no host serves any more
+  ansible.builtin.set_fact:
+    gatus_orphan_checks: "{{ gatus_orphan_checks + [item.item.path] }}"
+  loop: "{{ gatus_endpoint_blobs.results | default([]) | selectattr('content', 'defined') | list }}"
+  loop_control:
+    label: "{{ item.item.path | basename }}"
+  vars:
+    gatus_check_groups: >-
+      {{ (item.content | b64decode | from_yaml).endpoints | default([], true)
+         | map(attribute='group') | select | unique | list }}
+  when:
+    - gatus_prune_orphan_checks | default(false) | bool
+    - gatus_check_groups | length > 0
+    - >-
+      gatus_check_groups
+      | intersect(gatus_cluster_served_names | default([])
+                  | union(docker_extra_hosts_dict | default({}) | list))
+      | length == 0
+  tags:
+    - always
+
+- name: Remove the orphan gatus checks
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: "{{ gatus_orphan_checks }}"
+  loop_control:
+    label: "{{ item | basename }}"
+  tags:
+    - always
+
+# Alias only a name this nginx has a server_name for. Aliasing any other monitored name
+# makes every container here (and gatus itself) reach an nginx with no matching
+# server_name, which answers from the default vhost or a stale one: a 404 that reads like
+# the service is broken, or, worse, a green check of the wrong server. A name another
+# host owns keeps resolving through extra_hosts; a name outside the cluster (gbif.es,
+# served by the WordPress host) through public DNS.
+- name: Extract monitored hostnames into nginx_docker_internal_aliases
+  ansible.builtin.set_fact:
+    nginx_docker_internal_aliases: >-
+      {{ nginx_docker_internal_aliases | default([])
+         | union([gatus_check_group]
+                 if gatus_check_group in (nginx_served_hostnames | default([]))
+                    and gatus_check_group not in (docker_extra_hosts_dict | default({}))
+                 else [])
+         | unique }}
+  loop: "{{ gatus_endpoint_blobs.results | default([]) | selectattr('content', 'defined') | list }}"
+  loop_control:
+    label: "{{ item.item.path | basename }}"
+  vars:
+    gatus_check_group: "{{ ((item.content | b64decode | from_yaml).endpoints | first).group }}"
+  when: item.item.path not in gatus_orphan_checks
+  tags:
+    - always

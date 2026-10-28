@@ -1,0 +1,70 @@
+---
+# Read the vhosts this host's nginx loads (sites-enabled) and the server_name each one
+# answers for. Sets:
+#   nginx_vhost_files      — [{path, name, names}], one per file in sites-enabled
+#   nginx_served_hostnames — every server_name found, flattened
+#
+# The server_name directives are the ground truth: the inventory's per-host list
+# (nginx_docker_internal_aliases) misses vhosts that ldc or a service role renders on
+# its own, and a filename does not say which server_name it carries once
+# vhost_with_appname_conf appends the appname.
+#
+# nginx's default vhosts (default, ala_default, aws_elb_default) are skipped: their
+# server_name is a catch-all, not a name anyone resolves.
+#
+# Free of group_names and services_enabled so molecule/unit can include it with fixtures.
+- name: Reset the vhost list before reading it again
+  ansible.builtin.set_fact:
+    nginx_vhost_files: []
+  tags:
+    - always
+
+- name: Find the vhosts nginx loads
+  ansible.builtin.find:
+    paths: "{{ nginx_conf_dir }}/sites-enabled"
+    file_type: any
+    excludes:
+      - default
+      - ala_default.conf
+      - aws_elb_default.conf
+  register: nginx_sites_enabled
+  tags:
+    - always
+
+# slurp follows the sites-enabled symlink to sites-available. A dangling link fails it;
+# ignore_errors keeps such a file in the list with no names, i.e. an orphan.
+- name: Read the vhosts nginx loads
+  ansible.builtin.slurp:
+    src: "{{ item.path }}"
+  register: nginx_sites_enabled_blobs
+  loop: "{{ nginx_sites_enabled.files | default([]) }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
+  ignore_errors: true
+  tags:
+    - always
+
+- name: Collect the server names each vhost answers for
+  ansible.builtin.set_fact:
+    nginx_vhost_files: >-
+      {{ nginx_vhost_files
+         + [{'path': item.item.path,
+             'name': item.item.path | basename,
+             'names': (item.content | default('') | b64decode
+                       | regex_findall('(?m)^\s*server_name\s+([^;]+);')
+                       | join(' ') | split
+                       | reject('in', ['_', 'localhost'])
+                       | reject('match', '~')
+                       | unique | list)}] }}
+  loop: "{{ nginx_sites_enabled_blobs.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.path | basename }}"
+  tags:
+    - always
+
+- name: Flatten the names this host's nginx serves
+  ansible.builtin.set_fact:
+    nginx_served_hostnames: >-
+      {{ nginx_vhost_files | default([]) | map(attribute='names') | flatten | unique | list }}
+  tags:
+    - always

@@ -514,7 +514,7 @@
           and the filter is back to disowning names other hosts own.
       vars:
         tc9_snapshot_task: "Snapshot the server names this host's nginx actually serves"
-        tc9_merge_task: "Extract monitored hostnames into nginx_docker_internal_aliases"
+        tc9_merge_task: "ansible.builtin.include_tasks: gatus-monitored-aliases.yml"
 
 # TC9d: the branding-as-home apex (l-a.site) is served next to branding on host1, but
 # the inventory's extra_hosts never carried it. On host3, the gatus host, the merge above
@@ -534,17 +534,23 @@
         branding_home_url: l-a.site
         branding_as_home: true
 
-    - name: "[TC9d] Run the gatus merge over the apex endpoint"
+    - name: "[TC9d] Reset the aliases to host3's own"
       ansible.builtin.set_fact:
-        tc9d_aliases: >-
-          {{ tc9d_local_aliases
-             | union([((item.content | b64decode | from_yaml).endpoints | first).group]
-                     if ((item.content | b64decode | from_yaml).endpoints | first).group
-                        not in (docker_extra_hosts_dict | default({}))
-                     else [])
-             | unique }}
-      loop:
-        - content: "{{ {'endpoints': [{'name': 'https://l-a.site/root', 'group': 'l-a.site'}]} | to_yaml | b64encode }}"
+        nginx_docker_internal_aliases: "{{ tc9d_local_aliases }}"
+
+    - name: "[TC9d] Run the gatus merge over the apex endpoint"
+      ansible.builtin.include_tasks: ../../roles/la-compose/tasks/gatus-monitored-aliases.yml
+      vars:
+        nginx_served_hostnames: "{{ tc9d_local_aliases }}"
+        gatus_prune_orphan_checks: false
+        gatus_endpoint_blobs:
+          results:
+            - item: {path: /nonexistent/branding-home-http.yaml}
+              content: "{{ {'endpoints': [{'name': 'https://l-a.site/root', 'group': 'l-a.site'}]} | to_yaml | b64encode }}"
+
+    - name: "[TC9d] Keep the merged aliases"
+      ansible.builtin.set_fact:
+        tc9d_aliases: "{{ nginx_docker_internal_aliases }}"
 
     - name: "[TC9d] Assert the apex points at the branding host and is not aliased locally"
       ansible.builtin.assert:
@@ -623,7 +629,7 @@
         tc9d_include: "ansible.builtin.include_tasks: branding-home-extra-host.yml"
         tc9d_override_task: "- name: Apply docker_extra_hosts_override"
         tc9d_validate_task: "- name: Validate docker_extra_hosts_dict contains only literal IPv4 addresses"
-        tc9d_merge_task: "- name: Extract monitored hostnames into nginx_docker_internal_aliases"
+        tc9d_merge_task: "ansible.builtin.include_tasks: gatus-monitored-aliases.yml"
 
 # ── TC10: the bie legacy-collection migration must never eat a populated index ──────
 #
@@ -853,4 +859,204 @@
     - name: "[TC13] Clean up"
       ansible.builtin.file:
         path: "{{ tc13_dir.path }}"
+        state: absent
+
+# ── TC14: a name gatus monitors but this nginx does not serve is not aliased locally ─
+#
+# gbif-es-docker-prod-2026-1 runs gatus. Branding left it, but its branding-home check
+# (group gbif.es) stayed in gatus/config, and gbif.es is outside the cluster, so no
+# extra_hosts entry points anywhere. The merge took it for local and aliased it onto
+# la_nginx: every container there resolved gbif.es to 172.18.0.3 and `curl
+# https://gbif.es/` failed on the certificate. Its old vhost (gbif.es.conf) also stayed
+# in sites-enabled. The real task files are included against a scratch nginx and gatus
+# tree; the fixture is that host.
+- name: Unit test aliases and pruning of names this host does not serve
+  hosts: all
+  gather_facts: false
+
+  vars:
+    tc14_vhosts:
+      registros.gbif.es.conf: "server {\n    listen 80;\n    server_name registros.gbif.es;\n}\n"
+      gatus.gbif.es.conf: "server {\n    server_name gatus.gbif.es;\n}\n"
+      # Rendered by ldc on its own, absent from the inventory list: must survive.
+      sds.gbif.es-sds-static-home.conf: "server {\n    server_name sds.gbif.es www-sds.gbif.es;\n}\n"
+      gbif.es.conf: "server {\n    server_name gbif.es;\n}\n"
+      datos.gbif.es.conf: "server {\n    server_name datos.gbif.es;\n}\n"
+      ala_default.conf: "server {\n    server_name  _;\n}\n"
+    tc14_inventory_aliases:
+      - registros.gbif.es
+      - gatus.gbif.es
+    tc14_extra_hosts:
+      datos.gbif.es: 172.16.16.209
+      colecciones.gbif.es: 172.16.16.10
+    tc14_checks:
+      branding-home-http.yaml: gbif.es
+      branding-http.yaml: datos.gbif.es
+      biocache-hub-http.yaml: registros.gbif.es
+      sds-static-home-http.yaml: sds.gbif.es
+      collectory-http.yaml: colecciones.gbif.es
+      hub-remote-http.yaml: hub.gbif.es
+
+  tasks:
+    - name: "[TC14] Scratch nginx and gatus tree"
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: tc14
+      register: tc14_dir
+
+    - name: "[TC14] Create sites-available, sites-enabled and gatus/config"
+      ansible.builtin.file:
+        path: "{{ tc14_dir.path }}/{{ item }}"
+        state: directory
+        mode: '0755'
+      loop: [nginx/sites-available, nginx/sites-enabled, gatus/config]
+
+    - name: "[TC14] Write the vhosts"
+      ansible.builtin.copy:
+        content: "{{ item.value }}"
+        dest: "{{ tc14_dir.path }}/nginx/sites-available/{{ item.key }}"
+        mode: '0644'
+      loop: "{{ tc14_vhosts | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+
+    - name: "[TC14] Enable them the way nginx_vhost does"
+      ansible.builtin.file:
+        src: "../sites-available/{{ item.key }}"
+        dest: "{{ tc14_dir.path }}/nginx/sites-enabled/{{ item.key }}"
+        state: link
+      loop: "{{ tc14_vhosts | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+
+    - name: "[TC14] Write the gatus checks"
+      ansible.builtin.copy:
+        content: "{{ {'endpoints': [{'name': 'https://' + item.value + '/', 'group': item.value}]} | to_nice_yaml }}"
+        dest: "{{ tc14_dir.path }}/gatus/config/{{ item.key }}"
+        mode: '0644'
+      loop: "{{ tc14_checks | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+
+    - name: "[TC14a] Read the server names"
+      ansible.builtin.include_tasks: ../../roles/la-compose/tasks/nginx-served-hostnames.yml
+      vars:
+        nginx_conf_dir: "{{ tc14_dir.path }}/nginx"
+
+    - name: "[TC14a] Assert every server_name is read, the catch-all is not"
+      ansible.builtin.assert:
+        that:
+          - nginx_served_hostnames | sort == ['datos.gbif.es', 'gatus.gbif.es', 'gbif.es', 'registros.gbif.es', 'sds.gbif.es', 'www-sds.gbif.es']
+        msg: "FAIL TC14a: read {{ nginx_served_hostnames | sort }}"
+
+    - name: "[TC14b] Prune the vhosts outside the inventory list"
+      ansible.builtin.include_tasks: ../../roles/la-compose/tasks/prune-orphan-vhosts.yml
+      vars:
+        nginx_conf_dir: "{{ tc14_dir.path }}/nginx"
+        nginx_vhost_keep_names: "{{ tc14_inventory_aliases }}"
+
+    - name: "[TC14b] List what is left"
+      ansible.builtin.find:
+        paths: "{{ tc14_dir.path }}/nginx/{{ item }}"
+        file_type: any
+      loop: [sites-enabled, sites-available]
+      register: tc14_left
+
+    # sds.gbif.es is pruned too: it is not in the list. In a deploy nginx_vhost renders
+    # it again later in the same run, which is why the prune runs before the render.
+    - name: "[TC14b] Assert only the listed vhosts and the default one are left"
+      ansible.builtin.assert:
+        that:
+          - item.files | map(attribute='path') | map('basename') | sort == ['ala_default.conf', 'gatus.gbif.es.conf', 'registros.gbif.es.conf']
+        msg: "FAIL TC14b: {{ item.item }} holds {{ item.files | map(attribute='path') | map('basename') | sort }}"
+      loop: "{{ tc14_left.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: "[TC14c] Put back the vhosts this run renders (sds-static-home)"
+      ansible.builtin.copy:
+        content: "{{ tc14_vhosts['sds.gbif.es-sds-static-home.conf'] }}"
+        dest: "{{ tc14_dir.path }}/nginx/sites-enabled/sds.gbif.es-sds-static-home.conf"
+        mode: '0644'
+
+    - name: "[TC14c] Read the server names after the render"
+      ansible.builtin.include_tasks: ../../roles/la-compose/tasks/nginx-served-hostnames.yml
+      vars:
+        nginx_conf_dir: "{{ tc14_dir.path }}/nginx"
+
+    - name: "[TC14c] Find the gatus checks"
+      ansible.builtin.find:
+        paths: "{{ tc14_dir.path }}/gatus/config"
+        patterns: "*-http.yaml"
+      register: tc14_check_files
+
+    - name: "[TC14c] Slurp the gatus checks"
+      ansible.builtin.slurp:
+        src: "{{ item.path }}"
+      loop: "{{ tc14_check_files.files }}"
+      register: tc14_blobs
+
+    - name: "[TC14c] Reset the aliases to the inventory list"
+      ansible.builtin.set_fact:
+        nginx_docker_internal_aliases: "{{ tc14_inventory_aliases }}"
+        docker_extra_hosts_dict: "{{ tc14_extra_hosts }}"
+
+    - name: "[TC14c] Merge without pruning (a run with a docker host missing)"
+      ansible.builtin.include_tasks: ../../roles/la-compose/tasks/gatus-monitored-aliases.yml
+      vars:
+        gatus_endpoint_blobs: "{{ tc14_blobs }}"
+        gatus_cluster_served_names: "{{ nginx_served_hostnames | union(tc14_inventory_aliases) }}"
+        gatus_prune_orphan_checks: false
+
+    - name: "[TC14c] Assert only names this nginx serves are aliased"
+      ansible.builtin.assert:
+        that:
+          - "'gbif.es' not in nginx_docker_internal_aliases"
+          - "'datos.gbif.es' not in nginx_docker_internal_aliases"
+          - "'colecciones.gbif.es' not in nginx_docker_internal_aliases"
+          - "'sds.gbif.es' in nginx_docker_internal_aliases"
+          - "'registros.gbif.es' in nginx_docker_internal_aliases"
+          - gatus_orphan_checks == []
+        msg: >
+          FAIL TC14c: aliases {{ nginx_docker_internal_aliases | sort }}, pruned
+          {{ gatus_orphan_checks }}. gbif.es has no server_name here: aliasing it sends
+          every container's https://gbif.es/ to the local nginx.
+
+    - name: "[TC14d] Merge with pruning"
+      ansible.builtin.include_tasks: ../../roles/la-compose/tasks/gatus-monitored-aliases.yml
+      vars:
+        gatus_endpoint_blobs: "{{ tc14_blobs }}"
+        gatus_cluster_served_names: "{{ nginx_served_hostnames | union(tc14_inventory_aliases) | union(['hub.gbif.es']) }}"
+        gatus_prune_orphan_checks: true
+
+    - name: "[TC14d] List the checks left"
+      ansible.builtin.find:
+        paths: "{{ tc14_dir.path }}/gatus/config"
+        patterns: "*-http.yaml"
+      register: tc14_checks_left
+
+    # branding-http.yaml (datos.gbif.es) and collectory-http.yaml stay: another host
+    # owns those names, so the checks are its own.
+    - name: "[TC14d] Assert only the check of a name nobody serves is removed"
+      ansible.builtin.assert:
+        that:
+          - tc14_checks_left.files | map(attribute='path') | map('basename') | sort == ['biocache-hub-http.yaml', 'branding-http.yaml', 'collectory-http.yaml', 'hub-remote-http.yaml', 'sds-static-home-http.yaml']
+        msg: "FAIL TC14d: left {{ tc14_checks_left.files | map(attribute='path') | map('basename') | sort }}"
+
+    - name: "[TC14] Assert generate-compose.yml prunes vhosts before the first one is rendered"
+      ansible.builtin.assert:
+        that:
+          - tc14_generate_compose.find(tc14_prune) > 0
+          - tc14_generate_compose.find(tc14_prune) < tc14_generate_compose.find('name: nginx_vhost')
+          - tc14_generate_compose.find(tc14_prune) < tc14_generate_compose.find('include_tasks: generate-hub-instance.yml')
+        msg: >
+          FAIL TC14: prune-orphan-vhosts.yml is missing or runs after a vhost is rendered.
+          A vhost outside the inventory list is then pruned and never put back.
+      vars:
+        tc14_generate_compose: "{{ lookup('file', playbook_dir + '/../../roles/la-compose/tasks/generate-compose.yml') }}"
+        tc14_prune: "include_tasks: prune-orphan-vhosts.yml"
+
+    - name: "[TC14] Clean up"
+      ansible.builtin.file:
+        path: "{{ tc14_dir.path }}"
         state: absent

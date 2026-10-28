@@ -1,0 +1,46 @@
+---
+# Remove the vhosts left behind by services that are no longer on this host.
+#
+# nginx_vhost writes sites-available/<name>.conf and links it into sites-enabled, and
+# nothing ever takes them away: a service moved to another host (or removed) keeps its
+# server block here. On gbif-es-docker-prod-2026-1 gbif.es.conf and datos.gbif.es.conf
+# outlived branding by months, so the local nginx still answered for both names.
+#
+# A vhost is an orphan when none of its server_names is in nginx_vhost_keep_names, the
+# list of names this host serves according to the inventory. That list misses some
+# vhosts (ldc's own, some service roles'), which is why this runs BEFORE the vhosts are
+# rendered: any vhost the run still renders gets its file and its sites-enabled link
+# written again by nginx_vhost, so a wrong guess here costs nothing. nginx reads the
+# directory only on reload, i.e. after the run has put it back together.
+#
+# Free of group_names and services_enabled so molecule/unit can include it with fixtures.
+- name: Read the vhosts nginx loads before pruning
+  ansible.builtin.include_tasks: nginx-served-hostnames.yml
+  tags:
+    - always
+
+- name: Start the orphan list empty
+  ansible.builtin.set_fact:
+    nginx_orphan_vhosts: []
+  tags:
+    - always
+
+- name: Pick the vhosts no name of this host's list points at
+  ansible.builtin.set_fact:
+    nginx_orphan_vhosts: "{{ nginx_orphan_vhosts + [item] }}"
+  loop: "{{ nginx_vhost_files }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: item.names | intersect(nginx_vhost_keep_names) | length == 0
+  tags:
+    - always
+
+- name: Remove the orphan vhosts from sites-enabled and sites-available
+  ansible.builtin.file:
+    path: "{{ nginx_conf_dir }}/{{ item.1 }}/{{ item.0.name }}"
+    state: absent
+  loop: "{{ nginx_orphan_vhosts | product(['sites-enabled', 'sites-available']) | list }}"
+  loop_control:
+    label: "{{ item.1 }}/{{ item.0.name }} ({{ item.0.names | join(' ') | default('no server_name', true) }})"
+  tags:
+    - always
