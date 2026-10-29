@@ -303,6 +303,33 @@ for key, case in CASES.items():
 if len(lines) != len(CASES):
     failures.append(f"expected {len(CASES)} *_JAVA_OPTS lines, got {len(lines)}: {sorted(lines)}")
 
+# A data hub with its own heap (generate-compose.yml, "Hub heaps") gets the portal's
+# line with only -Xmx/-Xms swapped, under <SERVICE>_<PKG>_JAVA_OPTS. A hub without one
+# gets no line and its fragment falls back to the portal's variable.
+hub_rendered = env.get_template("docker-compose.env.j2").render(
+    service_java_opts_dict={"ala_hub": CASES["ala_hub"]["java_opts"]},
+    docker_services_desc={"ala_hub": CASES["ala_hub"]["desc"]},
+    service_extra_params={},
+    vars={"ala_hub_version": "8.3.0"},
+    hub_java_heaps=[{"service": "ala_hub", "pkg": "col-marinas", "env": "COL_MARINAS",
+                     "max": "1536m", "min": "256m"},
+                    {"service": "regions", "pkg": "col-marinas", "env": "COL_MARINAS",
+                     "max": "512m", "min": "256m"}],
+)
+hub_lines = {
+    line.split("=", 1)[0]: line.split("=", 1)[1]
+    for line in hub_rendered.splitlines() if "_JAVA_OPTS=" in line
+}
+portal, hub = hub_lines.get("BIOCACHE_HUB_JAVA_OPTS", ""), hub_lines.get("BIOCACHE_HUB_COL_MARINAS_JAVA_OPTS")
+if hub is None:
+    failures.append(f"hub heap: BIOCACHE_HUB_COL_MARINAS_JAVA_OPTS not emitted: {sorted(hub_lines)}")
+elif hub != portal.replace("-Xmx4g", "-Xmx1536m").replace("-Xms2g", "-Xms256m"):
+    failures.append(f"hub heap: only -Xmx/-Xms may differ from the portal's line\n      portal: {portal}\n      hub:    {hub}")
+if "-Xmx4g -Xms2g" not in portal:
+    failures.append(f"hub heap: the portal's own line changed: {portal}")
+if any(k.startswith("REGIONS") for k in hub_lines):
+    failures.append("hub heap: a heap for a service the host has no JAVA_OPTS for (regions) produced a line")
+
 if failures:
     print("❌ JAVA_OPTS env generation is incomplete:\n")
     for failure in failures:

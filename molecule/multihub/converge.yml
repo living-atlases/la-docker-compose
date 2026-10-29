@@ -68,6 +68,15 @@
           - hub_instances[1].aliases['branding'] == 'localhost.branding_lademohub'
         fail_msg: "hub instance drifted: {{ hub_instances[1] }}"
 
+    - name: "[TC24] A hub's own heap is read from its alias, and only where it sets one"
+      ansible.builtin.assert:
+        that:
+          - >-
+            hub_java_heaps | selectattr('pkg', 'equalto', 'lademohub') | list
+            == [{'service': 'ala_hub', 'pkg': 'lademohub', 'env': 'LADEMOHUB', 'max': '1536m', 'min': '256m'}]
+          - hub_java_heaps | selectattr('pkg', 'equalto', '') | list | length == 0
+        fail_msg: "hub_java_heaps drifted: {{ hub_java_heaps }}"
+
     - name: "[TC3] A hub deployed on another docker host is not rendered here"
       ansible.builtin.assert:
         that:

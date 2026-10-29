@@ -68,6 +68,21 @@ check(r["jvms"] == 3 and r["heap_mb"] == 1536 + 2048 + 1024, "skip_services are 
 r = render(services_enabled=["biocache_service"])
 check(r["over"] is False, "without RAM facts it never claims over")
 
+# Data hubs on this host run their own ala_hub/ala_bie/regions JVMs: the hub's own heap
+# (hub_java_heaps) when it sets one, else the portal's. The portal row is not a hub.
+HUBS = [{"is_portal": True, "pkg": "", "use_records": True, "use_species": True, "use_regions": True},
+        {"is_portal": False, "pkg": "marinas", "use_records": True, "use_species": True, "use_regions": False},
+        {"is_portal": False, "pkg": "csic", "use_records": True, "use_species": False, "use_regions": True}]
+r = render(services_enabled=["ala_hub", "regions"], hub_instances=HUBS,
+           hub_java_heaps=[{"service": "ala_hub", "pkg": "marinas", "max": "1g", "min": "256m"}],
+           ansible_memtotal_mb=22000)
+rows = {x["service"]: x["xmx_mb"] for x in r["services"]}
+check(rows.get("ala_hub-marinas") == 1024, f"a hub's own heap counts ({rows})")
+check(rows.get("ala_hub-csic") == 1536 and rows.get("regions-csic") == 2048,
+      "a hub without its own heap counts the portal's")
+check("ala_bie-marinas" not in rows, "a JVM with no portal JAVA_OPTS (ala_bie here) is not invented")
+check(r["jvms"] == 5, f"portal JVMs plus the hubs' ({r['jvms']})")
+
 sys.exit(1 if failures else 0)
 PYTHON
 

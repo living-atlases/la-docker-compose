@@ -265,3 +265,34 @@
   tags:
     - always
     - docker-compose
+
+# Data hubs run their own copies of ala_hub, ala_bie and regions, and by default those
+# copies inherit the portal's heap (<key>_max_memory of the compose host). A hub sets its
+# own with <key>_max_memory / <key>_min_memory on its aliases ([hub-<pkg>:vars] or
+# [biocache-hub-<pkg>:vars]...): docker-compose.env.j2 then emits
+# <SERVICE>_<PKG>_JAVA_OPTS and the hub's compose fragment uses it. -Xms defaults to 256m
+# there, not the portal's 1g, so a small hub heap never starts below its own -Xms.
+- name: "Hub heaps: the -Xmx/-Xms each data hub sets for its own JVMs"
+  ansible.builtin.set_fact:
+    hub_java_heaps: >-
+      {%- set out = [] -%}
+      {%- for inst in (hub_instances | default([])) if not inst.is_portal -%}
+        {%- for key, svc, flag in [['ala_hub', 'biocache-hub', 'use_records'],
+                                   ['ala_bie', 'bie-hub', 'use_species'],
+                                   ['regions', 'regions', 'use_regions']] -%}
+          {%- set alias = inst.aliases.get(svc) -%}
+          {%- if inst[flag] and alias and (hostvars[alias][key ~ '_max_memory'] | default('') | string | length > 0) -%}
+            {%- set _ = out.append({
+                  'service': key,
+                  'pkg': inst.pkg,
+                  'env': inst.pkg | upper | replace('-', '_'),
+                  'max': hostvars[alias][key ~ '_max_memory'] | string,
+                  'min': hostvars[alias][key ~ '_min_memory'] | default('256m') | string
+                }) -%}
+          {%- endif -%}
+        {%- endfor -%}
+      {%- endfor -%}
+      {{ out }}
+  tags:
+    - always
+    - docker-compose

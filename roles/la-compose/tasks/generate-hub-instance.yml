@@ -198,6 +198,30 @@
     - branding
     - docker-compose
 
+# ala-hub, ala-bie-hub and regions fetch the hub's header and footer from its branding
+# and keep them cached until they restart, so a new branding reached the disk and the
+# home page but not /registros, /especies or /regiones. Writing the branding version
+# into their config dirs makes it part of the config hash (config-watch.yml), and the
+# config-change restart takes care of the rest. Only the apps on this host, and only when
+# this pass renders the hub's config (la_hub_only).
+- name: "Hub {{ inst.pkg }}: stamp its apps' config with its branding version"
+  ansible.builtin.copy:
+    content: "{{ branding_version }}\n"
+    dest: "{{ item }}/.branding-version"
+    mode: '0644'
+  loop: >-
+    {{ ([data_dir ~ '/' ~ inst.biocache_hub ~ '/config'] if inst.use_records else [])
+       + ([data_dir ~ '/' ~ inst.bie_hub ~ '/config'] if inst.use_species else [])
+       + ([data_dir ~ '/' ~ inst.regions ~ '/config'] if inst.use_regions else []) }}
+  become: true
+  when:
+    - inst.use_branding
+    - inst.render_config
+    - branding_version is defined
+  tags:
+    - branding
+    - docker-compose
+
 - name: "Hub {{ inst.pkg }}: generate its branding readiness gate"
   ansible.builtin.template:
     src: docker-compose/infrastructure/wait-for-branding.yml.j2

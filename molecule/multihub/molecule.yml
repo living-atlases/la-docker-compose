@@ -38,7 +38,8 @@ provisioner:
               other.ala_hub_elsewhere: {ansible_host: other-host}
           biocache-hub-lademohub:
             hosts:
-              localhost.ala_hub_lademohub: {ansible_host: localhost}
+              # Its own heap: hub_java_heaps (TC24). lademohub's species do not set one.
+              localhost.ala_hub_lademohub: {ansible_host: localhost, ala_hub_max_memory: 1536m}
           bie-hub-lademohub:
             hosts:
               localhost.ala_bie_lademohub: {ansible_host: localhost}
