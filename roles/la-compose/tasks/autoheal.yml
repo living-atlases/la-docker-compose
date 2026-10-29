@@ -39,6 +39,7 @@
   when: docker_autoheal | bool
 
 # Skipped under --check like the housekeeping timers: the unit only exists in a live run.
+# Skipped in a bundle render too: the render container has no systemd.
 - name: autoheal | enable the timer
   ansible.builtin.systemd:
     name: la-autoheal.timer
@@ -49,6 +50,7 @@
   when:
     - docker_autoheal | bool
     - not ansible_check_mode
+    - not (la_compose_render_only | default(false) | bool)
 
 # Only what this role installed: a host still on the bridge (its script says
 # "playbooks/la-autoheal.yml") keeps it until that playbook removes it or
@@ -72,6 +74,7 @@
       when:
         - autoheal_ours.rc == 0
         - not ansible_check_mode
+        - not (la_compose_render_only | default(false) | bool)
 
     - name: autoheal | remove its files
       ansible.builtin.file:
@@ -90,3 +93,4 @@
       when:
         - autoheal_ours.rc == 0
         - not ansible_check_mode
+        - not (la_compose_render_only | default(false) | bool)

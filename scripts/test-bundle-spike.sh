@@ -17,6 +17,7 @@
 #      manifest per host, and the containers removed afterwards;
 #  9b. render.sh --host-facts: given facts reach the render, no host is asked;
 #  10. render.sh --export: each host's bundle (0600, root-only dir), helpers and host-state.
+#  11. no la-compose systemd task runs in a render (the container has no systemd).
 # ~2s, no Docker, no root.
 set -eu
 cd "$(dirname "$0")/.."
@@ -243,4 +244,29 @@ grep -q "vm-2:/var/cache/la-bundle/bundle.tgz" "$e/bundle.tgz" || fail "export: 
 [ -f "$e/host-state/sysctl.d/99-image.conf" ] && [ ! -e "$e/host-state/sysctl.d/README.sysctl" ] ||
   fail "export: the sysctl allowlist is wrong: $(ls "$e/host-state/sysctl.d")"
 pass "render.sh --export writes each host's bundle, helpers and host-state allowlist, root-only"
+
+# 11. The render container has no systemd: every systemd/service task of la-compose is gated by
+# la_compose_render_only, on the task or on an enclosing block (autoheal's timer was not).
+python3 - roles/la-compose/tasks <<'PY' || fail "render: a systemd task runs in a bundle render"
+import glob, os, sys, yaml
+bad = []
+def walk(tasks, gated, f):
+    for t in tasks or []:
+        if not isinstance(t, dict):
+            continue
+        w = t.get("when", [])
+        g = gated or "la_compose_render_only" in str(w)
+        for k in ("block", "rescue", "always"):
+            if k in t:
+                walk(t[k], g, f)
+        if any(m in t for m in ("ansible.builtin.systemd", "ansible.builtin.systemd_service",
+                                "ansible.builtin.service", "systemd", "service")) and not g:
+            bad.append(f"{os.path.basename(f)}: {t.get('name')}")
+for f in sorted(glob.glob(os.path.join(sys.argv[1], "*.yml"))):
+    walk(yaml.safe_load(open(f)), False, f)
+for b in bad:
+    print("  ungated:", b, file=sys.stderr)
+sys.exit(1 if bad else 0)
+PY
+pass "every la-compose systemd task is skipped in a bundle render"
 echo "All checks passed."
