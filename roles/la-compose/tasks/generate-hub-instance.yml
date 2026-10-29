@@ -242,13 +242,18 @@
 # inside a read-only mount: la_nginx fails to start ("mkdirat ... read-only file
 # system") and every vhost on the host goes down with it. So the mountpoint has to exist
 # in ../srv beforehand. Not gated on render_config: the mount is there on every pass.
+# Both levels, each 0755: a parent left with the host's umask (0750 root) is not
+# traversable by nginx's worker, and every branding file then answers 403 (EACCES).
 - name: "Hub {{ inst.pkg }}: create its branding mountpoint under srv"
   ansible.builtin.file:
-    path: "{{ docker_compose_data_dir }}/srv/{{ branding_url }}/www"
+    path: "{{ item }}"
     state: directory
     mode: '0755'
     owner: "{{ docker_compose_userid }}"
     group: "{{ docker_compose_usergid }}"
+  loop:
+    - "{{ docker_compose_data_dir }}/srv/{{ branding_url }}"
+    - "{{ docker_compose_data_dir }}/srv/{{ branding_url }}/www"
   become: true
   when:
     - inst.use_branding

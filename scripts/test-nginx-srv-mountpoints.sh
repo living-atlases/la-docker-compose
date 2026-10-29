@@ -58,8 +58,10 @@ def volumes(portal_branding_here):
 task = next(t for t in yaml.safe_load((root / "roles/la-compose/tasks/generate-hub-instance.yml").read_text())
             if "create its branding mountpoint under srv" in str(t.get("name", "")))
 data_dir = "/data/docker-compose"
-created = env.from_string(task["ansible.builtin.file"]["path"]).render(
-    docker_compose_data_dir=data_dir, branding_url="colecciones-marinas.example.org")
+created = [env.from_string(p).render(docker_compose_data_dir=data_dir,
+                                   branding_url="colecciones-marinas.example.org")
+           for p in task["loop"]]
+mode = task["ansible.builtin.file"]["mode"]
 
 failures = []
 def check(cond, what):
@@ -74,7 +76,12 @@ nested = [v.split(":")[1] for v in vols if not v.startswith("../srv:") and v.spl
 check(nested == ["/srv/colecciones-marinas.example.org/www"], f"the hub's branding volume nests in it ({nested})")
 for dest in nested:
     host = data_dir + "/" + dest.lstrip("/")
-    check(created == host, f"the role creates its mountpoint {host} (task path: {created})")
+    # Every level below ../srv, not only the leaf: a parent created with the host's umask
+    # (0750 root) is not traversable by nginx's worker, and the files answer 403.
+    parts = dest.strip("/").split("/")[1:]
+    levels = [data_dir + "/srv/" + "/".join(parts[:i]) for i in range(1, len(parts) + 1)]
+    check(created == levels, f"the role creates every level of {host} ({created})")
+check(mode == "0755", f"each level is world-traversable (mode {mode})")
 
 vols = volumes(portal_branding_here=True)
 check("../srv:/srv:ro" not in vols, "with the portal's branding there is no read-only ../srv to nest in")
