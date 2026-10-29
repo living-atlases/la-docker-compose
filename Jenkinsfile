@@ -989,6 +989,11 @@ EOF
                     # (the lookup returns a dict on 2.17, a string on 2.20). ~10s.
                     VENV_MOLECULE="$VENV_MOL" bash scripts/test-heap-budget.sh
 
+                    # A hub's branding volume nests in nginx's read-only ../srv bind on a
+                    # host without the portal's branding: its mountpoint must exist first,
+                    # or la_nginx does not start (gbif-es node 1, 2026-10-29). ~5s.
+                    VENV_MOLECULE="$VENV_MOL" bash scripts/test-nginx-srv-mountpoints.sh
+
                     # skip_services in every form a caller sends it: the toolkit's extra var
                     # string "sds-static-home" dropped 'sds' too (substring match, the set_fact
                     # normalize never beat the extra var). ansible-playbook on localhost, ~10s.
