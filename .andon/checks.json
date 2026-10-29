@@ -343,6 +343,13 @@
     },
     {
       "match": [
+        "ala-install/ansible/roles/namematching-service/tasks/download-nameindex.yml",
+        "scripts/test-nameindex-download-retry.sh"
+      ],
+      "run": "VENV_MOLECULE=.venv-molecule bash scripts/test-nameindex-download-retry.sh"
+    },
+    {
+      "match": [
         "scripts/config-baseline.py",
         "scripts/compare-rendered-config.py",
         "scripts/render-properties-offline.sh",
