@@ -3,11 +3,11 @@ services:
     container_name: la_postfix
     profiles: [mail, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
-    # Tagged, not bare (== :latest): 5.1.0 is the current release and the same digest
-    # :latest resolves to today, Debian trixie -- which is what the `nc` healthcheck
-    # below depends on. The alpine variant is a different image; do not swap the tag
-    # for `5.1.0-alpine` without rechecking that healthcheck.
-    image: boky/postfix:{{ postfix_version | default('5.1.0') }}
+    # Tagged, not bare (== :latest): 5.2.0 is Debian trixie -- which is what the `nc`
+    # healthcheck below depends on -- with libbrotli1 1.1.0-2+deb13u1 (CVE-2026-111497;
+    # 5.1.0 has the vulnerable 1.1.0-2+b7). The alpine variant is a different image; do
+    # not swap the tag for `5.2.0-alpine` without rechecking that healthcheck.
+    image: boky/postfix:{{ postfix_version | default('5.2.0') }}
     restart: unless-stopped
     ports:
       - "25"

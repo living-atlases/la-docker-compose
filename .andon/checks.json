@@ -320,6 +320,13 @@
     },
     {
       "match": [
+        "roles/la-compose/templates/docker-compose/infrastructure/postfix.yml.j2",
+        "scripts/test-postfix-image.sh"
+      ],
+      "run": "bash scripts/test-postfix-image.sh"
+    },
+    {
+      "match": [
         "roles/la-compose/tasks/main.yml",
         "scripts/test-deploy-marker-cleanup.sh"
       ],

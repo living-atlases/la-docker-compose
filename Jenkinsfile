@@ -936,6 +936,9 @@ EOF
                     # The post-up relay check against a real boky/postfix that dropped its relay
                     # (gbif.es -3): one restart fixes it, a wrong relay fails. Skips without Docker. ~1 min.
                     VENV_MOLECULE="$VENV_MOL" bash scripts/test-postfix-relay-check.sh
+                    # The default boky/postfix tag: Debian with nc for the healthcheck, libbrotli1 fixed
+                    # (CVE-2026-111497), healthy after a restart and a recreate. Skips without Docker. ~1 min.
+                    bash scripts/test-postfix-image.sh
                     # The deploy marker goes away on a failed deploy too, or autoheal/GC/trivy stand
                     # down for 6 h on the host that failed. ~5s.
                     VENV_MOLECULE="$VENV_MOL" bash scripts/test-deploy-marker-cleanup.sh
