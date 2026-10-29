@@ -71,17 +71,21 @@ for svc, path, ctx in cases:
         if want_ok is False and rc == 0:
             fail.append("%s: HTTP %s must be UNHEALTHY, the check exited 0" % (label, code))
 
-# collectory 6.0.0 in build #495 (TASK-94): its remote facets i18n failed to load once and
-# every locale not loaded yet answered 500, while the JVM default locale, loaded at boot,
-# kept answering 200. A check that does not send Accept-Language stays green on that.
+# collectory 6.0.0 (TASK-94): its remote facets i18n fails to load once and stays broken.
+# #495: every locale not loaded yet answered 500 while the JVM default locale, loaded at
+# boot, kept answering 200, so a check without Accept-Language stayed green. #503 the
+# other way round: the base i18n.properties failed, so requests without the header (and
+# the ingest's /ws/eml) got 500 while 'en', with its own i18n_en, answered 200.
 for svc, ctx in (("collectory", {"datastore_endpoints": {}}),):
     test = next(iter(yaml.safe_load(env.get_template("docker-compose/services/%s.yml.j2" % svc).render(**ctx))["services"].values()))["healthcheck"]["test"]
-    calls = "%s/calls" % tmp
-    open(calls, "w").close()
-    rc = subprocess.run(test[1:], env={"PATH": "%s/bin:/usr/bin:/bin" % tmp, "FAKE_CODE": "200", "FAKE_LANG_CODE": "500", "FAKE_CALLS": calls},
-                        capture_output=True, timeout=10).returncode
-    if rc == 0:
-        fail.append("%s: 500 for a browser (Accept-Language) and 200 without it must be UNHEALTHY, the check exited 0 (%r)" % (svc, open(calls).read().strip()))
+    for plain, lang, what in (("200", "500", "500 for a browser (Accept-Language) and 200 without it"),
+                              ("500", "200", "200 for a browser (Accept-Language) and 500 without it")):
+        calls = "%s/calls" % tmp
+        open(calls, "w").close()
+        rc = subprocess.run(test[1:], env={"PATH": "%s/bin:/usr/bin:/bin" % tmp, "FAKE_CODE": plain, "FAKE_LANG_CODE": lang, "FAKE_CALLS": calls},
+                            capture_output=True, timeout=10).returncode
+        if rc == 0:
+            fail.append("%s: %s must be UNHEALTHY, the check exited 0 (%r)" % (svc, what, open(calls).read().strip()))
 if fail:
     print("[FAIL] hub healthchecks:", *fail, sep="\n  ", file=sys.stderr)
     sys.exit(1)

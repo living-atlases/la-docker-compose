@@ -60,8 +60,11 @@ services:
       # records-ws/facets/i18n*.properties y, si esa descarga falla una vez, Grails cachea el
       # fallo para siempre y todo idioma no cargado aún da 500 (NPE Map.size). Sin cabecera
       # se usa el locale por defecto, ya cargado al arrancar, y el healthcheck seguía en 200
-      # (TASK-94, #495). Unhealthy -> autoheal/converge lo reinicia, que es lo que lo cura.
-      test: ["CMD", "sh", "-c", "curl --fail --silent -H 'Accept-Language: {{ default_locale | default('en') }}' http://localhost:8080/ || exit 1"]
+      # (TASK-94, #495). Y al revés en #503: falló el i18n.properties base (el de las
+      # peticiones sin cabecera y de los idiomas sin fichero propio: es, fr, el /ws que lee
+      # la ingesta) y 'en', con su i18n_en propio, seguía en 200. Por eso las dos sondas.
+      # Unhealthy -> autoheal/converge lo reinicia, que es lo que lo cura.
+      test: ["CMD", "sh", "-c", "curl --fail --silent -H 'Accept-Language: {{ default_locale | default('en') }}' http://localhost:8080/ && curl --fail --silent http://localhost:8080/ || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
