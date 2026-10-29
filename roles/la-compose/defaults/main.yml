@@ -767,6 +767,11 @@ ala_upstream_fallbacks:
     property: openstreetmap.url
     reason: >-
       the same OSM tile source, as spatial-service spells the key.
+  - host: spatial.ala.org.au
+    property: startup.baselayers.outline.url
+    reason: >-
+      spatial-hub's "Outline" base layer is ALA:world, a layer our GeoServer does not have
+      (a compiled default; the template only writes baselayers from startup_baselayers).
   - host: nectar-spatial-staging.ala.org.au
     property: spatialService.remoteUrl
     reason: >-
