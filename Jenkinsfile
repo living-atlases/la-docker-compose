@@ -1002,6 +1002,11 @@ EOF
                     # filter, gbif-es node 1, 2026-10-29). ~1s.
                     VENV_MOLECULE="$VENV_MOL" bash scripts/test-hub-scope-order.sh
 
+                    # A hub's bie-hub serverURL is its bie_base_url, without the context
+                    # path a second time: /especies/especies/callback broke its login
+                    # (gbif-es colecciones-marinas, 2026-10-29). ~1s.
+                    VENV_MOLECULE="$VENV_MOL" bash scripts/test-bie-hub-server-url.sh
+
                     # skip_services in every form a caller sends it: the toolkit's extra var
                     # string "sds-static-home" dropped 'sds' too (substring match, the set_fact
                     # normalize never beat the extra var). ansible-playbook on localhost, ~10s.
