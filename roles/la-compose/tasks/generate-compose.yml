@@ -1267,52 +1267,6 @@
     - always
     - docker-compose
 
-# --- Data hubs -------------------------------------------------------------
-# Each hub renders its own containers here, with the same roles the portal just used.
-# The snapshot/restore around the loop is not optional: every bulk load inside leaves
-# the hub's variables behind as facts, and without it the last hub's branding_url and
-# base URLs would be what nginx and the e2e manifest publish as the PORTAL's.
-- name: "Hubs: snapshot the portal variable scope"
-  ansible.builtin.include_tasks: hub-scope-snapshot.yml
-  when: (hub_instances | default([]) | rejectattr('is_portal') | list | length) > 0
-  tags:
-    - hubs
-    - config
-    - docker-compose
-
-- name: "Hubs: render each data hub deployed on this host"
-  ansible.builtin.include_tasks: generate-hub-instance.yml
-  loop: "{{ hub_instances | default([]) | rejectattr('is_portal') | list }}"
-  loop_control:
-    loop_var: inst
-    label: "{{ inst.pkg }}"
-  tags:
-    - hubs
-    - config
-    - docker-compose
-
-- name: "Hubs: restore the portal variable scope"
-  ansible.builtin.include_tasks: hub-scope-restore.yml
-  when: (hub_instances | default([]) | rejectattr('is_portal') | list | length) > 0
-  tags:
-    - hubs
-    - config
-    - docker-compose
-
-# branding_version is set per branding as it is staged, so after the loop it holds the
-# last hub's. Put the portal's back for whatever renders later (the bake file reads the
-# accumulated branding_render_list, but nothing else should see a hub's tag).
-- name: "Hubs: restore the portal branding version"
-  ansible.builtin.set_fact:
-    branding_version: "{{ (branding_render_list | default([])) | selectattr('suffix', 'equalto', '') | map(attribute='version') | first }}"
-  when:
-    - (hub_instances | default([]) | rejectattr('is_portal') | list | length) > 0
-    - ((branding_render_list | default([])) | selectattr('suffix', 'equalto', '') | list | length) > 0
-  tags:
-    - hubs
-    - branding
-    - docker-compose
-
 - name: Load BIOCACHE-SERVICE variables from service alias context
   ansible.builtin.include_tasks: bulk-load-service-vars.yml
   vars:
@@ -2138,6 +2092,60 @@
     - airflow
     - nginx_vhost
     - config
+    - docker-compose
+
+# --- Data hubs -------------------------------------------------------------
+# Each hub renders its own containers here, with the same roles the portal just used.
+# The snapshot/restore around the loop is not optional: every bulk load inside leaves
+# the hub's variables behind as facts, and without it the last hub's branding_url and
+# base URLs would be what nginx and the e2e manifest publish as the PORTAL's.
+#
+# AFTER every portal service render, on purpose. The restore can only put back the names
+# the portal HAS: a name only a hub defines (regions_appname, query_context, hub_filter,
+# enable_hub_data...) stays behind as a fact, and Ansible cannot unset one. With the loop
+# in the middle, the portal's regions rendered after it with the hub's dh filter and
+# wrote its gatus check under the hub's name (gbif-es node 1, 2026-10-29: regiones showed
+# one hub's data and gatus crashed on the duplicate). scripts/test-hub-scope-order.sh
+# keeps every portal render above this block.
+- name: "Hubs: snapshot the portal variable scope"
+  ansible.builtin.include_tasks: hub-scope-snapshot.yml
+  when: (hub_instances | default([]) | rejectattr('is_portal') | list | length) > 0
+  tags:
+    - hubs
+    - config
+    - docker-compose
+
+- name: "Hubs: render each data hub deployed on this host"
+  ansible.builtin.include_tasks: generate-hub-instance.yml
+  loop: "{{ hub_instances | default([]) | rejectattr('is_portal') | list }}"
+  loop_control:
+    loop_var: inst
+    label: "{{ inst.pkg }}"
+  tags:
+    - hubs
+    - config
+    - docker-compose
+
+- name: "Hubs: restore the portal variable scope"
+  ansible.builtin.include_tasks: hub-scope-restore.yml
+  when: (hub_instances | default([]) | rejectattr('is_portal') | list | length) > 0
+  tags:
+    - hubs
+    - config
+    - docker-compose
+
+# branding_version is set per branding as it is staged, so after the loop it holds the
+# last hub's. Put the portal's back for whatever renders later (the bake file reads the
+# accumulated branding_render_list, but nothing else should see a hub's tag).
+- name: "Hubs: restore the portal branding version"
+  ansible.builtin.set_fact:
+    branding_version: "{{ (branding_render_list | default([])) | selectattr('suffix', 'equalto', '') | map(attribute='version') | first }}"
+  when:
+    - (hub_instances | default([]) | rejectattr('is_portal') | list | length) > 0
+    - ((branding_render_list | default([])) | selectattr('suffix', 'equalto', '') | list | length) > 0
+  tags:
+    - hubs
+    - branding
     - docker-compose
 
 - name: Ensure database init directories exist with correct permissions

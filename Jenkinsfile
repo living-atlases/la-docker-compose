@@ -997,6 +997,11 @@ EOF
                     # or la_nginx does not start (gbif-es node 1, 2026-10-29). ~5s.
                     VENV_MOLECULE="$VENV_MOL" bash scripts/test-nginx-srv-mountpoints.sh
 
+                    # No portal service renders after the hub loop, where it would read
+                    # the names only a hub defines (the portal's regions with a hub's dh
+                    # filter, gbif-es node 1, 2026-10-29). ~1s.
+                    VENV_MOLECULE="$VENV_MOL" bash scripts/test-hub-scope-order.sh
+
                     # skip_services in every form a caller sends it: the toolkit's extra var
                     # string "sds-static-home" dropped 'sds' too (substring match, the set_fact
                     # normalize never beat the extra var). ansible-playbook on localhost, ~10s.
