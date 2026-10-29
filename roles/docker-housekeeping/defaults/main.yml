@@ -46,6 +46,21 @@ docker_housekeeping_deploy_marker_max_age_min: 360
 docker_housekeeping_journal_enabled: true
 docker_housekeeping_journal_max_use: 200M
 
+# auditd. A hardened base image (CIS) ships max_log_file_action = keep_logs, which
+# ignores num_logs and never deletes an audit.log.N, plus disk_full_action /
+# admin_space_left_action = halt, which powers the host off when / fills. On
+# gbif-es-docker-cluster-2023 that was ~100 MB/day on a 29 GB root (2026-10-29).
+#
+# The audit policy belongs to whoever hardened the host, not to this repo, so by
+# default the role only warns. With docker_housekeeping_auditd_rotate it sets rotate
+# and syslog instead. It never deletes the audit.log.N already there: whether that
+# history can go is the organisation's call. A CIS role run after this one will put
+# keep_logs back: fix it there too.
+docker_housekeeping_auditd_conf: /etc/audit/auditd.conf
+docker_housekeeping_auditd_rotate: false
+docker_housekeeping_auditd_max_log_file: 50  # MB per file
+docker_housekeeping_auditd_num_logs: 5
+
 # Disk-usage metric for Gatus. Gatus cannot read a host filesystem, so a timer
 # writes the number and nginx serves it on an internal-only port (see
 # docker_metrics_port in the la-compose role). Nothing here is published.

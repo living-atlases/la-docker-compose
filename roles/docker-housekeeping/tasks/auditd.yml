@@ -1,0 +1,66 @@
+---
+# auditd keeping / from filling up: warn by default, act only when the portal opts in.
+# See docker_housekeeping_auditd_* in defaults/main.yml for why it is opt-in.
+
+- name: housekeeping | look for an auditd config
+  ansible.builtin.stat:
+    path: "{{ docker_housekeeping_auditd_conf }}"
+  register: auditd_conf_stat
+
+- name: housekeeping | read the auditd config
+  ansible.builtin.slurp:
+    src: "{{ docker_housekeeping_auditd_conf }}"
+  register: auditd_conf_raw
+  when: auditd_conf_stat.stat.exists
+
+- name: housekeeping | find the auditd settings that fill / or halt the host
+  ansible.builtin.set_fact:
+    auditd_unbounded: >-
+      {{ _conf is search('(?im)^\s*max_log_file_action\s*=\s*keep_logs\s*$') }}
+    auditd_halts: >-
+      {{ _conf is search('(?im)^\s*(disk_full_action|admin_space_left_action)\s*=\s*halt\s*$') }}
+  vars:
+    _conf: "{{ auditd_conf_raw.content | b64decode }}"
+  when: auditd_conf_stat.stat.exists
+
+- name: housekeeping | warn when auditd can fill / or halt the host
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: auditd on {{ inventory_hostname }} {{ _issues | select | join(' and ') }}.
+      Set docker_housekeeping_auditd_rotate: true to switch it to rotate + syslog
+      (old audit.log.N are left in place), or fix it in your hardening role.
+  vars:
+    _issues:
+      - "{{ 'keeps every audit.log.N (max_log_file_action = keep_logs), so /var/log/audit grows without limit' if auditd_unbounded | bool else '' }}"
+      - "{{ 'powers the host off when the disk fills (disk_full_action / admin_space_left_action = halt)' if auditd_halts | bool else '' }}"
+  when:
+    - auditd_conf_stat.stat.exists
+    - auditd_unbounded | bool or auditd_halts | bool
+    - not (docker_housekeeping_auditd_rotate | bool)
+
+- name: housekeeping | bound auditd logs and stop it halting the host
+  ansible.builtin.lineinfile:
+    path: "{{ docker_housekeeping_auditd_conf }}"
+    regexp: '^\s*{{ item.key }}\s*='
+    line: "{{ item.key }} = {{ item.value }}"
+  loop: "{{ _settings | dict2items }}"
+  vars:
+    _settings:
+      max_log_file: "{{ docker_housekeeping_auditd_max_log_file }}"
+      num_logs: "{{ docker_housekeeping_auditd_num_logs }}"
+      max_log_file_action: rotate
+      disk_full_action: syslog
+      admin_space_left_action: syslog
+  register: auditd_conf_edit
+  when:
+    - auditd_conf_stat.stat.exists
+    - docker_housekeeping_auditd_rotate | bool
+
+# `service auditd reload` and not systemctl: auditd.service has RefuseManualStop, so
+# a restart through systemd is refused; reload rereads auditd.conf without a gap.
+- name: housekeeping | reload auditd  # noqa: command-instead-of-module
+  ansible.builtin.command: service auditd reload
+  changed_when: true
+  when:
+    - auditd_conf_edit is changed
+    - not ansible_check_mode

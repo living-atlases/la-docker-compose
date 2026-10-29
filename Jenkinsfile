@@ -1025,6 +1025,10 @@ EOF
                     # retries a mail it could not send). Shimmed docker/curl, ~10s.
                     VENV_MOLECULE="$VENV_MOL" bash scripts/test-trivy-scan.sh
 
+                    # auditd on keep_logs/halt (CIS images) fills / and powers the host off:
+                    # the role warns, and edits auditd.conf only when opted in. Temp conf, ~15s.
+                    VENV_MOLECULE="$VENV_MOL" bash scripts/test-auditd-guard.sh
+
                     # No running container may trust a root distrusted after a CA compromise
                     # (eMudhra). Shimmed docker, ~2s.
                     bash scripts/test-ca-distrust.sh

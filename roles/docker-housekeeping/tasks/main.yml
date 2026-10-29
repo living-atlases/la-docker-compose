@@ -354,6 +354,12 @@
     - docker-housekeeping
     - trivy
 
+- name: housekeeping | auditd
+  ansible.builtin.import_tasks: auditd.yml
+  tags:
+    - docker-housekeeping
+    - auditd
+
 # Report, don't act. Acting on a full disk mid-play is how the 2026-08-04 outage
 # got worse; the preflight assert in validate-pre-deploy.yml is what stops the
 # deploy. This is here so the operator sees the number in the play output.
