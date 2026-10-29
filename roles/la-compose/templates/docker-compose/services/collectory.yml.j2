@@ -63,8 +63,14 @@ services:
       # (TASK-94, #495). Y al revés en #503: falló el i18n.properties base (el de las
       # peticiones sin cabecera y de los idiomas sin fichero propio: es, fr, el /ws que lee
       # la ingesta) y 'en', con su i18n_en propio, seguía en 200. Por eso las dos sondas.
+      # Y #506: el fallo llegó DESPUÉS de cachear 'en', y la petición sin cabecera resuelve
+      # al locale por defecto (en): las dos sondas leían el mismo bundle sano mientras es/fr
+      # daban 500. La tercera pide un idioma fijo sin i18n propio y distinto del por defecto
+      # (es, o fr si el por defecto es es). Uno fijo y no uno por check: cada idioma deja
+      # su merge (~97 KB) en la caché de mensajes.
       # Unhealthy -> autoheal/converge lo reinicia, que es lo que lo cura.
-      test: ["CMD", "sh", "-c", "curl --fail --silent -H 'Accept-Language: {{ default_locale | default('en') }}' http://localhost:8080/ && curl --fail --silent http://localhost:8080/ || exit 1"]
+{% set _probe_locale = 'fr' if ((default_locale | default('en'))[:2] | lower) == 'es' else 'es' %}
+      test: ["CMD", "sh", "-c", "curl --fail --silent -H 'Accept-Language: {{ default_locale | default('en') }}' http://localhost:8080/ && curl --fail --silent http://localhost:8080/ && curl --fail --silent -H 'Accept-Language: {{ _probe_locale }}' http://localhost:8080/ || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5

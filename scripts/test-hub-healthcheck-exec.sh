@@ -14,13 +14,21 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/bin"
 # Fake curl: honours -w '%{http_code}' and --fail like the real one, answering $FAKE_CODE,
-# or $FAKE_LANG_CODE when the request carries Accept-Language (a browser's request).
+# or $FAKE_LANG_CODE when the request carries Accept-Language (a browser's request), or,
+# per locale, the code $FAKE_LANG_CODES gives it ("en=200 es=500").
 cat >"$tmp/bin/curl" <<'EOF'
 #!/bin/sh
 echo "$*" >>"$FAKE_CALLS"
 fail=0; w=0
 for a in "$@"; do
-  case "$a" in --fail|-f|-fsS) fail=1 ;; -w) w=1 ;; Accept-Language:*) FAKE_CODE="${FAKE_LANG_CODE:-$FAKE_CODE}" ;; esac
+  case "$a" in
+    --fail|-f|-fsS) fail=1 ;;
+    -w) w=1 ;;
+    Accept-Language:*)
+      FAKE_CODE="${FAKE_LANG_CODE:-$FAKE_CODE}"
+      lang="${a#Accept-Language: }"
+      for kv in ${FAKE_LANG_CODES:-}; do [ "${kv%%=*}" = "$lang" ] && FAKE_CODE="${kv#*=}"; done ;;
+  esac
 done
 [ "$w" = 1 ] && printf '%s' "$FAKE_CODE"
 [ "$FAKE_CODE" = 000 ] && exit 7  # no connection: curl fails whatever the flags
@@ -86,6 +94,26 @@ for svc, ctx in (("collectory", {"datastore_endpoints": {}}),):
                             capture_output=True, timeout=10).returncode
         if rc == 0:
             fail.append("%s: %s must be UNHEALTHY, the check exited 0 (%r)" % (svc, what, open(calls).read().strip()))
+
+# #506: the poison came after 'en' was cached, and a request without the header resolves to
+# the JVM default (en), so en and no header both kept 200 while es/fr answered 500. The
+# third probe asks a fixed locale without its own i18n file, other than the default one.
+def run(test, plain, langs):
+    calls = "%s/calls" % tmp
+    open(calls, "w").close()
+    rc = subprocess.run(test[1:], env={"PATH": "%s/bin:/usr/bin:/bin" % tmp, "FAKE_CODE": plain, "FAKE_LANG_CODES": langs, "FAKE_CALLS": calls},
+                        capture_output=True, timeout=10).returncode
+    return rc, open(calls).read().strip()
+for loc, other in (("en", "es"), ("es", "fr"), ("es-ES", "fr")):
+    test = next(iter(yaml.safe_load(env.get_template("docker-compose/services/collectory.yml.j2").render(datastore_endpoints={}, default_locale=loc))["services"].values()))["healthcheck"]["test"]
+    rc, calls = run(test, "200", "%s=200 %s=500" % (loc, other))
+    if rc == 0:
+        fail.append("collectory (default_locale %s): 200 for %s and without the header but 500 for %s must be UNHEALTHY (%r)" % (loc, loc, other, calls))
+    if "Accept-Language: %s" % other not in calls:
+        fail.append("collectory (default_locale %s): no probe in %s (%r)" % (loc, other, calls))
+    rc, calls = run(test, "200", "%s=200 %s=200" % (loc, other))
+    if rc != 0:
+        fail.append("collectory (default_locale %s): every locale 200 must be healthy, the check exited %d (%r)" % (loc, rc, calls))
 if fail:
     print("[FAIL] hub healthchecks:", *fail, sep="\n  ", file=sys.stderr)
     sys.exit(1)
