@@ -15,6 +15,7 @@
 #      overlay that points the host and its other aliases at it and blocks every other host
 #      (never ssh), the render with the data/volume tags skipped, a
 #      manifest per host, and the containers removed afterwards;
+#  9b. render.sh --host-facts: given facts reach the render, no host is asked;
 #  10. render.sh --export: each host's bundle (0600, root-only dir), helpers and host-state.
 # ~2s, no Docker, no root.
 set -eu
@@ -195,6 +196,22 @@ grep -qx "cache=memory" "$tmp/docker-calls" || fail "render: the render may shar
 grep -q "BUNDLE-TIMING host=all step=render seconds=[0-9]* rc=0" "$tmp/render.out" || fail "render: no timing"
 { grep -q "^rm -f vm-1" "$tmp/docker-calls" && grep -q "^rm -f vm-2" "$tmp/docker-calls"; } || fail "render: containers left behind"
 pass "render.sh renders each docker_compose host in its own container and cleans up"
+
+# 9b. render.sh --host-facts: the given facts reach the render, no host is asked over ssh.
+: >"$tmp/docker-calls"
+echo '{"h1.docker_compose": {"default_ipv4": {"address": "10.9.9.1"}, "memtotal_mb": 8192, "processor_vcpus": 2, "processor_count": 2},
+       "*": {"default_ipv4": {"address": "10.9.9.2"}, "memtotal_mb": 4096, "processor_vcpus": 1, "processor_count": 1}}' >"$tmp/facts.json"
+bash scripts/bundle/render.sh --out "$tmp/render-f" --inventory-args "-i inv.ini" --host-facts "$tmp/facts.json" >"$tmp/render-f.out" 2>&1 ||
+  { cat "$tmp/render-f.out" >&2; fail "render --host-facts: failed"; }
+! grep -q "^ansible " "$tmp/docker-calls" || fail "render --host-facts: the real hosts were still asked"
+{ grep -q "^h1.docker_compose .*render_host_facts='{\"default_ipv4\": {\"address\": \"10.9.9.1\"}, \"memtotal_mb\": 8192" "$tmp/overlay.seen" &&
+  grep -q "^h2.docker_compose .*render_host_facts='{\"default_ipv4\": {\"address\": \"10.9.9.2\"}" "$tmp/overlay.seen"; } ||
+  fail "render --host-facts: the given facts (per host, then '*') do not reach the render"
+echo '{"h1.docker_compose": {"default_ipv4": {"address": "10.9.9.1"}, "memtotal_mb": 1, "processor_vcpus": 1, "processor_count": 1}}' >"$tmp/facts-partial.json"
+! bash scripts/bundle/render.sh --out "$tmp/render-p" --inventory-args "-i inv.ini" --host-facts "$tmp/facts-partial.json" >"$tmp/render-p.out" 2>&1 ||
+  fail "render --host-facts: a host without facts and no '*' did not fail"
+grep -q "no entry for h2.docker_compose" "$tmp/render-p.out" || fail "render --host-facts: the missing host is not named"
+pass "render.sh --host-facts uses the given facts and asks no host"
 
 # 10. render.sh --export: per inventory host, the bundle (0600, root-only dir), excluded.txt,
 # the helper scripts and the host-state allowlist (only "#Ansible:" cron jobs, only the

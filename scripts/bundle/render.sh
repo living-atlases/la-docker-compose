@@ -11,7 +11,7 @@
 # container by it) and resolve the other hosts' names to their real IPs (--add-host).
 #
 # Usage: render.sh --out DIR --inventory-args "-i a.ini -i b.ini" [--extra-vars JSON|k=v]...
-#                  [--user SSH_USER] [--image TAG] [--keep] [--export]
+#                  [--user SSH_USER] [--image TAG] [--keep] [--export] [--host-facts FILE]
 # --extra-vars may repeat. auto_deploy=false and la_compose_render_only=true always go last:
 # extra vars beat play vars, and a caller's auto_deploy=true (the toolkit's deploy line has
 # it) must never turn a render into a deploy.
@@ -19,6 +19,11 @@
 # the repo root with ANSIBLE_ROLES_PATH set like the deploy.
 # Prints: BUNDLE-TIMING host=all step=render seconds=<s>, one step=capture line per host, and
 # writes DIR/<ansible_host>.render.manifest.
+#
+# --host-facts FILE gives those facts instead of reading them from the real hosts, for a target
+# with no host to ask (a Kubernetes node: la-k8s). A JSON object keyed by inventory_hostname,
+# "*" for the rest, each {"default_ipv4": {"address": IP}, "memtotal_mb": N,
+# "processor_vcpus": N, "processor_count": N}. Nothing is read over ssh then.
 #
 # --export also writes, per host, what scripts/bundle/host-apply.sh needs, to
 # DIR/export/<inventory_hostname>/ (root-only: the bundle holds secrets; the caller deletes it):
@@ -34,6 +39,7 @@ SSH_USER=""
 IMAGE=la-render-spike:local
 KEEP=false
 EXPORT=false
+HOST_FACTS=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --out) OUT="$2"; shift 2 ;;
@@ -43,6 +49,7 @@ while [ $# -gt 0 ]; do
     --image) IMAGE="$2"; shift 2 ;;
     --keep) KEEP=true; shift ;;
     --export) EXPORT=true; shift ;;
+    --host-facts) HOST_FACTS="$2"; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -94,6 +101,18 @@ done <"$OUT/hosts"
 
 # The facts the render reads from the real machines (IP, memory, CPUs): a read-only `setup`,
 # its own run, so nothing it discovers (the host's python) leaks into the render.
+if [ -n "$HOST_FACTS" ]; then
+python3 - "$OUT" "$HOST_FACTS" <<'PY' >"$OUT/host-facts"
+import json, sys
+out, given = sys.argv[1], json.load(open(sys.argv[2]))
+for line in open(f"{out}/hosts"):
+    ih = line.split()[0]
+    rf = given.get(ih, given.get("*"))
+    if rf is None:
+        sys.exit(f"--host-facts has no entry for {ih} and no '*'")
+    print(ih, "render_host_facts='" + json.dumps(rf) + "'")
+PY
+else
 # shellcheck disable=SC2086
 ANSIBLE_CACHE_PLUGIN=memory ansible docker_compose $INV_ARGS ${SSH_USER:+-u "$SSH_USER"} -m ansible.builtin.setup \
   -a 'gather_subset=hardware,network' --tree "$OUT/facts" >/dev/null ||
@@ -109,6 +128,7 @@ for line in open(f"{out}/hosts"):
           "processor_count": f["ansible_processor_count"]}
     print(ih, "render_host_facts='" + json.dumps(rf) + "'")
 PY
+fi
 
 # EVERY inventory host gets a docker connection, never ssh. Roles delegate to other aliases of
 # the same machine (nginx_vhost writes each vhost's Gatus monitor to the '<host>.gatus' alias):
