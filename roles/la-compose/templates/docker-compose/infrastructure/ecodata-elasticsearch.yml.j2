@@ -1,0 +1,36 @@
+  # Elasticsearch 7.x sidecar dedicated to ecodata.
+  #
+  # ecodata pins the 7.17 client (elasticsearchVersion in its gradle.properties) and the shared ES
+  # is 8.x. Its "all sites" search also needs indices.query.bool.max_clause_count: 8192, which is
+  # a node setting (ala-install ansible/ecodata.yml sets it for the VM deploy).
+services:
+  ecodata-elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:{{ ecodata_elasticsearch_version | default('7.17.29') }}
+    container_name: {{ ecodata_elasticsearch_docker_host | default('la_ecodata-elasticsearch') }}
+    # include app-core so it is always present alongside ecodata (which depends_on it); a
+    # depends_on to a service absent from the active profile set is a compose config error.
+    profiles: [app-core, dbs, full]
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+    restart: unless-stopped
+    expose:
+      - 9200
+    environment:
+      TZ: {{ server_tz | default('UTC') }}
+      discovery.type: "single-node"
+      xpack.security.enabled: "false"
+      network.host: "0.0.0.0"
+      indices.query.bool.max_clause_count: "8192"
+      ES_JAVA_OPTS: "-Xms512m -Xmx{{ ecodata_elasticsearch_heap | default('1g') }}"
+    volumes:
+      - la_ecodata-elasticsearch-data:/usr/share/elasticsearch/data
+    networks:
+      default: {}
+      {{ docker_network | default('internal') }}:
+        aliases:
+          - ecodata-elasticsearch
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:9200/_cluster/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s

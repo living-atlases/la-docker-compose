@@ -66,6 +66,8 @@ SERVICES=(
   "lists|species-list|templates/specieslist-webapp-config.properties|specieslist-webapp-config.properties||species-list|species-lists|lists"
   "sds|sds|templates/sds-config.properties|sds-config.properties||sds"
   "doi|doi-service|templates/doi-service-config.yml|doi-service-config.yml||doi-service|doi"
+  "ecodata|ecodata|templates/ecodata-config.properties|ecodata-config.properties||ecodata"
+  "biocollect|biocollect|templates/biocollect-config.properties|biocollect-config.properties||biocollect"
   "userdetails|userdetails|templates/userdetails-config.yml|userdetails-config.yml||userdetails|cas-servers|cas"
 )
 

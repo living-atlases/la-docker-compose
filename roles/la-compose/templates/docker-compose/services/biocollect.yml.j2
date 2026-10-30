@@ -1,6 +1,5 @@
-# biocollect - data collection portal (consumes ecodata; MongoDB-backed, Grails exec jar).
-# INERT plumbing: only emitted when the 'biocollect' group is enabled (use_biocollect=true). The
-# exact command/config-loading should be tuned in CI when first enabled (mirrors doi-service).
+# biocollect - data collection portal (consumes ecodata, Grails exec jar).
+# Its config comes from the ala-install biocollect role (see generate-compose.yml).
 services:
   biocollect:
     image: {% set svc_reg = biocollect_registry | default(docker_registry | default('')) %}{{ svc_reg }}{% if svc_reg %}/{% endif %}biocollect:{{ biocollect_version | default('latest') }}
@@ -14,16 +13,18 @@ services:
       TZ: {{ server_tz | default('UTC') }}
       JAVA_OPTS: ${BIOCOLLECT_JAVA_OPTS}
     volumes:
-      - {{ data_dir }}/biocollect/config:/data/biocollect/config
+      # config, logs, ehcache and temp: the role and logback.xml use /data/biocollect.
+      - {{ data_dir }}/biocollect:/data/biocollect
+      - {{ data_dir }}/biocollect/tmp:/data/tmp
     networks:
       default: {}
       {{ docker_network | default('internal') }}:
     # biocollect does NOT use a datastore directly (its playbook pulls no mongodb-org role): it
     # talks to ecodata (ecodata.baseURL) and pdfgen (pdfgen.baseURL) over HTTP, both converge by
-    # retry — no boot gate (cross-host safe). pdfgen_base_url must point at the self-hosted pdfgen
-    # container (NOT the public pdfgen.ala.org.au), set in the biocollect role invocation/inventory.
+    # retry — no boot gate (cross-host safe).
     healthcheck:
-      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:{{ biocollect_port | default('8080') }}/ || exit 1"]
+      # / needs ecodata to render, so a 5xx there says nothing about this container.
+      test: ["CMD", "sh", "-c", "curl --silent --output /dev/null http://localhost:{{ biocollect_port | default('8080') }}/ || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5

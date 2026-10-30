@@ -97,7 +97,21 @@
   when: >
     'image-service' in (physical_server_groups | default([]))
     or 'events' in (physical_server_groups | default([]))
-    or 'ecodata' in (physical_server_groups | default([]))
+
+- name: "Database volumes: Create ecodata Elasticsearch (ES 7.x sidecar) and ClamAV external volumes"
+  community.docker.docker_volume:
+    name: "{{ item }}"
+    driver: local
+    docker_host: "{{ docker_socket }}"
+    state: present
+  become: true
+  loop:
+    - la_ecodata-elasticsearch-data
+    - la_clamav-data
+  tags:
+    - db-init
+    - docker-volumes
+  when: "'ecodata' in (physical_server_groups | default([]))"
 
 - name: "Database volumes: Create doi-service Elasticsearch (ES 7.x sidecar) external volume"
   community.docker.docker_volume:

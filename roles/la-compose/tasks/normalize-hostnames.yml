@@ -38,8 +38,7 @@
     cas_tickets_host: "{{ 'la_mongodb' if (cas_tickets_host | default('localhost') in ['localhost', '127.0.0.1', 'mongodb']) else cas_tickets_host }}"
     cas_services_host: "{{ 'la_mongodb' if (cas_services_host | default('localhost') in ['localhost', '127.0.0.1', 'mongodb']) else cas_services_host }}"
 
-    # Elasticsearch hostnames (ecodata, events)
-    ecodata_elasticsearch_host: "{{ 'elasticsearch' if (ecodata_elasticsearch_host | default('localhost') in ['localhost', '127.0.0.1']) else ecodata_elasticsearch_host }}"
+    # Elasticsearch hostnames (events)
     events_elasticsearch_host: "{{ 'elasticsearch' if (events_elasticsearch_host | default('localhost') in ['localhost', '127.0.0.1']) else events_elasticsearch_host }}"
 
     # Solr and Cassandra

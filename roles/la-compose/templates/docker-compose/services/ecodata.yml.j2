@@ -1,6 +1,5 @@
 # ecodata - data services backend for BioCollect (MongoDB + Elasticsearch, Grails exec jar).
-# INERT plumbing: only emitted when the 'ecodata' group is enabled (use_ecodata=true). The exact
-# command/config-loading should be tuned in CI when first enabled (mirrors doi-service exec-jar).
+# Its config comes from the ala-install ecodata role (see generate-compose.yml).
 services:
   ecodata:
     image: {% set svc_reg = ecodata_registry | default(docker_registry | default('')) %}{{ svc_reg }}{% if svc_reg %}/{% endif %}ecodata:{{ ecodata_version | default('latest') }}
@@ -14,22 +13,27 @@ services:
       TZ: {{ server_tz | default('UTC') }}
       JAVA_OPTS: ${ECODATA_JAVA_OPTS}
     volumes:
-      - {{ data_dir }}/ecodata/config:/data/ecodata/config
+      # config, uploads, models and scripts: the role writes them under /data/ecodata.
+      - {{ data_dir }}/ecodata:/data/ecodata
+      # java.io.tmpdir and logback.xml point outside /data/ecodata; neither exists in the image.
+      - {{ data_dir }}/ecodata/tmp:/data/tmp
+      - {{ data_dir }}/ecodata/logs:/var/log/atlas/ecodata
     networks:
       default: {}
       {{ docker_network | default('internal') }}:
-    # ecodata uses MongoDB (boot dependency); gate only when mongodb is co-located on this host.
-    # ES and ClamAV (clamav.host:3310, on-demand upload scanning) are runtime deps that converge by
-    # retry — not boot gates. clamav.host must point at the la_clamav container: parametrized in the
-    # ala-install ecodata role as clamav_host (default localhost, VM-safe) -> set clamav_host=clamav.
-{% if datastore_endpoints.get('mongodb', {}).get('colocated', false) %}
+    # MongoDB and the ES sidecar are boot dependencies. ClamAV (clamav_host, on-demand upload
+    # scanning) is a runtime dep that converges by retry, so it is not a boot gate.
     depends_on:
+      ecodata-elasticsearch:
+        condition: service_healthy
+{% if datastore_endpoints.get('mongodb', {}).get('colocated', false) %}
       mongodb:
         condition: service_healthy
 {% endif %}
     healthcheck:
-      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:{{ ecodata_port | default('8080') }}/ws/health || exit 1"]
+      # ecodata has no health route and ships actuator disabled: any HTTP answer proves it is up.
+      test: ["CMD", "sh", "-c", "curl --silent --output /dev/null http://localhost:{{ ecodata_port | default('8080') }}/ || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 120s
+      start_period: 240s

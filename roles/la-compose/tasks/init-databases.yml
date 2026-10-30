@@ -112,6 +112,36 @@
   tags:
     - db-init
 
+- name: "DB Init: Create/refresh the MongoDB ecodata user (idempotent)"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - la_mongodb
+      - mongosh
+      - --quiet
+      - --username
+      - "{{ mongodb_root_username }}"
+      - --password
+      - "{{ mongodb_root_password }}"
+      - --authenticationDatabase
+      - admin
+      - --eval
+      - >-
+        var name="{{ ecodata_database | default('ecodata') }}",
+        user="{{ ecodata_username | default('ecodata') }}",
+        pwd="{{ ecodata_password }}",
+        roles=[{role:"dbAdmin",db:name},{role:"readWrite",db:name}],
+        d=db.getSiblingDB(name);
+        if(d.getUser(user)){d.updateUser(user,{pwd:pwd,roles:roles});}
+        else{d.createUser({user:user,pwd:pwd,roles:roles});print("MONGO_USERS_CHANGED");}
+  become: true
+  register: mongo_ecodata_user
+  changed_when: "'MONGO_USERS_CHANGED' in mongo_ecodata_user.stdout"
+  when: "'ecodata' in physical_server_groups"
+  tags:
+    - db-init
+
 # The la_mongodb-data volume is `external` and pre-populated, so the mongo
 # image never re-runs /docker-entrypoint-initdb.d. These CAS users would
 # otherwise never exist -> la_cas stays unhealthy. Create/refresh them every

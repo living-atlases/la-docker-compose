@@ -1,7 +1,7 @@
 # pdfgen - self-hosted PDF generation service for biocollect (livingatlases/pdfgen, Dropwizard).
-# Replaces the public https://pdfgen.ala.org.au — biocollect's pdfgen.baseURL must point here
-# (set pdfgen_base_url=http://pdfgen:{{ pdfgen_port | default('8080') }} in the biocollect role
-# invocation/inventory). Included when biocollect (its only consumer) or the pdfgen group is enabled.
+# Replaces the public https://pdfgen.ala.org.au: generate-compose.yml points biocollect's
+# pdfgen.baseURL here. Internal only: it fetches any URL it is given, so it has no public vhost.
+# Included when biocollect (its only consumer) or the pdfgen group is enabled.
 services:
   pdfgen:
     image: {% set svc_reg = pdf_service_registry | default(docker_registry | default('')) %}{{ svc_reg }}{% if svc_reg %}/{% endif %}pdfgen:{{ pdf_service_version | default('latest') }}
@@ -14,16 +14,16 @@ services:
     environment:
       TZ: {{ server_tz | default('UTC') }}
     volumes:
-      # Dropwizard storageDir for generated PDFs (image default mount /storage; role uses pdf_path).
-      - {{ data_dir }}/pdfgen/storage:/storage
-      # Role-generated pdfgen-config.yml, when config generation is wired at enablement.
+      # storageDir of the role's pdfgen-config.yml, which the image passes to `server`.
+      - {{ data_dir }}/pdfgen/storage:/data/pdfs
       - {{ data_dir }}/pdfgen/config:/data/pdfgen/config
+      - {{ data_dir }}/pdfgen/logs:/var/log/atlas/pdfgen
     networks:
       default: {}
       {{ docker_network | default('internal') }}:
     # pdfgen has no datastore; no depends_on. biocollect reaches it over HTTP (converge by retry).
     healthcheck:
-      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:{{ pdfgen_port | default('8080') }}/ || exit 1"]
+      test: ["CMD", "sh", "-c", "curl --fail --silent http://localhost:{{ pdfgen_port | default('8080') }}/admin/healthcheck || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5

@@ -23,6 +23,8 @@ Placement overlay format (topologies/*.placement.json):
                                           # the base .yo-rc host list; fewer
                                           # slots than base hosts drops the
                                           # trailing base hosts
+    "enable": ["biocollect", ...],        # OPTIONAL services the base .yo-rc has
+                                          # disabled, switched on for this variant
     "services": {"collectory": "host1", ...},
     "hubs": {"lademohub": {"ala_bie": "host2"}},  # OPTIONAL per-data-hub override;
                                           # any front-end left out follows the
@@ -221,6 +223,17 @@ def resolve_hub_placement(pv, placement, slot_index, svc_slot):
     return out
 
 
+def enable_services(pv, placement):
+    """Switch on the services a variant adds to the base (LA_use_<svc>), giving each a
+    hostname so the placement below sees it as enabled and has to place it."""
+    for svc in placement.get("enable") or []:
+        key = "LA_%s_hostname" % svc
+        if key not in pv:
+            die("placement enables unknown service '%s' (no %s in base)" % (svc, key))
+        pv["LA_use_%s" % svc] = True
+        pv[key] = str(pv.get(key) or "").strip() or base_hosts(pv)[0][0]
+
+
 def resolve_placement(pv, placement):
     """Return (hosts, svc_slot) where hosts is [(name, ip)] for the variant
     (slot order) and svc_slot maps every enabled service -> slot index."""
@@ -263,6 +276,7 @@ def resolve_placement(pv, placement):
 
 def compute_variant(pv, placement):
     """Return the dict of .yo-rc keys to overwrite for this placement."""
+    enable_services(pv, placement)
     hosts, svc_slot = resolve_placement(pv, placement)
     names = [n for n, _ in hosts]
     ip_of = dict(hosts)

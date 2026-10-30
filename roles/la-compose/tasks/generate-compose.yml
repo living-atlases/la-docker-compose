@@ -1707,6 +1707,150 @@
     - nginx_vhost
     - docker-compose
 
+- name: Load ecodata variables from service alias context
+  ansible.builtin.include_tasks: bulk-load-service-vars.yml
+  vars:
+    bulk_service_key: ecodata
+  tags:
+    - ecodata
+    - config
+    - bulk-load
+    - normalize
+    - docker-compose
+
+- name: Run ecodata configuration generation
+  ansible.builtin.include_role:
+    name: ecodata
+    apply:
+      become: true
+      tags:
+        - docker-compose
+  vars:
+    nginx_vhost_fast_mode: true
+    nginx_upstream_host: "ecodata"
+    ecodata_upstream_host: "ecodata"
+    # The generator's 9004 is the VM's port, where several apps share a host.
+    ecodata_tomcat_server_port: "{{ ecodata_port | default('8080') }}"
+    ecodata_proxy_target: "{{ ecodata_context_path }}"
+    ecodata_user: "{{ docker_default_user }}"
+    ecodata_backup_user: "{{ docker_default_user }}"
+    # The VM drives these from the role's own cron; here pre-deploy-backup.yml dumps all of mongo.
+    scheduled_database_backup: false
+    # internal_primary_hostname is both mongo and ES in the role, so mongo_hosts splits them.
+    internal_primary_hostname: "ecodata-elasticsearch"
+    mongo_hosts: "mongodb:27017"
+    is_primary: false
+    clamav_host: "clamav"
+    storage_type: "filesystem"
+    geoserver_url: ""
+    host_ip_address: "127.0.0.1"
+    ecodata_ips: "127.0.0.1"
+    user_details_url: "{{ userdetails_url }}/"
+    user_details_api_url: "{{ userdetails_url }}/"
+    user_details_app_url: "{{ userdetails_url }}/"
+    oidc_client_id: "{{ ecodata_client_id | default('') }}"
+    oidc_client_secret: "{{ ecodata_client_secret | default('') }}"
+    oidc_discovery_uri: "{{ oidc_discoveryUri }}"
+    ecodata_application_client_id: "{{ ecodata_client_id | default('') }}"
+    ecodata_application_client_secret: "{{ ecodata_client_secret | default('') }}"
+    namesmatching_base_url: "{{ namematching_service_url | default('') }}"
+    scistarter_cron_schedule: "0 0 0 1 1 ? 2099"
+  when:
+    - "'ecodata' in services_enabled"
+    - "service_aliases.get('ecodata') is defined"
+  tags:
+    - ecodata
+    - config
+    - nginx_vhost
+    - docker-compose
+
+- name: Load biocollect variables from service alias context
+  ansible.builtin.include_tasks: bulk-load-service-vars.yml
+  vars:
+    bulk_service_key: biocollect
+    bulk_run_normalize: false
+  tags:
+    - biocollect
+    - config
+    - bulk-load
+    - docker-compose
+
+- name: Run biocollect configuration generation
+  ansible.builtin.include_role:
+    name: biocollect
+    apply:
+      become: true
+      tags:
+        - docker-compose
+  vars:
+    nginx_vhost_fast_mode: true
+    nginx_upstream_host: "biocollect"
+    biocollect_upstream_host: "biocollect"
+    # The generator's 9003 is the VM's port, where several apps share a host.
+    biocollect_tomcat_server_port: "{{ biocollect_port | default('8080') }}"
+    biocollect_user: "{{ docker_default_user }}"
+    is_cognito: false
+    pdfgen_base_url: "http://pdfgen:{{ pdfgen_port | default('8080') }}/"
+    cas_user_details_url: "{{ userdetails_url }}"
+    cas_user_details_api_url: "{{ userdetails_url }}/"
+    cas_security_oidc_scope: "openid profile email ala roles"
+    cas_oidc_discovery_uri: "{{ oidc_discoveryUri }}"
+    cas_jwt_discovery_uri: "{{ oidc_discoveryUri }}"
+    cas_biocollect_oidc_clientId: "{{ biocollect_client_id | default('') }}"
+    cas_biocollect_oidc_secret: "{{ biocollect_client_secret | default('') }}"
+    cas_biocollect_ws_clientId: "{{ biocollect_client_id | default('') }}"
+    cas_biocollect_ws_clientSecret: "{{ biocollect_client_secret | default('') }}"
+    lists_ui_base_url: "{{ lists_url | default('') }}"
+    # The role's default only lets csiro.au addresses through, to spare real users on test systems.
+    mail_filter: ""
+    # Required by the template with no default; none of these features runs on a Living Atlas.
+    fathom_site_id: ""
+    ref_assess_hub: ""
+    ref_assess_reference_project_activity_id: ""
+    ref_assess_assessment_project_activity_id: ""
+    ref_assess_assessment_max_records_to_create: 0
+  when:
+    - "'biocollect' in services_enabled"
+    - "service_aliases.get('biocollect') is defined"
+  tags:
+    - biocollect
+    - config
+    - nginx_vhost
+    - docker-compose
+
+- name: Load pdfgen variables from service alias context
+  ansible.builtin.include_tasks: bulk-load-service-vars.yml
+  vars:
+    bulk_service_key: pdfgen
+    bulk_run_normalize: false
+  tags:
+    - pdfgen
+    - config
+    - bulk-load
+    - docker-compose
+
+- name: Run pdfgen configuration generation
+  ansible.builtin.include_role:
+    name: pdf-service
+    apply:
+      become: true
+      tags:
+        - docker-compose
+  vars:
+    pdf_user: "{{ docker_default_user }}"
+    pdf_bind_host: "0.0.0.0"
+    pdf_htmltopdf_path: /usr/bin/wkhtmltopdf
+    service_port: "{{ pdfgen_port | default('8080') }}"
+    # The image's own path: the role would otherwise render {{ data_dir }}, a host path.
+    pdf_dir: /data/pdfs
+  when:
+    - "'pdfgen' in services_enabled"
+    - "service_aliases.get('pdfgen') is defined"
+  tags:
+    - pdfgen
+    - config
+    - docker-compose
+
 - name: Load SDS variables from service alias context
   ansible.builtin.include_tasks: bulk-load-service-vars.yml
   vars:
@@ -2675,9 +2819,7 @@
     'image-service' in group_names or
     'image-service' in physical_server_groups or
     'events' in group_names or
-    'events' in physical_server_groups or
-    'ecodata' in group_names or
-    'ecodata' in physical_server_groups
+    'events' in physical_server_groups
 
 # doi-service needs an ES 7.x TransportClient endpoint (incompatible with the shared ES 8.x),
 # so it gets a dedicated sidecar. See infrastructure/doi-elasticsearch.yml.j2.
@@ -2695,6 +2837,21 @@
   when: >-
     'doi-service' in group_names or
     'doi-service' in physical_server_groups
+
+- name: Generate ecodata-elasticsearch.yml
+  ansible.builtin.template:
+    src: docker-compose/infrastructure/ecodata-elasticsearch.yml.j2
+    dest: "{{ docker_compose_data_dir }}/infrastructure/ecodata-elasticsearch.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  tags:
+    - elasticsearch
+    - ecodata
+    - docker-compose
+  when: >-
+    'ecodata' in group_names or
+    'ecodata' in physical_server_groups
 
 - name: Generate mysql.yml
   ansible.builtin.template:
@@ -3636,10 +3793,6 @@
     - geonetwork
     - docker-compose
 
-# ecodata + biocollect: forward-looking plumbing. Disabled in the inventory today
-# (use_ecodata/use_biocollect=false -> not in services_enabled), so these renders are no-ops
-# until enabled. When enabled, the app config generation (ala-install ecodata/biocollect roles)
-# still needs container-mode adaptation + a service_aliases entry (as spatial does).
 - name: Generate ecodata.yml
   ansible.builtin.template:
     src: docker-compose/services/ecodata.yml.j2
@@ -3664,8 +3817,8 @@
     - biocollect
     - docker-compose
 
-# Self-hosted pdfgen (biocollect's PDF backend) + clamav (ecodata's AV scanner). Inert until
-# biocollect/ecodata are enabled. clamav is infra (rendered alongside mongodb when ecodata present).
+# Self-hosted pdfgen (biocollect's PDF backend) + clamav (ecodata's AV scanner). clamav is infra
+# (rendered alongside mongodb when ecodata is present).
 - name: Generate pdfgen.yml
   ansible.builtin.template:
     src: docker-compose/services/pdfgen.yml.j2

@@ -572,7 +572,7 @@ pipeline {
         )
         choice(
             name: 'TOPOLOGY',
-            choices: ['default', '3host-alt', '2host', '1host'],
+            choices: ['default', '3host-alt', '2host', '1host', 'biocollect-3host'],
             description: 'Deployment topology. default = the la-toolkit-synced layout (current 3-host split, untouched). Any other value applies topologies/<name>.placement.json over the agent\'s .yo-rc (backed up and restored on the next default build), trims TARGET_HOSTS to the variant\'s host count and merges its skip_services. MANUAL BUILDS ONLY — SCM-triggered builds refuse non-default topologies. Remember to point the external front proxy per topologies/README.md (scripts/apply-topology.py proxy-map) before/after.'
         )
         string(

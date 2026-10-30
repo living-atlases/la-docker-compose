@@ -566,14 +566,6 @@ docker_services_desc:
     extra_params:
       - key: java.io.tmpdir
         value: /data/tmp
-  ecodataReporting:
-    name: 'ecodata-reporting'
-    nameInt: 'ecodata_reporting'
-    group: 'ecodata-reporting'
-    forceSubdomain: true
-    artifacts: 'ecodata'
-    desc: 'provides reporting service for ecodata'
-    optional: true
   gatus:
     name: 'gatus'
     nameInt: 'gatus'

@@ -28,7 +28,7 @@
 # Several services also re-add these in a `command:` override, written when that was
 # the only way to honour JAVA_OPTS at all. Those are redundant once this is right, but
 # harmless: a later -D on the command line wins, so a service that appends its own
-# spring.config.name (alerts, ecodata) still gets it.
+# spring.config.name (alerts) still gets it.
 #
 # Cheap on purpose: renders the template, no Docker, no inventory, no deployed stack.
 #

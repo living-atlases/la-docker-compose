@@ -49,6 +49,8 @@
       alerts: "{{ ((alerts_base_url | default('')) ~ (alerts_context_path | default(''))) | regex_replace('/+$', '') }}"
       doi: "{{ ((doi_service_url | default('')) ~ (doi_service_context_path | default(''))) | regex_replace('/+$', '') }}"
       dashboard: "{{ ((dashboard_base_url | default('')) ~ (dashboard_context_path | default(''))) | regex_replace('/+$', '') }}"
+      biocollect: "{{ ((biocollect_base_url | default('')) ~ (biocollect_context_path | default(''))) | regex_replace('/+$', '') }}"
+      ecodata: "{{ ((ecodata_base_url | default('')) ~ (ecodata_context_path | default(''))) | regex_replace('/+$', '') }}"
       sds: "{{ ((sds_url | default('')) ~ (sds_context_path | default(''))) | regex_replace('/+$', '') }}"
       dataQuality: "{{ ((data_quality_url | default('')) ~ (data_quality_context_path | default(''))) | regex_replace('/+$', '') }}"
       userdetails: "{{ ((userdetails_base_url | default('')) ~ '/' ~ (userdetails_context_path | default(''))) | regex_replace('/+$', '') }}"

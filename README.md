@@ -329,7 +329,7 @@ picks up `application-local-config.yml`.
 That did not matter while the flags were frozen into the image `CMD`: they arrived
 regardless of what `.env` said. With rebuilt images they only arrive from here, so
 `.env` now emits them and `scripts/test-java-opts-env.sh` keeps it that way. A handful
-of services (alerts, ecodata, image-service…) also re-add them in a `command:`
+of services (alerts, image-service…) also re-add them in a `command:`
 override, written back when that was the only way to honour `JAVA_OPTS` at all; those
 are redundant now but harmless, since a later `-D` on the command line wins.
 

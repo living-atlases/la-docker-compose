@@ -64,6 +64,7 @@
           { 'svc': 'spatial_service',      'service': 'spatial-service',             'path': data_dir ~ '/spatial-service/config' },
           { 'svc': 'ecodata',              'service': 'ecodata',                     'path': data_dir ~ '/ecodata/config' },
           { 'svc': 'biocollect',           'service': 'biocollect',                  'path': data_dir ~ '/biocollect/config' },
+          { 'svc': 'pdfgen',               'service': 'pdfgen',                      'path': data_dir ~ '/pdfgen/config' },
         ] | selectattr('svc', 'in', services_enabled) | list
         + (hub_config_watch | default([]))
       }}

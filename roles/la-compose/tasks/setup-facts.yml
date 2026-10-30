@@ -276,7 +276,7 @@
         'biocache-service-clusterdb', 'logger-service', 'image-service', 'namematching-service',
         'sensitive-data-service', 'sds', 'gatus',
         'alerts-service', 'regions', 'doi-service', 'data_quality_filter_service',
-        'spatial', 'spatial-service',
+        'spatial', 'spatial-service', 'ecodata', 'biocollect', 'pdfgen',
       ] -%}
         {%- if service in groups -%}
           {%- set matching = groups[service] | select('match', '^' + ansible_host + '(\\..+)?$') | list -%}

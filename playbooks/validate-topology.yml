@@ -93,6 +93,26 @@
           host (they would silently never deploy): {{ topo_orphans | join(', ') }}
         success_msg: "no orphan service groups"
 
+    - name: "1b. Assert no ecodata-reporting host: it is a VM-only Mongo/ES replica"
+      ansible.builtin.assert:
+        that: groups['ecodata-reporting'] | default([]) | length == 0
+        fail_msg: >-
+          ecodata-reporting has no docker-compose service and would silently not deploy:
+          remove it from these hosts ({{ groups['ecodata-reporting'] | default([]) | join(', ') }}).
+        success_msg: "no ecodata-reporting hosts"
+
+    - name: "1c. Assert pdfgen is next to biocollect: it has no vhost, biocollect reaches it by container name"
+      ansible.builtin.assert:
+        that: _pdfgen_hosts == _biocollect_hosts
+        fail_msg: >-
+          pdfgen ({{ _pdfgen_hosts | join(', ') }}) and biocollect
+          ({{ _biocollect_hosts | join(', ') }}) must run on the same host.
+        success_msg: "pdfgen and biocollect share a host"
+      vars:
+        _pdfgen_hosts: "{{ groups['pdfgen'] | default([]) | map('extract', hostvars, 'ansible_host') | unique | sort }}"
+        _biocollect_hosts: "{{ groups['biocollect'] | default([]) | map('extract', hostvars, 'ansible_host') | unique | sort }}"
+      when: groups['pdfgen'] | default([]) | length > 0 and groups['biocollect'] | default([]) | length > 0
+
     - name: "2. Detect public vhost aliases served from more than one host"
       ansible.builtin.set_fact:
         topo_dup_aliases: >-

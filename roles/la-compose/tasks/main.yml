@@ -337,12 +337,20 @@
         - { svc: 'geoserver',            path: "{{ data_dir }}/spatial-data" }
         # geonetwork catalogue data dir (the postgres image runs as root, chown is harmless).
         - { svc: 'geonetwork',           path: "{{ data_dir }}/geonetwork" }
-        # ecodata/biocollect — inert until use_*=true populates their groups (no-op meanwhile).
         - { svc: 'ecodata',              path: "{{ data_dir }}/ecodata/config" }
+        - { svc: 'ecodata',              path: "{{ data_dir }}/ecodata/uploads" }
+        - { svc: 'ecodata',              path: "{{ data_dir }}/ecodata/tmp" }
+        - { svc: 'ecodata',              path: "{{ data_dir }}/ecodata/temp" }
+        - { svc: 'ecodata',              path: "{{ data_dir }}/ecodata/logs" }
         - { svc: 'biocollect',           path: "{{ data_dir }}/biocollect/config" }
+        - { svc: 'biocollect',           path: "{{ data_dir }}/biocollect/tmp" }
+        - { svc: 'biocollect',           path: "{{ data_dir }}/biocollect/temp" }
+        - { svc: 'biocollect',           path: "{{ data_dir }}/biocollect/logs" }
+        - { svc: 'biocollect',           path: "{{ data_dir }}/biocollect/ehcache" }
         # pdfgen (self-hosted PDF backend for biocollect): livingatlases image runs as uid 1000.
         - { svc: 'pdfgen',               path: "{{ data_dir }}/pdfgen/config" }
         - { svc: 'pdfgen',               path: "{{ data_dir }}/pdfgen/storage" }
+        - { svc: 'pdfgen',               path: "{{ data_dir }}/pdfgen/logs" }
         - { svc: 'sds',                  path: "{{ data_dir }}/sds/config" }
       when: item.svc in services_enabled
       loop_control:
