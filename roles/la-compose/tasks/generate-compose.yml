@@ -757,6 +757,23 @@
   tags:
     - docker-compose
 
+- name: Ensure nginx has the quality filter cache
+  ansible.builtin.template:
+    src: "data-quality-cache.{{ item }}.j2"
+    dest: "{{ nginx_conf_dir }}/conf.d/data-quality-cache.{{ item }}"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  loop:
+    - conf
+    - inc
+  when:
+    - "'nginx' in services_enabled"
+    - "'dataQuality' in services_enabled"
+    - "service_aliases.get('data_quality_filter_service') is defined"
+  tags:
+    - docker-compose
+
 # Load nginx role defaults WITHOUT clobbering inventory-provided nginx_* vars.
 # A plain include_vars has higher precedence than inventory group_vars, so it
 # would override host customizations (nginx_other_log_formats, client_max_body_size,
@@ -1911,6 +1928,22 @@
     nginx_vhost_fast_mode: true
     nginx_upstream_host: "data-quality-filter-service"
     data_quality_filter_service_upstream_host: "data-quality-filter-service"
+    data_quality_filter_cached_path: "~ ^{{ data_quality_filter_service_context_path | default('', true) | regex_replace('/$', '') }}/api/v1/quality/(getGroupedEnabledFilters|getEnabledFiltersByLabel)$"
+    nginx_paths:
+      - path: "{{ data_quality_filter_cached_path }}"
+        sort_label: "1"
+        is_proxy: true
+        use_cache: false
+        proxy_pass: "http://data-quality-filter-service:{{ data_quality_filter_service_server_port }}"
+        location_includes:
+          - /etc/nginx/conf.d/data-quality-cache.inc
+      - path: "{{ data_quality_filter_service_context_path | default('/', true) }}"
+        sort_label: "2"
+        is_proxy: true
+        use_cache: false
+        proxy_pass: "http://data-quality-filter-service:{{ data_quality_filter_service_server_port }}"
+    nginx_paths_gatus_exclude:
+      - "{{ data_quality_filter_cached_path }}"
     # container mode: the app must listen on all interfaces because nginx is a SEPARATE
     # container. The role's config.properties already parameterises this
     # (server.address={{ data_quality_filter_service_tomcat_server_address | default('127.0.0.1') }});

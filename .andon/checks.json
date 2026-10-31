@@ -167,6 +167,15 @@
     },
     {
       "match": [
+        "roles/la-compose/templates/data-quality-cache.conf.j2",
+        "roles/la-compose/templates/data-quality-cache.inc.j2",
+        "roles/la-compose/tasks/generate-compose.yml",
+        "scripts/test-nginx-quality-cache.sh"
+      ],
+      "run": "bash scripts/test-nginx-quality-cache.sh"
+    },
+    {
+      "match": [
         "roles/la-compose/files/remove-file-mount-artifacts.py",
         "scripts/test-file-mount-artifacts.sh"
       ],
