@@ -85,6 +85,12 @@ services:
   # Nginx reverse proxy
   nginx:
     container_name: la_nginx
+    # Vhosts proxy without upstream keepalive, so each request to a container opens a new
+    # connection. With the default port range and 60 s of TIME_WAIT that tops out near 470
+    # connections/s to one upstream, and nginx answers 502 (99: Cannot assign requested address).
+    sysctls:
+      net.ipv4.tcp_tw_reuse: "1"
+      net.ipv4.ip_local_port_range: "10240 65000"
     profiles: [infra, core-auth, app-core, full]
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     image: nginx:{{ docker_nginx_version | default('1.25') }}

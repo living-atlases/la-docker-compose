@@ -341,6 +341,11 @@ skip_hubs: []
 # stable. Staying on 1.25 cost us build #361: cas5 emits add_header_inherit, which needs >= 1.29.3.
 docker_nginx_version: "1.30"
 
+# The ala-install default of 100 closes a client's HTTP/2 connection every 100 requests. Services
+# that call each other through nginx hit it under load: okhttp reports REFUSED_STREAM and
+# ConnectionShutdownException. 1000 is nginx's own default since 1.19.10.
+docker_nginx_keepalive_requests: 1000
+
 # Nginx container paths (override host-specific paths from nginx role)
 nginx_user: nginx
 nginx_pidfile: /var/run/nginx.pid

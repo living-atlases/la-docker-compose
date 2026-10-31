@@ -158,6 +158,15 @@
     },
     {
       "match": [
+        "roles/la-compose/templates/docker-compose/infrastructure/nginx.yml.j2",
+        "roles/la-compose/tasks/generate-compose.yml",
+        "roles/la-compose/defaults/main.yml",
+        "scripts/test-nginx-upstream-ports.sh"
+      ],
+      "run": "bash scripts/test-nginx-upstream-ports.sh"
+    },
+    {
+      "match": [
         "roles/la-compose/files/remove-file-mount-artifacts.py",
         "scripts/test-file-mount-artifacts.sh"
       ],
