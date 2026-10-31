@@ -1774,6 +1774,11 @@
     ecodata_application_client_secret: "{{ ecodata_client_secret | default('') }}"
     namesmatching_base_url: "{{ namematching_service_url | default('') }}"
     scistarter_cron_schedule: "0 0 0 1 1 ? 2099"
+    # Read only by the role's MERIT download and S3 backup scripts, which nothing runs here. The
+    # role copies them regardless, and the inventory has merit_base_url in [biocollect:vars] only.
+    merit_base_url: ""
+    document_backup_bucket: ""
+    mongo_backup_bucket: ""
   when:
     - "'ecodata' in services_enabled"
     - "service_aliases.get('ecodata') is defined"
