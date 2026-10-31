@@ -1822,6 +1822,9 @@
     lists_ui_base_url: "{{ lists_url | default('') }}"
     # The role's default only lets csiro.au addresses through, to spare real users on test systems.
     mail_filter: ""
+    # Their defaults are ALA's own test PWA and its 2020 name index; neither is ours to depend on.
+    pwa_app_url: ""
+    species_catalog_url: ""
     # Required by the template with no default; none of these features runs on a Living Atlas.
     fathom_site_id: ""
     ref_assess_hub: ""

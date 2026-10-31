@@ -1450,7 +1450,12 @@ EOF
                     scripts/render-properties-offline.sh \
                         \$(printf -- '--inventory %s ' "${INVENTORY_DIR}"/*.ini) \
                         --output "\$BASE_TMP"
-                    scripts/config-baseline.py check --from "\$BASE_TMP"
+                    # A variant that switches services on renders more than the default
+                    # layout, so it keeps its own frozen URLs next to its placement.
+                    BASELINE=config-baseline.json
+                    VARIANT_BASELINE="topologies/${params.TOPOLOGY}.config-baseline.json"
+                    if [ -f "\$VARIANT_BASELINE" ]; then BASELINE="\$VARIANT_BASELINE"; fi
+                    scripts/config-baseline.py check --from "\$BASE_TMP" --baseline "\$BASELINE"
                     # The baseline only sees CHANGE: a URL already wrong when it was frozen
                     # passes it forever, which is how spatial-hub's lists.urlUi kept pointing
                     # at lists.ala.org.au. This rejects any undeclared ALA service/test host.

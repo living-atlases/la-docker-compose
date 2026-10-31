@@ -13,6 +13,7 @@ offline (Level 1) and with real deploys (Level 2).
 |---|---|
 | `base.lademo.yo-rc.json` | Sanitized copy of the CI's la-toolkit `.yo-rc.json` (hosts renamed to `la-mh-*`, IPs to `10.77.0.*`, secrets replaced). The base every fixture derives from. |
 | `<variant>.placement.json` | Small declarative overlay: host slots + service→slot map + optional per-data-hub front-end placement + runtime `skip_services` for reduced variants. |
+| `<variant>.config-baseline.json` | Optional. Frozen URLs for a variant that enables services the default layout does not run; the `Config URL baseline` stage uses it instead of `config-baseline.json`. |
 | `../inventories/testing/topologies/<variant>/` | COMMITTED generated fixture (`.yo-rc.json`, `lademo-inventories/lademo-inventory.ini` and one `<pkg>-inventories/<pkg>-inventory.ini` per data hub) for each variant. |
 
 Variants: `default-3host` (control — the current CI split; the matrix must
