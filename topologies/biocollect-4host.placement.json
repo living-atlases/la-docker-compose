@@ -1,9 +1,10 @@
 {
-  "description": "BioCollect: the default 3-host split plus biocollect, ecodata and pdfgen on host2, the only one with room (about 9 GB). MANUAL builds only.",
+  "description": "BioCollect: the default 3-host split plus a fourth host for biocollect, ecodata and pdfgen (about 9 GB). MANUAL builds only.",
   "hosts": [
     "host1",
     "host2",
-    "host3"
+    "host3",
+    "host4"
   ],
   "enable": [
     "biocollect",
@@ -37,9 +38,9 @@
     "cassandra": "host3",
     "airflow": "host3",
     "gatus": "host3",
-    "biocollect": "host2",
-    "pdfgen": "host2",
-    "ecodata": "host2"
+    "biocollect": "host4",
+    "pdfgen": "host4",
+    "ecodata": "host4"
   },
   "skip_services": []
 }

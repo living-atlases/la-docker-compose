@@ -22,7 +22,9 @@ Placement overlay format (topologies/*.placement.json):
     "hosts": ["host1", "host2"],          # logical slots, mapped by ORDER to
                                           # the base .yo-rc host list; fewer
                                           # slots than base hosts drops the
-                                          # trailing base hosts
+                                          # trailing base hosts. More slots take
+                                          # the hosts of --extra-host, or la-mh-N
+                                          # on the sanitized fixture base
     "enable": ["biocollect", ...],        # OPTIONAL services the base .yo-rc has
                                           # disabled, switched on for this variant
     "services": {"collectory": "host1", ...},
@@ -68,6 +70,9 @@ SUBSERVICE_PARENT = {
 # Placement bookkeeping keys that look like LA_<service>_hostname but are not
 # individually placeable services.
 NON_SERVICE_HOSTNAME_KEYS = {"docker_compose", "docker_common"}
+
+# Enabled services that stay internal: no vhost, so no alias.
+NO_PUBLIC_VHOST = {"pdfgen"}
 
 # A data hub's front-ends, named after the portal service each one mirrors. Each is
 # optional per hub: a records-only hub carries LA_ala_hub_hostname and nothing else.
@@ -232,6 +237,25 @@ def enable_services(pv, placement):
             die("placement enables unknown service '%s' (no %s in base)" % (svc, key))
         pv["LA_use_%s" % svc] = True
         pv[key] = str(pv.get(key) or "").strip() or base_hosts(pv)[0][0]
+        # The aliases are a snapshot of what the base runs: a service switched on here
+        # is not in it, and would get no vhost mapping in the proxy nor between hosts.
+        url = str(pv.get("LA_%s_url" % svc) or "").strip()
+        by_host = pv.get("LA_nginx_docker_internal_aliases_by_host") or {}
+        if url and by_host and svc not in NO_PUBLIC_VHOST and url not in alias_union(pv):
+            next(iter(by_host.values())).append(url)
+
+
+def extra_hosts(pv, placement, count):
+    """The hosts a variant adds to the base: [(name, ip)] from --extra-host, or the
+    fixture convention on a sanitized base, which has no real host to name."""
+    given = [tuple(h.split(":", 1)) for h in placement.get("_extra_hosts") or []]
+    bhosts = base_hosts(pv)
+    if not given and all(n.startswith("la-mh-") for n, _ in bhosts):
+        first = len(bhosts) + 1
+        given = [("la-mh-%d" % i, "10.77.0.%d" % i) for i in range(first, first + count)]
+    if len(given) < count:
+        die("placement needs %d more hosts than the base .yo-rc: pass --extra-host name:ip" % count)
+    return given[:count]
 
 
 def resolve_placement(pv, placement):
@@ -242,7 +266,7 @@ def resolve_placement(pv, placement):
         die("placement: 'hosts' must be a non-empty list of slot names")
     bhosts = base_hosts(pv)
     if len(slots) > len(bhosts):
-        die("placement needs %d hosts but base .yo-rc only has %d" % (len(slots), len(bhosts)))
+        bhosts = bhosts + extra_hosts(pv, placement, len(slots) - len(bhosts))
     hosts = bhosts[: len(slots)]
     slot_index = {slot: i for i, slot in enumerate(slots)}
 
@@ -421,6 +445,7 @@ def cmd_apply(args):
     doc, pv = load_yorc(args.base)
     with open(args.placement) as f:
         placement = json.load(f)
+    placement["_extra_hosts"] = args.extra_host
     dropped = [n for n, _ in base_hosts(pv)][len(placement["hosts"]):]
     overrides, _, _, _ = compute_variant(pv, placement)
     pv.update(overrides)
@@ -440,6 +465,7 @@ def cmd_proxy_map(args):
     _, pv = load_yorc(args.base)
     with open(args.placement) as f:
         placement = json.load(f)
+    placement["_extra_hosts"] = args.extra_host
     _, hosts, svc_slot, alias_host = compute_variant(pv, placement)
     ip_of = dict(hosts)
     print("# public vhost -> VM (for the external front proxy)")
@@ -492,11 +518,14 @@ def main():
     ap.add_argument("--base", required=True)
     ap.add_argument("--placement", required=True)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--extra-host", action="append", default=[], metavar="NAME:IP",
+                    help="host for a slot the base .yo-rc does not have (repeatable)")
     ap.set_defaults(func=cmd_apply)
 
     pm = sub.add_parser("proxy-map", help="print public vhost -> VM map for a placement")
     pm.add_argument("--base", required=True)
     pm.add_argument("--placement", required=True)
+    pm.add_argument("--extra-host", action="append", default=[], metavar="NAME:IP")
     pm.set_defaults(func=cmd_proxy_map)
 
     sa = sub.add_parser("sanitize", help="strip secrets + rename hosts to la-mh-* fixture names")

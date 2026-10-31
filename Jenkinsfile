@@ -539,6 +539,8 @@ pipeline {
         // default lives under a different name). A job-level TARGET_HOSTS env
         // override still wins.
         DEFAULT_TARGET_HOSTS = "gbif-es-docker-cluster-2023-1 gbif-es-docker-cluster-2023-2 gbif-es-docker-cluster-2023-3"
+        // Only for the topologies that ask for more hosts: the default build never touches it.
+        EXTRA_TARGET_HOSTS = "gbif-es-docker-cluster-2026-4"
 
         BASE_DIR = "${env.HOME}/ala-install-docker-tests"
         GENERATOR_DIR = "${BASE_DIR}/generator-living-atlas"
@@ -572,7 +574,7 @@ pipeline {
         )
         choice(
             name: 'TOPOLOGY',
-            choices: ['default', '3host-alt', '2host', '1host', 'biocollect-3host'],
+            choices: ['default', '3host-alt', '2host', '1host', 'biocollect-4host'],
             description: 'Deployment topology. default = the la-toolkit-synced layout (current 3-host split, untouched). Any other value applies topologies/<name>.placement.json over the agent\'s .yo-rc (backed up and restored on the next default build), trims TARGET_HOSTS to the variant\'s host count and merges its skip_services. MANUAL BUILDS ONLY — SCM-triggered builds refuse non-default topologies. Remember to point the external front proxy per topologies/README.md (scripts/apply-topology.py proxy-map) before/after.'
         )
         string(
@@ -719,7 +721,7 @@ pipeline {
                         if (!fileExists(placementFile)) {
                             error("TOPOLOGY=${topo}: ${placementFile} not found")
                         }
-                        def allHosts = env.TARGET_HOSTS.trim().split(/\s+/)
+                        def allHosts = "${env.TARGET_HOSTS} ${env.EXTRA_TARGET_HOSTS}".trim().split(/\s+/)
                         def hostCount = sh(returnStdout: true,
                             script: "python3 -c \"import json; print(len(json.load(open('${placementFile}'))['hosts']))\"").trim().toInteger()
                         if (hostCount > allHosts.size()) {
@@ -1340,14 +1342,19 @@ EOF
                             echo "Backed up la-toolkit .yo-rc to \$YORC_BASE"
                         fi
                         echo "Applying topology overlay: ${params.TOPOLOGY}"
+                        # The extra hosts are not in the .yo-rc: their IP comes from ~/.ssh/config.
+                        EXTRA_HOST_ARGS=""
+                        for h in ${env.EXTRA_TARGET_HOSTS}; do
+                            EXTRA_HOST_ARGS="\$EXTRA_HOST_ARGS --extra-host \$h:\$(ssh -G "\$h" | awk '/^hostname /{print \$2}')"
+                        done
                         python3 "${WORKSPACE}/scripts/apply-topology.py" apply \
                             --base "\$YORC_BASE" \
                             --placement "${WORKSPACE}/topologies/${params.TOPOLOGY}.placement.json" \
-                            --out "\$YORC"
+                            --out "\$YORC" \$EXTRA_HOST_ARGS
                         echo "Front-proxy routing this variant needs (apply in ansible-extras):"
                         python3 "${WORKSPACE}/scripts/apply-topology.py" proxy-map \
                             --base "\$YORC_BASE" \
-                            --placement "${WORKSPACE}/topologies/${params.TOPOLOGY}.placement.json"
+                            --placement "${WORKSPACE}/topologies/${params.TOPOLOGY}.placement.json" \$EXTRA_HOST_ARGS
                     elif [ -f "\$YORC_BASE" ]; then
                         echo "TOPOLOGY=default: restoring la-toolkit .yo-rc from backup"
                         mv "\$YORC_BASE" "\$YORC"
