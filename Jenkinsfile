@@ -873,6 +873,11 @@ EOF
             steps {
                 sh '''
                     set -eu
+                    # Several tests here read the ala-install roles. Jenkins' checkout does not
+                    # touch the submodule, and a build that fails before 'Prepare environment'
+                    # never syncs it, so without this they test a stale ala-install and every
+                    # later build fails the same way (#507).
+                    git submodule update --init --remote ala-install
                     VENV_MOL="${WORKSPACE}/.venv-molecule"
                     if [ ! -d "$VENV_MOL" ]; then
                         python3 -m venv "$VENV_MOL"
