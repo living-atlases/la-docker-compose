@@ -42,5 +42,9 @@
     "pdfgen": "host4",
     "ecodata": "host4"
   },
+  "hubs": {
+    "testhub": { "ala_bie": "host2" }
+  },
+  "shared_vhost_splits": ["hub.l-a.site"],
   "skip_services": []
 }
