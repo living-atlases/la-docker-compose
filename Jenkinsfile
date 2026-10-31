@@ -1313,7 +1313,14 @@ EOF
                     
                     echo "Installing generator and runner via npm..."
                     \$NPM install --no-audit --no-fund yo yeoman-environment yeoman-generator generator-living-atlas@latest
-                    
+                    # yo runs the generator found here, so without this GENERATOR_BRANCH only
+                    # picks the checkout whose SHA and deps are looked at, and a build asking
+                    # for a branch silently generates with the npm release.
+                    if [ "${params.GENERATOR_BRANCH}" != "master" ]; then
+                        echo "Using generator-living-atlas from branch ${params.GENERATOR_BRANCH}"
+                        \$NPM install --no-audit --no-fund --no-save "${GENERATOR_DIR}"
+                    fi
+
                     # Verify installations
                     echo "Verifying installations..."
                     \$NPM ls yo --depth=0
