@@ -789,7 +789,7 @@
 - name: Apply nginx defaults only where inventory did not provide a value
   ansible.builtin.set_fact:
     "{{ item.key }}": "{{ item.value }}"
-  loop: "{{ _nginx_role_defaults | dict2items }}"
+  loop: "{{ _nginx_role_defaults | combine({'nginx_keepalive_requests': docker_nginx_keepalive_requests}) | dict2items }}"
   loop_control:
     label: "{{ item.key }}"
   when:
@@ -858,8 +858,6 @@
     mode: '0644'
     owner: "{{ docker_compose_userid }}"
     group: "{{ docker_compose_usergid }}"
-  vars:
-    nginx_keepalive_requests: "{{ docker_nginx_keepalive_requests }}"
   when: "'nginx' in services_enabled"
   tags:
     - docker-compose
