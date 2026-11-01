@@ -12,6 +12,8 @@ services:
     environment:
       TZ: {{ server_tz | default('UTC') }}
       JAVA_OPTS: ${ECODATA_JAVA_OPTS}
+      # The app's own application.yml binds to localhost, for the VM's nginx.
+      SERVER_ADDRESS: 0.0.0.0
     volumes:
       # config, uploads, models and scripts: the role writes them under /data/ecodata.
       - {{ data_dir }}/ecodata:/data/ecodata
@@ -19,6 +21,10 @@ services:
       - {{ data_dir }}/ecodata/tmp:/data/tmp
       - {{ data_dir }}/ecodata/logs:/var/log/atlas/ecodata
     networks:
+      # See ecodata_api_subnet in defaults/main.yml.
+      ecodata-api:
+        ipv4_address: {{ ecodata_api_ecodata_ip }}
+        aliases: [ecodata-api]
       default: {}
       {{ docker_network | default('internal') }}:
     # MongoDB and the ES sidecar are boot dependencies. ClamAV (clamav_host, on-demand upload
@@ -37,3 +43,9 @@ services:
       timeout: 10s
       retries: 5
       start_period: 240s
+
+networks:
+  ecodata-api:
+    ipam:
+      config:
+        - subnet: {{ ecodata_api_subnet }}

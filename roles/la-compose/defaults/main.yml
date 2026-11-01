@@ -957,3 +957,11 @@ docker_autoheal_probes: []
 docker_autoheal_probe_fails: 3
 docker_autoheal_deploy_marker: "{{ docker_housekeeping_deploy_marker | default('/run/la-compose-deploy.marker') }}"
 docker_autoheal_deploy_marker_max_age_min: "{{ docker_housekeeping_deploy_marker_max_age_min | default(360) }}"
+
+# biocollect -> ecodata runs over its own network, not ecodata's vhost: ecodata lets a caller
+# through only by its address (app.api.whiteList), and behind nginx every caller is nginx.
+# So biocollect's address is fixed here, and only biocollect is on the network. Both services
+# must share a host (validate-topology.yml). A /29 holds the gateway and these two.
+ecodata_api_subnet: "10.250.250.0/29"
+ecodata_api_biocollect_ip: "10.250.250.2"
+ecodata_api_ecodata_ip: "10.250.250.3"

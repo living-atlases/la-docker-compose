@@ -173,6 +173,8 @@
             client_id: "{{ biocollect_client_id | default('') }}"
             client_secret: "{{ biocollect_client_secret | default('') }}"
             url: "{{ (biocollect_base_url | default('')) ~ (biocollect_context_path | default('')) }}"
+            # ecodata checks these on every /ws call; no other client needs them.
+            extra_scopes: ["ecodata/read", "ecodata/write"]
           - name: ecodata
             client_id: "{{ ecodata_client_id | default('') }}"
             client_secret: "{{ ecodata_client_secret | default('') }}"

@@ -17,6 +17,9 @@ services:
       - {{ data_dir }}/biocollect:/data/biocollect
       - {{ data_dir }}/biocollect/tmp:/data/tmp
     networks:
+      # See ecodata_api_subnet in defaults/main.yml.
+      ecodata-api:
+        ipv4_address: {{ ecodata_api_biocollect_ip }}
       default: {}
       {{ docker_network | default('internal') }}:
     # biocollect does NOT use a datastore directly (its playbook pulls no mongodb-org role): it
@@ -29,3 +32,9 @@ services:
       timeout: 10s
       retries: 5
       start_period: 120s
+
+networks:
+  ecodata-api:
+    ipam:
+      config:
+        - subnet: {{ ecodata_api_subnet }}

@@ -67,6 +67,8 @@ const NOT_VIEWCONFIG = [
   "recordsWs", // biocache-service: no ala-admin plugin, /alaAdmin/viewConfig is a 404
   "namematching", // namematching-service: not a Grails app
   "recordsDownload", // static download area of the records hub
+  "biocollect", // /alaAdmin/viewConfig needs an admin login, and is a 403 for the audit's user
+  "ecodata", // ecodata refuses every address but biocollect's on these paths
   "gatus",
   "mailhog",
 ];

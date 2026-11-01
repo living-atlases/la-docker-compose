@@ -7,14 +7,15 @@ describe("BioCollect stack (biocollect, ecodata)", () => {
   it("ecodata answers through its vhost", function () {
     skipIfMissing("ecodata", this);
     cy.request({ url: serviceUrl("ecodata", "/"), failOnStatusCode: false }).then((resp) => {
-      expect(resp.status, "ecodata /").to.be.lessThan(500);
+      // Only biocollect's address gets past ecodata: a 403 proves the app answered, a 502 not.
+      expect(resp.status, "ecodata /").to.eq(403);
     });
   });
 
   it("biocollect renders its home page, which reads from ecodata", function () {
     skipIfMissing("biocollect", this);
     cy.request({ url: serviceUrl("biocollect", "/"), failOnStatusCode: false }).then((resp) => {
-      expect(resp.status, "biocollect /").to.be.lessThan(500);
+      expect(resp.status, "biocollect /").to.eq(200);
     });
   });
 });

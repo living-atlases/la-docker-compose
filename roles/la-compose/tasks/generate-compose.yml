@@ -1774,6 +1774,13 @@
     ecodata_application_client_secret: "{{ ecodata_client_secret | default('') }}"
     namesmatching_base_url: "{{ namematching_service_url | default('') }}"
     scistarter_cron_schedule: "0 0 0 1 1 ? 2099"
+    # app.api.whiteList: only biocollect's fixed address on the ecodata-api network.
+    biocollect_ip: "{{ ecodata_api_biocollect_ip }}"
+    merit_ip: "127.0.0.1"
+    ecodata_read_scope: "ecodata/read"
+    ecodata_write_scope: "ecodata/write"
+    # Answers 403 from anywhere but biocollect, so the role's 200-or-redirect check on / stays red.
+    gatus_root_up_conditions: ["[CONNECTED] == true", "[STATUS] == 403"]
     # Read only by the role's MERIT download and S3 backup scripts, which nothing runs here. The
     # role copies them regardless, and the inventory has merit_base_url in [biocollect:vars] only.
     merit_base_url: ""
@@ -1810,6 +1817,13 @@
     nginx_vhost_fast_mode: true
     nginx_upstream_host: "biocollect"
     biocollect_upstream_host: "biocollect"
+    # Over ecodata-api, not ecodata's vhost: through nginx it sees nginx's address, and refuses it.
+    ecodata_base_url: "http://ecodata-api:{{ ecodata_port | default('8080') }}"
+    # biocollect only sends its token to these hosts, by suffix. The default is ala.org.au.
+    biocollect_domain_whitelist: "ecodata-api"
+    cas_jwt_scopes: "users/read ecodata/read ecodata/write"
+    # A location only for /download/<id>: the bare path is a 500 with nothing wrong.
+    nginx_paths_gatus_exclude: ["{{ biocollect_context_path }}/download/"]
     # The generator's 9003 is the VM's port, where several apps share a host.
     biocollect_tomcat_server_port: "{{ biocollect_port | default('8080') }}"
     biocollect_user: "{{ docker_default_user }}"

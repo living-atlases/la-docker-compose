@@ -113,6 +113,19 @@
         _biocollect_hosts: "{{ groups['biocollect'] | default([]) | map('extract', hostvars, 'ansible_host') | unique | sort }}"
       when: groups['pdfgen'] | default([]) | length > 0 and groups['biocollect'] | default([]) | length > 0
 
+    - name: "1d. Assert ecodata is next to biocollect: they talk over a private network"
+      ansible.builtin.assert:
+        that: _ecodata_hosts == _biocollect_hosts
+        fail_msg: >-
+          ecodata ({{ _ecodata_hosts | join(', ') }}) and biocollect
+          ({{ _biocollect_hosts | join(', ') }}) must run on the same host: ecodata only
+          accepts biocollect's address on the ecodata-api network.
+        success_msg: "ecodata and biocollect share a host"
+      vars:
+        _ecodata_hosts: "{{ groups['ecodata'] | default([]) | map('extract', hostvars, 'ansible_host') | unique | sort }}"
+        _biocollect_hosts: "{{ groups['biocollect'] | default([]) | map('extract', hostvars, 'ansible_host') | unique | sort }}"
+      when: groups['ecodata'] | default([]) | length > 0 and groups['biocollect'] | default([]) | length > 0
+
     - name: "2. Detect public vhost aliases served from more than one host"
       ansible.builtin.set_fact:
         topo_dup_aliases: >-
