@@ -7,6 +7,8 @@ services:
     image: {% set svc_reg = pdf_service_registry | default(docker_registry | default('')) %}{{ svc_reg }}{% if svc_reg %}/{% endif %}pdfgen:{{ pdf_service_version | default('latest') }}
     container_name: {{ pdfgen_docker_host | default('la_pdfgen') }}
     profiles: [app-core, full]
+    # wkhtmltopdf gets a bare file name and writes it here, and pdfgen then looks in storageDir.
+    working_dir: /data/pdfs
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     restart: unless-stopped
     expose:
