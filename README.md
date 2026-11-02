@@ -650,6 +650,9 @@ The daily `mysql-ALL-*.sql.zst` holds the application databases, without
 Routines and events are restored, but fail with `ERROR 1449` until their `DEFINER`
 exists. Accounts are not in the dump: the deploy creates them.
 
+`TIMESTAMP` columns come back shifted by the server's UTC offset: the dump writes them
+in local time under `SET TIME_ZONE='+00:00'`. `DATETIME` columns are not affected.
+
 To prove a dump without touching anything, load it into a throwaway offline MySQL of
 the version in its header. This prints the rows of every table, the routines and the
 events:
