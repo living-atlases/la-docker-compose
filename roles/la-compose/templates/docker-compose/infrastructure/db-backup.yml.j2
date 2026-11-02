@@ -6,7 +6,7 @@ services:
     # single static binary that prints "this image has moved" and nothing else: no shell,
     # no backup, no way for ANY healthcheck to pass. Builds #386+ burned the whole
     # converge budget on the two hosts carrying it. Successor, same DBxx_ env contract:
-    # nfrastack/db-backup (verified 5.0.2 parses the variables below unchanged).
+    # nfrastack/db-backup (5.0.2 parses the variables below, except the two noted further on).
     # PINNED on purpose -- `latest` is what let an upstream retirement redden CI.
     image: nfrastack/db-backup:{{ db_backup_version | default('5.0.2') }}
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
@@ -22,32 +22,37 @@ services:
       - CONTAINER_NAME=db-backup
       - CONTAINER_ENABLE_MONITORING=FALSE
       # DB01_RESOURCE_OPTIMIZED was dropped: 5.x warns [DEPRECATED] and ignores it.
-      # Every other variable below was verified to still be honoured by 5.0.2
-      # (3 jobs configured, concurrency=1 respected, backup path still /backup).
+      # 5.0.2 reads neither DEFAULT_CLEANUP_TIME nor DEFAULT_BACKUP_BEGIN (5.0.7 reads both):
+      # the jobs started at container start, and with no retention nothing was ever deleted.
+      # So the cleanup time goes on each job, which 5.0.2 and 5.0.7 honour. It is minutes.
+      # A job prunes all of /backup, not just its own dumps, and only after it succeeds: the
+      # last dumps of a database that keeps failing go once another job outlives them.
       - BACKUP_JOB_CONCURRENCY=1
       - DEFAULT_CHECKSUM=NONE
       - DEFAULT_COMPRESSION=ZSTD
       - DEFAULT_BACKUP_INTERVAL={{ db_backup_interval | default('1440') }}
       - DEFAULT_BACKUP_BEGIN={{ db_backup_begin | default('0000') }}
-      - DEFAULT_CLEANUP_TIME={{ db_cleanup_time | default('8640') }}
       # MongoDB backup (DB01)
       - DB01_TYPE=mongo
       - DB01_HOST={{ mongodb_docker_host_address | default('mongodb') }}
       - DB01_NAME={{ mongo_backup_db | default('admin') }}
       - DB01_USER={{ mongodb_root_username }}
       - DB01_PASS=${MONGODB_ROOT_PASSWORD}
+      - DB01_CLEANUP_TIME={{ db_cleanup_time | default('8640') }}
       # MySQL backup (DB02)
       - DB02_TYPE=mysql
       - DB02_HOST={{ collectory_db_host_address }}
       - DB02_NAME=all
       - DB02_USER=root
       - DB02_PASS=${MYSQL_ROOT_PASSWORD}
+      - DB02_CLEANUP_TIME={{ db_cleanup_time | default('8640') }}
       # PostgreSQL backup (DB03)
       - DB03_TYPE=postgres
       - DB03_HOST={{ postgres_db_host_address | default('postgres') }}
       - DB03_NAME=all
       - DB03_USER={{ postgres_user | default('postgres') }}
       - DB03_PASS=${POSTGRES_PASSWORD}
+      - DB03_CLEANUP_TIME={{ db_cleanup_time | default('8640') }}
     healthcheck:
       # The image's own healthcheck. It must be a binary the image actually ships: this
       # is a distroless image with no shell and no coreutils, so the previous

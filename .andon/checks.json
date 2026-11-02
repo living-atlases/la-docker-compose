@@ -248,6 +248,13 @@
     },
     {
       "match": [
+        "roles/la-compose/templates/docker-compose/infrastructure/db-backup.yml.j2",
+        "scripts/test-db-backup-retention.sh"
+      ],
+      "run": "VENV_MOLECULE=.venv-molecule bash scripts/test-db-backup-retention.sh"
+    },
+    {
+      "match": [
         "ansible-constraints.txt",
         "scripts/test-ansible-version-pin.sh",
         "scripts/setup-molecule.sh"

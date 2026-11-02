@@ -1048,6 +1048,10 @@ EOF
                     # (4.4 min of manifest checks per run in #430/#431). Shimmed docker, ~10s.
                     VENV_MOLECULE="$VENV_MOL" bash scripts/test-compose-pull-policy.sh
 
+                    # la_db-backup deletes old dumps on the image it really runs: 5.0.2 ignores
+                    # DEFAULT_CLEANUP_TIME, and dumps grew unnoticed. Real image, ~1 min.
+                    VENV_MOLECULE="$VENV_MOL" bash scripts/test-db-backup-retention.sh
+
                     # The healthcheck binary probe caches passes by image ID (2.4-3.9 min of
                     # container starts per run in #430/#431). Shimmed docker, ~2s.
                     bash scripts/test-healthcheck-probe-cache.sh
