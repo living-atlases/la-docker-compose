@@ -98,6 +98,7 @@
   when:
     - (nginx_remote_shared_members | default([])) | length > 0
     - groups['gatus'] is defined and groups['gatus'] | length > 0
+    - use_gatus | default(false) | bool
   tags:
     - docker-compose
     - nginx_vhost

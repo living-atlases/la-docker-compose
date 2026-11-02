@@ -1014,6 +1014,10 @@ EOF
                     # (gbif-es colecciones-marinas, 2026-10-29). ~1s.
                     VENV_MOLECULE="$VENV_MOL" bash scripts/test-bie-hub-server-url.sh
 
+                    # A deploy limited to staging must not write checks into production's
+                    # gatus: delegate_to ignores --limit (gbif-es, 2026-11-02). ~1s.
+                    VENV_MOLECULE="$VENV_MOL" bash scripts/test-gatus-stage.sh
+
                     # skip_services in every form a caller sends it: the toolkit's extra var
                     # string "sds-static-home" dropped 'sds' too (substring match, the set_fact
                     # normalize never beat the extra var). ansible-playbook on localhost, ~10s.
