@@ -636,6 +636,28 @@ lists its resources, and confirm an image renders.
 
 ---
 
+## Restoring a `la_db-backup` dump
+
+The daily `mysql-ALL-*.sql.zst` holds the application databases, without
+`mysql.user`. A plain `mysql < dump` does not restore it, for three reasons:
+
+| Error | Cause | Fix |
+|---|---|---|
+| `ERROR 1049 Unknown database` | the dump has `USE` but no `CREATE DATABASE` | create the databases first (`init-databases.yml` already did on a deployed stack) |
+| `ASCII '\0' appeared in the statement` | `bit(1)` columns are written as raw bytes | `mysql --binary-mode=1` |
+| `ERROR 1153 ... max_allowed_packet` | each table is one `INSERT`, over 200 MB on a real portal against the server's 64 MB | `--max-allowed-packet=1G` on the client and `SET GLOBAL max_allowed_packet=1073741824` on the server |
+
+Routines and events are restored, but fail with `ERROR 1449` until their `DEFINER`
+exists. Accounts are not in the dump: the deploy creates them.
+
+To prove a dump without touching anything, load it into a throwaway offline MySQL of
+the version in its header. This prints the rows of every table, the routines and the
+events:
+
+```bash
+MYSQL_IMAGE=mysql:8.0.46 scripts/restore-db-backup.sh mysql-ALL-mysql-full-XXXX.sql.zst
+```
+
 ## Experimental: Airflow ingestion
 
 > **Status: experimental / work in progress.** The end-to-end ingestion harness
