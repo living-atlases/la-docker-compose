@@ -35,7 +35,14 @@
 {% set deep = gatus_extra_endpoints | default([]) | selectattr('service', 'in', resolved) | list %}
 {# Host disk checks are per-machine, not per-service, so they do not go through the
    `resolved` URL machinery above — they are keyed off the inventory group directly. #}
-{% set disk_hosts = (groups['docker_compose'] | default([])) if (docker_metrics_enabled | default(true)) else [] %}
+{# Only this stage's hosts: gatus says nothing about a stage it does not belong to. #}
+{% set disk = namespace(hosts=[]) %}
+{% for h in (groups['docker_compose'] | default([])) if docker_metrics_enabled | default(true) %}
+{% if (hostvars[h].docker_stage | default('production')) == (docker_stage | default('production')) %}
+{% set disk.hosts = disk.hosts + [h] %}
+{% endif %}
+{% endfor %}
+{% set disk_hosts = disk.hosts %}
 {% if deep | length > 0 or fqdns | length > 0 or disk_hosts | length > 0 %}
 endpoints:
 {% for ep in deep %}

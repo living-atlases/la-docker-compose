@@ -68,6 +68,15 @@ for path in (root / "roles/la-compose/tasks").glob("*.yml"):
 if passed:
     failed.append(f"include_role passes use_gatus: {passed}")
 
+# The disk checks: a production gatus says nothing about a staging host.
+template = (root / "roles/la-compose/templates/docker-compose/gatus/extra-checks.yaml.j2").read_text()
+disk = template[template.index("{% set disk = namespace"):template.index("{% set disk_hosts = disk.hosts %}")]
+disk_env = jinja2.Environment(undefined=jinja2.ChainableUndefined, trim_blocks=True, lstrip_blocks=True)
+rendered = disk_env.from_string(disk + "{{ disk.hosts | join(',') }}").render(
+    groups={"docker_compose": list(both)}, hostvars=both, docker_stage="production").strip()
+if rendered != "a":
+    failed.append(f"disk checks on a production gatus: {rendered!r}")
+
 stubs = yaml.safe_load((root / "roles/la-compose/tasks/register-shared-vhost-stubs.yml").read_text())
 delegated = [t for t in stubs if "groups['gatus'][0]" in str(t.get("delegate_to", ""))]
 if not delegated or any("use_gatus" not in str(t.get("when")) for t in delegated):
