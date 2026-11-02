@@ -78,3 +78,50 @@
       tables converted: {{ emmet_bad_tables.stdout_lines | default([]) | length }}
   when: "'mysql' in db_compose_services.stdout_lines"
   tags: [db-init, db-migrations]
+
+# --- Migration 2: logger remote_address from logger_authorize_ip_list -------
+# logger-service answers 401 to event POSTs from an IP missing from remote_address,
+# and biocache-service only logs a WARN, so a biocache-service moved to a new host
+# loses its download statistics while every health check stays green. The
+# ala-install task that fills the table is skipped on compose deploys, which left
+# it with whatever an imported dump brought. Only adds rows: an IP added by hand
+# stays, and so does one the inventory no longer lists.
+
+- name: "DB Migration: logger — check remote_address exists"
+  ansible.builtin.command: >
+    docker exec la_mysql mysql -N -u root -p{{ mysql_root_password }}
+    -e "SELECT COUNT(*) FROM information_schema.TABLES
+        WHERE TABLE_SCHEMA='{{ logger_db_name | default('logger') }}'
+          AND TABLE_NAME='remote_address';"
+  register: logger_remote_address_table
+  become: true
+  changed_when: false
+  no_log: true
+  when:
+    - "'mysql' in db_compose_services.stdout_lines"
+    - "'logger-service' in physical_server_groups | default([])"
+  tags: [db-init, db-migrations]
+
+- name: "DB Migration: logger — list the authorised IPs"
+  ansible.builtin.command: >
+    docker exec la_mysql mysql -N -u root -p{{ mysql_root_password }}
+    -e "SELECT ip FROM {{ logger_db_name | default('logger') }}.remote_address;"
+  register: logger_known_ips
+  become: true
+  changed_when: false
+  no_log: true
+  when: (logger_remote_address_table.stdout | default('0') | trim) == '1'
+  tags: [db-init, db-migrations]
+
+- name: "DB Migration: logger — authorise the IPs missing from remote_address"
+  ansible.builtin.command: >
+    docker exec la_mysql mysql -u root -p{{ mysql_root_password }}
+    -e "INSERT INTO {{ logger_db_name | default('logger') }}.remote_address (ip, host_name)
+        VALUES ('{{ item }}', '{{ item }}');"
+  loop: >-
+    {{ (logger_authorize_ip_list | default('') | regex_replace(' ', '')).split(',')
+       | reject('equalto', '') | difference(logger_known_ips.stdout_lines) }}
+  become: true
+  no_log: true
+  when: logger_known_ips.stdout_lines is defined
+  tags: [db-init, db-migrations]
