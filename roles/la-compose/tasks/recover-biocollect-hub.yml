@@ -1,0 +1,32 @@
+---
+# biocollect loads its default hub from ecodata with a CAS token. On a clean deploy it boots long
+# before the portal's CAS has its OIDC clients, and then answers 404 on the hub for good, with CAS
+# and ecodata both fine: only a restart cures it. Gatus sees none of this, because / is a redirect
+# to the hub. Checked first so a redeploy over a working biocollect keeps its container.
+- name: "BioCollect: Restart it if its default hub is not loaded"
+  ansible.builtin.shell: |
+    hub_status() {
+      docker exec {{ biocollect_docker_host | default('la_biocollect') }} curl --silent --output /dev/null \
+        --max-time 15 --write-out '%{http_code}' \
+        "http://localhost:{{ biocollect_port | default('8080') }}{{ biocollect_context_path | default('') }}/ala"
+    }
+    wait_for_hub() {
+      for _ in $(seq 1 30); do
+        [ "$(hub_status)" = 200 ] && return 0
+        sleep 10
+      done
+      return 1
+    }
+    [ "$(hub_status)" = 200 ] && { echo "already loaded"; exit 0; }
+    # CAS can take a while to serve a client it was just given, so one restart may be too early.
+    for _ in 1 2 3; do
+      docker restart {{ biocollect_docker_host | default('la_biocollect') }} > /dev/null
+      if wait_for_hub; then echo "restarted"; exit 0; fi
+    done
+    echo "biocollect never loaded its default hub" >&2
+    exit 1
+  args:
+    executable: /bin/bash
+  register: biocollect_hub_recovery
+  changed_when: "'restarted' in biocollect_hub_recovery.stdout"
+  become: true

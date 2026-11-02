@@ -1067,6 +1067,16 @@
         - deploy
         - geoserver-init
 
+    # After init-cas-admin: it needs the client that task registers, wherever CAS runs.
+    - name: "BioCollect: Recover its default hub after a boot without CAS"
+      ansible.builtin.include_tasks: recover-biocollect-hub.yml
+      when:
+        - auto_deploy | default(true) | bool
+        - "'biocollect' in services_enabled"
+      tags:
+        - docker-compose
+        - deploy
+
     - name: "LAYER 3 & 4: Post-deployment validation and health check"
       ansible.builtin.include_tasks: validate-post-deploy.yml
       when: auto_deploy | default(true) | bool

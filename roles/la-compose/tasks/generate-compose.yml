@@ -1883,6 +1883,8 @@
     service_port: "{{ pdfgen_port | default('8080') }}"
     # The image's own path: the role would otherwise render {{ data_dir }}, a host path.
     pdf_dir: /data/pdfs
+    # The hosts pdfgen fetches pages from. Its default is *.ala.org.au, so it refused biocollect.
+    pdf_host_regexp: ".*{{ auth_cookie_domain | regex_escape }}"
   when:
     - "'pdfgen' in services_enabled"
     - "service_aliases.get('pdfgen') is defined"
