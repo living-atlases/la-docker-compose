@@ -1449,6 +1449,7 @@ EOF
                     trap 'rm -rf "\$BASE_TMP"' EXIT
                     scripts/render-properties-offline.sh \
                         \$(printf -- '--inventory %s ' "${INVENTORY_DIR}"/*.ini) \
+                        --no-all-fallback \
                         --output "\$BASE_TMP"
                     # A variant that switches services on renders more than the default
                     # layout, so it keeps its own frozen URLs next to its placement.

@@ -1817,8 +1817,9 @@
     biocollect_upstream_host: "biocollect"
     # Over ecodata-api, not ecodata's vhost: through nginx it sees nginx's address, and refuses it.
     ecodata_base_url: "http://ecodata-api:{{ ecodata_port | default('8080') }}"
-    # biocollect only sends its token to these hosts, by suffix. The default is ala.org.au.
-    biocollect_domain_whitelist: "ecodata-api"
+    # biocollect only sends its token to these hosts, by suffix. The default is ala.org.au: here
+    # that is ecodata and the portal's own services, which also need the token.
+    biocollect_domain_whitelist: "ecodata-api,{{ auth_cookie_domain | regex_replace('^[.]', '') }}"
     cas_jwt_scopes: "users/read ecodata/read ecodata/write"
     # A location only for /download/<id>: the bare path is a 500 with nothing wrong.
     nginx_paths_gatus_exclude: ["{{ biocollect_context_path }}/download/"]
