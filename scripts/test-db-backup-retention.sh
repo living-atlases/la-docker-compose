@@ -6,7 +6,7 @@
 #   - every DBnn job has its own DBnn_CLEANUP_TIME (db_cleanup_time reaches all of them);
 #   - on the pinned tag and on 5.0.7, each job in the generated config has a retention;
 #   - with a real postgres, a successful job deletes the dumps past the window, keeps those
-#     inside it and leaves other files alone, and the new dump holds a user database.
+#     inside it and leaves other files alone, and one new dump holds every database.
 # The mongo and mysql jobs fail here, as on a host that lacks those databases: pruning by the
 # one job that works must still happen. ~1 min with Docker (pulls once), the render alone without.
 set -u
@@ -47,6 +47,8 @@ assert len(jobs) == 3, jobs
 for job in jobs:
     assert env.get(f"{job}_CLEANUP_TIME") == "8640", f"{job} has no cleanup time of its own"
 assert "DEFAULT_CLEANUP_TIME" not in env, "DEFAULT_CLEANUP_TIME is back: the pinned image ignores it"
+for job in ("DB02", "DB03"):
+    assert env.get(f"{job}_SPLIT_DB") == "FALSE", f"{job} would split into one file per database"
 _, env = render(db_cleanup_time="2880")
 assert {env[f"{job}_CLEANUP_TIME"] for job in jobs} == {"2880"}, "db_cleanup_time does not reach every job"
 
@@ -116,7 +118,14 @@ try_tag() {
   printf '%s\n' "$files" | grep -qxF not-a-dump.tgz && pass "$tag: other files stay" \
     || bad "$tag: not-a-dump.tgz was deleted"
 
-  docker exec "$N-bk" sh -c 'for f in /backup/postgres-*.sql.zst; do [ -s "$f" ] && zstd -dc "$f"; done' 2>/dev/null \
+  # The seeds are empty, so what has content is what this run wrote.
+  local new
+  new=$(docker exec "$N-bk" sh -c 'for f in /backup/postgres-*; do [ -s "$f" ] && basename "$f"; done' 2>/dev/null)
+  case "$new" in
+    '' | *$'\n'*) bad "$tag: expected one new dump, got: ${new:-none}" ;;
+    *) pass "$tag: one dump for the whole server: $new" ;;
+  esac
+  docker exec "$N-bk" sh -c 'for f in /backup/postgres-*; do zstd -dc "$f"; done' 2>/dev/null \
     | grep -q dump-marker-row && pass "$tag: the new dump holds the user database" \
     || bad "$tag: no dump holds the user database"
 }

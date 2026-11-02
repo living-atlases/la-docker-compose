@@ -638,7 +638,7 @@ lists its resources, and confirm an image renders.
 
 ## Restoring a `la_db-backup` dump
 
-The daily `mysql-ALL-*.sql.zst` holds the application databases, without
+The daily `mysql-ALL-*.sql.zst` (`mysql-all-*` from 5.0.7 on) holds the application databases, without
 `mysql.user`. A plain `mysql < dump` does not restore it, for three reasons:
 
 | Error | Cause | Fix |

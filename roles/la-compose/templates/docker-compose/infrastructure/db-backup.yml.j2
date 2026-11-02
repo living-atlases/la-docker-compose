@@ -27,6 +27,8 @@ services:
       # So the cleanup time goes on each job, which 5.0.2 and 5.0.7 honour. It is minutes.
       # A job prunes all of /backup, not just its own dumps, and only after it succeeds: the
       # last dumps of a database that keeps failing go once another job outlives them.
+      # DBnn_SPLIT_DB: one file per server, as scripts/restore-db-backup.sh expects. 5.0.2
+      # writes that by default, 5.0.7 one file per database unless told otherwise.
       - BACKUP_JOB_CONCURRENCY=1
       - DEFAULT_CHECKSUM=NONE
       - DEFAULT_COMPRESSION=ZSTD
@@ -46,6 +48,7 @@ services:
       - DB02_USER=root
       - DB02_PASS=${MYSQL_ROOT_PASSWORD}
       - DB02_CLEANUP_TIME={{ db_cleanup_time | default('8640') }}
+      - DB02_SPLIT_DB=FALSE
       # PostgreSQL backup (DB03)
       - DB03_TYPE=postgres
       - DB03_HOST={{ postgres_db_host_address | default('postgres') }}
@@ -53,6 +56,7 @@ services:
       - DB03_USER={{ postgres_user | default('postgres') }}
       - DB03_PASS=${POSTGRES_PASSWORD}
       - DB03_CLEANUP_TIME={{ db_cleanup_time | default('8640') }}
+      - DB03_SPLIT_DB=FALSE
     healthcheck:
       # The image's own healthcheck. It must be a binary the image actually ships: this
       # is a distroless image with no shell and no coreutils, so the previous

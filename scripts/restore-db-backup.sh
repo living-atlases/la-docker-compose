@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Proves a mysql-ALL-*.sql.zst written by la_db-backup can be restored: it loads the dump
+# Proves a mysql-ALL-*.sql.zst (mysql-all-* from 5.0.7 on) written by la_db-backup can be restored: it loads the dump
 # into a throwaway MySQL with no network, prints the rows of every table plus the routines
 # and events, and removes the container. It never talks to a real database.
 #
