@@ -4,7 +4,7 @@
 # as long as the container lived, while the template said six days. Only the image can tell,
 # so this renders the real template and runs its environment on it:
 #   - every DBnn job has its own DBnn_CLEANUP_TIME (db_cleanup_time reaches all of them);
-#   - on the pinned tag and on 5.0.7, each job in the generated config has a retention;
+#   - on the pinned tag and on 5.0.2, each job in the generated config has a retention;
 #   - with a real postgres, a successful job deletes the dumps past the window, keeps those
 #     inside it and leaves other files alone, and one new dump holds every database.
 # The mongo and mysql jobs fail here, as on a host that lacks those databases: pruning by the
@@ -25,7 +25,7 @@ trap cleanup EXIT
 fail=0
 pass() { printf '[PASS] %s\n' "$*"; }
 bad()  { printf '[FAIL] %s\n' "$*" >&2; fail=1; }
-EXTRA_TAG=5.0.7     # what a portal may override db_backup_version to
+EXTRA_TAG=5.0.2     # what a portal may still pin db_backup_version to
 PG_IMAGE=postgres:17-alpine
 
 "$PY" - "$T" <<'PY' || { echo "[FAIL] the rendered db-backup.yml does not ask each job to clean up" >&2; exit 1; }

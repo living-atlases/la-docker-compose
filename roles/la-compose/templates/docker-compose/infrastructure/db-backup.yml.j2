@@ -6,9 +6,9 @@ services:
     # single static binary that prints "this image has moved" and nothing else: no shell,
     # no backup, no way for ANY healthcheck to pass. Builds #386+ burned the whole
     # converge budget on the two hosts carrying it. Successor, same DBxx_ env contract:
-    # nfrastack/db-backup (5.0.2 parses the variables below, except the two noted further on).
+    # nfrastack/db-backup (5.0.7 parses the variables below; 5.0.2 lacked two, noted further on).
     # PINNED on purpose -- `latest` is what let an upstream retirement redden CI.
-    image: nfrastack/db-backup:{{ db_backup_version | default('5.0.2') }}
+    image: nfrastack/db-backup:{{ db_backup_version | default('5.0.7') }}
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     volumes:
       - ../db-backups:/backup
