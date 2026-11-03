@@ -69,6 +69,17 @@ fi
 # The name the image gives a dump this many days old.
 dump_at() { echo "$1-full-$(date -u -d "$2 days ago" +%Y%m%d-%H%M%S).$3.zst"; }
 
+# A registry hiccup must not look like a broken seed: pull on its own, retry, and keep the reason.
+PULL_ERR=
+pull_retry() {
+  local i
+  for i in 1 2 3; do
+    PULL_ERR=$(docker pull -q "$1" 2>&1 >/dev/null) && return 0
+    sleep $((i * 10))
+  done
+  return 1
+}
+
 try_tag() {
   local tag=$1 i
   local too_old_mysql too_old_mongo too_old_pg recent
@@ -79,9 +90,12 @@ try_tag() {
   docker rm -f "$N-pg" "$N-bk" >/dev/null 2>&1
   docker volume rm "$N" >/dev/null 2>&1
   docker volume create "$N" >/dev/null
-  docker run --rm -v "$N:/backup" --entrypoint /bin/sh "nfrastack/db-backup:$tag" -c "
+  pull_retry "nfrastack/db-backup:$tag" || { bad "$tag: could not pull nfrastack/db-backup:$tag (3 tries): $PULL_ERR"; return; }
+  pull_retry "$PG_IMAGE" || { bad "$tag: could not pull $PG_IMAGE (3 tries): $PULL_ERR"; return; }
+  local err
+  err=$(docker run --rm -v "$N:/backup" --entrypoint /bin/sh "nfrastack/db-backup:$tag" -c "
     cd /backup && touch $too_old_mysql $too_old_mongo $too_old_pg $recent not-a-dump.tgz
-    chown 10000:10000 . * && chmod 700 ." >/dev/null 2>&1 || { bad "$tag: could not seed /backup"; return; }
+    chown 10000:10000 . * && chmod 700 ." 2>&1 >/dev/null) || { bad "$tag: could not seed /backup: $err"; return; }
 
   docker run -d --name "$N-pg" --network "$N" --network-alias postgres \
     -e POSTGRES_PASSWORD=secret "$PG_IMAGE" >/dev/null
