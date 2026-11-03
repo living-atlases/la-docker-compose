@@ -497,10 +497,30 @@
   tags:
     - docker-compose
 
-# Enable gatus endpoint generation when gatus group exists
+# The stage of the host that runs gatus: empty when it is not a compose host. nginx_vhost
+# delegates each check to groups['gatus'][0], and delegate_to ignores --limit: a deploy limited
+# to a staging host would write its checks into production's gatus.
+- name: Find the stage of the host that runs gatus
+  ansible.builtin.set_fact:
+    gatus_host_stage: >-
+      {%- set gatus_host = hostvars[groups['gatus'][0]].ansible_host | default(groups['gatus'][0]) -%}
+      {%- set ns = namespace(stage='') -%}
+      {%- for h in groups['docker_compose'] | default([]) -%}
+        {%- if hostvars[h].ansible_host | default('') == gatus_host -%}
+          {%- set ns.stage = hostvars[h].docker_stage | default('production') -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ ns.stage }}
+  when: groups['gatus'] is defined and groups['gatus']|length > 0
+  tags:
+    - docker-compose
+
+# Enable gatus endpoint generation when gatus group exists, on the hosts of its stage. A gatus
+# outside the compose hosts counts as production. nginx_vhost reads this fact: `vars:` on an
+# include_role beat a set_fact, so a call that passes use_gatus would skip the stage check.
 - name: Set use_gatus fact
   ansible.builtin.set_fact:
-    use_gatus: true
+    use_gatus: "{{ (gatus_host_stage or 'production') == (docker_stage | default('production')) }}"
   when: groups['gatus'] is defined and groups['gatus']|length > 0
   tags:
     - docker-compose
@@ -2667,7 +2687,6 @@
     appname: "branding"
     hostname: "{{ branding_url }}"
     context_path: "/"
-    use_gatus: true
     vhost_required: true
     nginx_vhost_fast_mode: true
     nginx_cors_origin_regexp: "{{ branding_nginx_cors_origin_regexp | default(omit) }}"
@@ -2689,7 +2708,6 @@
     appname: "branding-home"
     hostname: "{{ branding_home_url }}"
     context_path: "/"
-    use_gatus: true
     vhost_required: true
     nginx_vhost_fast_mode: true
     nginx_cors_origin_regexp: "{{ branding_nginx_cors_origin_regexp | default(omit) }}"
@@ -2775,7 +2793,6 @@
         hostname: "{{ docker_mail_development_url }}"
         context_path: "/"
         nginx_root: "/srv/{{ docker_mail_development_url }}/www/"
-        use_gatus: true
         nginx_vhost_fast_mode: true
         nginx_paths:
           - path: "/"

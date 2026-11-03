@@ -270,7 +270,6 @@
     appname: "branding{{ inst.suffix }}"
     hostname: "{{ branding_url }}"
     context_path: "/"
-    use_gatus: true
     vhost_required: true
     nginx_vhost_fast_mode: "{{ branding_url not in (nginx_shared_vhost_hostnames | default([])) }}"
     vhost_with_appname_conf: false
