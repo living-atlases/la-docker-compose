@@ -12,7 +12,8 @@ services:
   zookeeper:
     container_name: la_zookeeper
     profiles: [dbs, full]
-    image: zookeeper:{{ zookeeper_version }}
+    # zookeeper_image: whole reference, for a derived image (e.g. one with a security fix upstream lacks).
+    image: {{ zookeeper_image | default("zookeeper:" ~ zookeeper_version) }}
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     restart: unless-stopped
     expose:
