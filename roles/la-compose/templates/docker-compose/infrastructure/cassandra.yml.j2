@@ -21,13 +21,13 @@ services:
 {% endif %}
     environment:
       TZ: {{ server_tz | default('UTC') }}
-      CASSANDRA_CLUSTER_NAME: "ala-cluster"
+      CASSANDRA_CLUSTER_NAME: "{{ cassandra_cluster_name | default('ala-cluster') }}"
       CASSANDRA_DC: "datacenter1"
       CASSANDRA_RACK: "rack1"
       CASSANDRA_SEEDS: "cassandra"
       CASSANDRA_START_RPC: "true"
-      HEAP_NEWSIZE: "256m"
-      MAX_HEAP_SIZE: "2g"
+      HEAP_NEWSIZE: "{{ cassandra_heap_newsize | default('256m') }}"
+      MAX_HEAP_SIZE: "{{ cassandra_max_heap | default('2g') }}"
     volumes:
       - la_cassandra-data:/var/lib/cassandra
     networks:

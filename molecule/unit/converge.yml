@@ -1054,3 +1054,39 @@
       ansible.builtin.file:
         path: "{{ tc14_dir.path }}"
         state: absent
+
+    # ── TC15: cassandra.yml.j2 takes cluster name and heap from variables ────
+    # A node that already has data (biocache-store-0, cluster "ALA", 12G heap) is moved
+    # into this template: with the fixed "ala-cluster" Cassandra refuses to start, and
+    # with the fixed 2g heap it runs 487 GB of data starved.
+
+    - name: "[TC15] Render cassandra.yml.j2 with the defaults"
+      ansible.builtin.set_fact:
+        tc15_default: "{{ lookup('ansible.builtin.template', playbook_dir + '/../../roles/la-compose/templates/docker-compose/infrastructure/cassandra.yml.j2') }}"
+
+    - name: "[TC15] Render cassandra.yml.j2 with the node's own settings"
+      ansible.builtin.set_fact:
+        tc15_own: "{{ lookup('ansible.builtin.template', playbook_dir + '/../../roles/la-compose/templates/docker-compose/infrastructure/cassandra.yml.j2') }}"
+      vars:
+        cassandra_version: "3.11.19"
+        cassandra_cluster_name: "ALA"
+        cassandra_max_heap: "12g"
+        cassandra_heap_newsize: "800m"
+
+    - name: "[TC15] Assert defaults keep what other deployments get"
+      ansible.builtin.assert:
+        that:
+          - '"CASSANDRA_CLUSTER_NAME: \"ala-cluster\"" in tc15_default'
+          - '"MAX_HEAP_SIZE: \"2g\"" in tc15_default'
+          - '"HEAP_NEWSIZE: \"256m\"" in tc15_default'
+        msg: "FAIL TC15a: the defaults of cassandra.yml.j2 changed for deployments that set nothing."
+
+    - name: "[TC15] Assert the variables reach the container environment"
+      ansible.builtin.assert:
+        that:
+          - '"CASSANDRA_CLUSTER_NAME: \"ALA\"" in tc15_own'
+          - '"MAX_HEAP_SIZE: \"12g\"" in tc15_own'
+          - '"HEAP_NEWSIZE: \"800m\"" in tc15_own'
+          - '"image: cassandra:3.11.19" in tc15_own'
+          - '"ala-cluster" not in tc15_own'
+        msg: "FAIL TC15b: cluster name or heap are fixed in cassandra.yml.j2; a node with data cannot be moved in."
