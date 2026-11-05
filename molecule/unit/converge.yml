@@ -1090,3 +1090,21 @@
           - '"image: cassandra:3.11.19" in tc15_own'
           - '"ala-cluster" not in tc15_own'
         msg: "FAIL TC15b: cluster name or heap are fixed in cassandra.yml.j2; a node with data cannot be moved in."
+
+    - name: "[TC15] Render cassandra.yml.j2 with the seed list emptied"
+      ansible.builtin.set_fact:
+        tc15_noseeds: "{{ lookup('ansible.builtin.template', playbook_dir + '/../../roles/la-compose/templates/docker-compose/infrastructure/cassandra.yml.j2') }}"
+      vars:
+        cassandra_seeds: ""
+
+    # On staging (2026-11-05) a first start on an empty volume died with "Unable to gossip
+    # with any peers": the container is on two networks, the alias "cassandra" resolved to
+    # the address of the default one and Cassandra listened on the other, so it did not
+    # recognise itself as its own seed. Without CASSANDRA_SEEDS the entrypoint uses its own
+    # address.
+    - name: "[TC15] Assert the seed list is kept by default and can be dropped"
+      ansible.builtin.assert:
+        that:
+          - '"CASSANDRA_SEEDS: \"cassandra\"" in tc15_default'
+          - '"CASSANDRA_SEEDS" not in tc15_noseeds'
+        msg: "FAIL TC15c: CASSANDRA_SEEDS cannot be dropped; a first start on an empty volume cannot join."
