@@ -136,6 +136,10 @@ docker_housekeeping_trivy_ignore_image:
     id: CVE-2021-39144
     until: "2027-04-19"
     reason: xstream 1.4.9 is a transitive jar; neither sds-webapp2 nor the sds library deserialize request XML with it. Deprecated app (sds-static-home).
+  - image: livingatlases/ala-sensitive-data-service:1.1.1
+    id: CVE-2021-39144
+    until: "2027-04-19"
+    reason: xstream 1.4.9 comes in with Drools/KIE, which reads its own kmodule.xml with it; the service does not deserialize request input with it.
   - image: docker.elastic.co/elasticsearch/elasticsearch:8.10.0
     id: CVE-2023-44487
     until: "2027-04-19"
