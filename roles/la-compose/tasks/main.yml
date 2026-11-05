@@ -1083,6 +1083,8 @@
       ansible.builtin.include_tasks: post-deploy-image-cleanup.yml
       when:
         - auto_deploy | default(true) | bool
+        # A bundle render builds nothing on this host and never runs compose up.
+        - not (la_compose_render_only | default(false) | bool)
         - branding_image_cleanup | default(true) | bool
         - (branding_images | default([]) | length) > 0
       tags:

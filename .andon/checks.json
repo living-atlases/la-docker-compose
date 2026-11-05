@@ -404,6 +404,13 @@
         "e2e/cypress/fixtures/viewconfig/*.html"
       ],
       "run": "cd e2e && npx tsc --noEmit"
+    },
+    {
+      "match": [
+        "roles/la-compose/tasks/post-deploy-image-cleanup.yml",
+        "scripts/test-branding-image-cleanup.sh"
+      ],
+      "run": "bash scripts/test-branding-image-cleanup.sh"
     }
   ],
   "ignore": [
