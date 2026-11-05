@@ -928,6 +928,9 @@ EOF
                     bash scripts/test-bundle-apply.sh
                     # la-toolkit fast deploy entry point, ~2s.
                     bash scripts/test-fast-deploy.sh
+                    # Branding leaves one image per build: only the unused tags of this
+                    # render's own repositories go. Fake docker, ~10s.
+                    bash scripts/test-branding-image-cleanup.sh
                     # Data hubs under a path (hub.l-a.site/records) must serve and probe there.
                     bash scripts/test-hub-context-path.sh
                     # The hub healthchecks, executed against a fake curl, go red on a 500 page.

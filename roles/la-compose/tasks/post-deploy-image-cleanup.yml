@@ -1,0 +1,75 @@
+---
+# What every branding build leaves behind.
+#
+# branding.yml.j2 tags the image branding-builder<suffix>:<version>, and the
+# version is a hash of everything the image is built from
+# (stage-branding-source.yml), so each branding change leaves one more tag and
+# its buildx cache, and nothing removed them. On the gbif.es prod node 27 of
+# those images had piled up (~1 GB of disk each, 3 of them in use) together
+# with 23.39 GB of build cache: /var/lib/containerd hit 93% on 2026-11-05.
+#
+# This runs AFTER `compose up`. Until then the previous branding-init, exited
+# but still around, references the old tag and docker refuses to remove it.
+#
+# Images are removed by repo:tag with plain `docker rmi`, never with -f and
+# never by ID: docker then refuses on its own while any container, even a
+# stopped one, still uses the image, and a tag is dropped rather than the whole
+# image when several tags share it. One repository at a time
+# (--filter reference=branding-builder<suffix>, no wildcard): the portal's
+# suffix is empty, so branding-builder* would sweep every hub's tags, including
+# those of another toolkit project on the same host.
+#
+# Rolling back does not need the old tag kept: it is a content hash, so the
+# previous branding recomputes the same tag and the bake rebuilds it (~90 s).
+
+- name: "Cleanup: drop the branding tags this render no longer needs"
+  ansible.builtin.shell:
+    cmd: |
+      set -u
+      keep='{{ branding_images | default([]) | join(" ") }}'
+      repo={{ ('branding-builder' ~ (item.suffix | default(''))) | quote }}
+      for tag in $(docker images --filter "reference=$repo" \
+                     --format '{{ '{{' }}.Repository{{ '}}' }}:{{ '{{' }}.Tag{{ '}}' }}'); do
+        case "$tag" in *":<none>") continue ;; esac
+        case " $keep " in *" $tag "*) continue ;; esac
+        if docker rmi "$tag" >/dev/null 2>&1; then
+          echo "removed: $tag"
+        else
+          echo "still in use, kept: $tag"
+        fi
+      done
+  become: true
+  loop: "{{ branding_render_list | default([]) }}"
+  loop_control:
+    label: "branding-builder{{ item.suffix | default('') }}"
+  register: branding_tag_cleanup
+  # Housekeeping never fails a deploy that already succeeded.
+  failed_when: false
+  changed_when: "'removed: ' in (branding_tag_cleanup.stdout | default(''))"
+  tags:
+    - docker-compose
+    - deploy
+    - branding
+
+- name: "Cleanup: report the branding tags that were dropped"
+  ansible.builtin.debug:
+    msg: "{{ branding_tag_cleanup.results | map(attribute='stdout_lines') | flatten }}"
+  when: (branding_tag_cleanup.results | default([]) | map(attribute='stdout_lines') | flatten | length) > 0
+  tags:
+    - docker-compose
+    - deploy
+    - branding
+
+# The bake's cache is the other half of what filled that disk. The window is
+# kept because the CI hosts redeploy all day and a cold cache costs ~90 s per
+# branding target.
+- name: "Cleanup: discard build cache older than {{ branding_build_cache_ttl }}"
+  ansible.builtin.command: docker buildx prune -f --filter until={{ branding_build_cache_ttl }}
+  become: true
+  register: branding_cache_prune
+  failed_when: false
+  changed_when: "'Total:' in (branding_cache_prune.stdout | default(''))"
+  tags:
+    - docker-compose
+    - deploy
+    - branding

@@ -370,6 +370,13 @@ branding_source: null
 branding_url: "branding"
 branding_node_version: "22"
 branding_version: "latest"
+# Each branding build leaves one more branding-builder<suffix>:<hash> image and
+# its buildx cache; 27 of them plus 23 GB of cache filled a prod disk to 93%
+# (2026-11-05). After `compose up`, the tags this render does not use are
+# dropped and build cache older than the window below is discarded. Set it to
+# false on a host where something else owns image housekeeping.
+branding_image_cleanup: true
+branding_build_cache_ttl: "48h"
 # HEAD, not a branch name: the git module resolves it to the remote's default
 # branch, and living-atlases/base-branding (and any branding forked from it after
 # the rename) has no master. Set this to pin a branch or a tag.

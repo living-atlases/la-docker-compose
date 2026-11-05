@@ -1077,6 +1077,19 @@
         - docker-compose
         - deploy
 
+    # After compose up: until then the previous branding-init still references
+    # the old tag. Housekeeping, so it never fails a deploy that worked.
+    - name: "Branding: drop the images and build cache the render left behind"
+      ansible.builtin.include_tasks: post-deploy-image-cleanup.yml
+      when:
+        - auto_deploy | default(true) | bool
+        - branding_image_cleanup | default(true) | bool
+        - (branding_images | default([]) | length) > 0
+      tags:
+        - docker-compose
+        - deploy
+        - branding
+
     - name: "LAYER 3 & 4: Post-deployment validation and health check"
       ansible.builtin.include_tasks: validate-post-deploy.yml
       when: auto_deploy | default(true) | bool
