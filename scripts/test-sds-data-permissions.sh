@@ -23,6 +23,7 @@ d="$tmp/data"
     echo '<?xml version="1.0"?><x/>' >"$d/sds/$f"
   done
   echo secret >"$d/sds/config/sds-config.json"
+  echo '{}' >"$d/sds/layers.json"
 )
 mode() { stat -c '%a' "$1"; }
 [ "$(mode "$d/sds")" = 750 ] && [ "$(mode "$d/sds/sensitivity-zones.xml")" = 640 ] ||
@@ -34,6 +35,8 @@ cat >"$tmp/play.yml" <<YML
   gather_facts: false
   vars:
     data_dir: $d
+    docker_container_uid: $(id -u)
+    docker_container_gid: $(id -g)
   tasks:
     - ansible.builtin.include_tasks: $TASKS
 YML
@@ -43,7 +46,8 @@ out="$("$ANSIBLE_PLAYBOOK" -i localhost, "$tmp/play.yml" 2>&1)" || fail "playboo
 for f in sensitive-species-data.xml sensitivity-zones.xml sensitivity-categories.xml; do
   [ "$(mode "$d/sds/$f")" = 644 ] || fail "$f is $(mode "$d/sds/$f"), nginx cannot read it"
 done
-pass "the dir and the three XML files nginx serves are world-readable"
+[ "$(mode "$d/sds/layers.json")" = 644 ] || fail "layers.json is $(mode "$d/sds/layers.json"), the container cannot read it"
+pass "the dir and the three XML files nginx serves are world-readable, and layers.json too"
 
 [ "$(mode "$d/sds/config")" = 750 ] && [ "$(mode "$d/sds/config/sds-config.json")" = 640 ] ||
   fail "config/ was opened up too"

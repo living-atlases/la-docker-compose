@@ -3,7 +3,10 @@
 # the sensitive-data-service vhost) as its unprivileged `nginx` user. Downloaded by root under
 # a hardened umask (0027 on the gbif.es hosts) they land 0640 in a 0750 directory, so every
 # .xml answers 403 while the service itself is healthy. config/ keeps its own mode: nginx
-# never serves it. Tested by scripts/test-sds-data-permissions.sh.
+# never serves it, but the container does: it runs as docker_container_uid and reads
+# config/sds-config.properties (FileNotFoundException "Permission denied" and a restart loop
+# when it stays root:root 0750, seen on prod-4 2026-11-06) and layers.json, so config/ goes to
+# that user without touching its mode. Tested by scripts/test-sds-data-permissions.sh.
 - name: SDS data | let nginx read the directory and the XML files it serves
   ansible.builtin.file:
     path: "{{ data_dir }}/sds/{{ item.name }}"
@@ -15,3 +18,22 @@
     - { name: sensitivity-categories.xml, mode: "0644" }
   loop_control:
     label: "{{ data_dir }}/sds/{{ item.name }} {{ item.mode }}"
+
+- name: SDS data | let the container user read its config dir
+  ansible.builtin.file:
+    path: "{{ data_dir }}/sds/config"
+    owner: "{{ docker_container_uid | default(1000) }}"
+    group: "{{ docker_container_gid | default(1000) }}"
+    recurse: true
+
+# layers.json only exists when the layers download ran.
+- name: SDS data | find layers.json
+  ansible.builtin.stat:
+    path: "{{ data_dir }}/sds/layers.json"
+  register: sds_layers_json
+
+- name: SDS data | let the container read layers.json
+  ansible.builtin.file:
+    path: "{{ data_dir }}/sds/layers.json"
+    mode: "0644"
+  when: sds_layers_json.stat.exists
