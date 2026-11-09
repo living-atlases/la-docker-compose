@@ -12,6 +12,117 @@ edit by hand, write the notes in the annotated tag instead.
 
 Nothing yet.
 
+<a name="v1.13.2"></a>
+
+## v1.13.2 - 2026-11-09
+
+SDS: the container user owns config/ and can read layers.json, so the service
+no longer restart-loops when it cannot read its own
+config/sds-config.properties or layers.json.
+
+Validated by build #527 (la-docker-compose-tests) on this exact commit:
+  - Gatus Deep checks: GATE-PASSED (10/10)
+  - Gatus Deep + Data checks: GATE-PASSED (15/15)
+  - Gatus all endpoints: GATE-PASSED (140/140)
+  - Airflow ingest E2E: PASS (2072 records indexed, expected >= 500)
+  - Trivy: ok on all three hosts, 0 known-exploited CVEs
+
+Build #527 is UNSTABLE, and the only red is the ca-distrust audit: 12 trust
+stores still trust a distrusted root (86A1ECBA, D7A7A0FB). Every one of them is
+a third-party image we only consume (mailhog, cadvisor, solr, geonetwork,
+elasticsearch, postgis, cassandra) or an Airflow overlay image built from
+upstream pipelines. No image published by this project trusts a distrusted
+root, so this does not block the tag. Tracked in TASK-91.
+
+### Commits (1 since v1.13.1)
+
+#### Other changes
+
+- the container user owns config/ and reads layers.json (restart loop on prod-4) ([9f40d4a](https://github.com/living-atlases/la-docker-compose/commit/9f40d4ad1b8be1a4f5cdd0bc20dbf7932c1b99fe))
+
+<a name="v1.13.1"></a>
+
+## v1.13.1 - 2026-11-06
+
+**Brotli KEV fixed (derived images: sds, elasticsearch, zookeeper, geoserver); Trivy 0 KEV in #525; ca-distrust still UNSTABLE (TASK-91)**
+
+### Commits (52 since v1.13.0)
+
+<details>
+<summary>All 52 commits, by type</summary>
+
+#### Features
+
+- **cassandra**: cluster name and heap as variables (cassandra_cluster_name, cassandra_max_heap, cassandra_heap_newsize) ([7f079b8](https://github.com/living-atlases/la-docker-compose/commit/7f079b8a493d1c334349b506b0be218c6f3ae4e3))
+- **zookeeper**: zookeeper_image overrides the whole image reference ([4a2ec0e](https://github.com/living-atlases/la-docker-compose/commit/4a2ec0e696b724deaefca05f48ccf97e6642f745))
+- **biocollect**: reach ecodata over a private network ([1553b10](https://github.com/living-atlases/la-docker-compose/commit/1553b10b395e3db265fb4f13637fd856e579347a))
+- **nginx**: cache the data-quality filter calls of the hubs ([e93225c](https://github.com/living-atlases/la-docker-compose/commit/e93225c91c354a4df783a8467d93200a1400346d))
+- **topology**: a fourth host for biocollect ([ee71409](https://github.com/living-atlases/la-docker-compose/commit/ee71409fa1078167fccf9964347f9d41e8b54432))
+- **compose**: run biocollect, ecodata and pdfgen ([443c33a](https://github.com/living-atlases/la-docker-compose/commit/443c33ab2d17b74abd8e581b132a7c66e22317cf))
+- **housekeeping**: warn on auditd keep_logs/halt, opt-in fix ([91bcc8f](https://github.com/living-atlases/la-docker-compose/commit/91bcc8f5fdbc0f6bd4a6e7957467faa2ec666579))
+- **bundle**: render.sh --host-facts, render with no real host to ask ([04a202a](https://github.com/living-atlases/la-docker-compose/commit/04a202aa1506db3ea2e97cb6e758b5cbab980c88))
+
+#### Fixes
+
+- **cassandra**: cassandra_seeds variable; empty drops CASSANDRA_SEEDS so a first start on an empty volume joins itself ([451414e](https://github.com/living-atlases/la-docker-compose/commit/451414e04d47f1545afd90573665ce8b164af708))
+- **trivy**: ignore xstream CVE-2021-39144 in ala-sensitive-data-service:1.1.1 (Drools/KIE kmodule.xml only) ([ab524ad](https://github.com/living-atlases/la-docker-compose/commit/ab524adc2d89e5f326ad5c4ff9c7936883ce9b2f))
+- **sds**: image name as published by la-docker-images (ala-sensitive-data-service:1.1.1) ([59eb846](https://github.com/living-atlases/la-docker-compose/commit/59eb846ff4230338d0f13fc789814a07d2533674))
+- **brotli**: sds and elasticsearch on images with a fixed libbrotli1 ([7db3b31](https://github.com/living-atlases/la-docker-compose/commit/7db3b31689f827c30e76d124381d3baea36f0640))
+- **db-backup**: default image 5.0.7, the one with the fixed brotli ([3da016b](https://github.com/living-atlases/la-docker-compose/commit/3da016bc5df0cf3ba053effcd9efc72ff8df12de))
+- **test**: db-backup retention test pulls its images with retries and shows why a pull or seed fails ([92e4430](https://github.com/living-atlases/la-docker-compose/commit/92e4430bce3ea24aeb6ff3e4f87de48d46399200))
+- **gatus**: disk checks only for the hosts of its own stage ([e17f25f](https://github.com/living-atlases/la-docker-compose/commit/e17f25fb7475f7f4740274bc7568ab8384910c5e))
+- **gatus**: write checks only on the stage of the host that runs gatus ([c3acfd9](https://github.com/living-atlases/la-docker-compose/commit/c3acfd938392edb2fdf63387a36af58e95eee8cf))
+- **logger**: fill remote_address from logger_authorize_ip_list ([9b60f83](https://github.com/living-atlases/la-docker-compose/commit/9b60f836c830af6472c73e00e4c5f1181279e42e))
+- **db-backup**: keep one dump per server on 5.0.7 ([dea9581](https://github.com/living-atlases/la-docker-compose/commit/dea9581ed42309c2bdf578189893099621983b96))
+- **db-backup**: delete old dumps on the pinned image ([4917df3](https://github.com/living-atlases/la-docker-compose/commit/4917df3593d22557a5fffb3e57118f55ce9abbcf))
+- **biocollect**: recover from a boot without CAS, and make pdfgen work ([e6b4bc0](https://github.com/living-atlases/la-docker-compose/commit/e6b4bc0d14114702a20f0bb31fecb8f010c715e7))
+- **biocollect**: send the token to the portal's services too ([181f22f](https://github.com/living-atlases/la-docker-compose/commit/181f22fb34fd705db9cc1b534fdd1ea9128f3ea0))
+- **nginx**: really raise keepalive_requests ([b755c7f](https://github.com/living-atlases/la-docker-compose/commit/b755c7f753396c11334913a8d904028e7525b7df))
+- **ecodata**: give its unused scripts the vars they template ([ca77ff3](https://github.com/living-atlases/la-docker-compose/commit/ca77ff3cd3034625afe2dca21ae3c142aa3d59e5))
+- **baseline**: render biocollect and ecodata offline, frozen per variant ([48b7ae7](https://github.com/living-atlases/la-docker-compose/commit/48b7ae7346bd9b76e1e11bfa86a6cc9266fc5893))
+- **nginx**: stop running out of ports towards a container ([f76281e](https://github.com/living-atlases/la-docker-compose/commit/f76281ef08bc4e9b7153bcd4466867f15a45e6e1))
+- **ci**: run the generator from GENERATOR_BRANCH, not the npm release ([e32db66](https://github.com/living-atlases/la-docker-compose/commit/e32db66b3ad632b9e5eda925067ee5984d47d9cc))
+- **topology**: keep testhub's path split in biocollect-4host ([641ce73](https://github.com/living-atlases/la-docker-compose/commit/641ce73a48baf9c4c7707998f3cefdb2d0ad925c))
+- **ci**: sync ala-install before the unit tests that read it ([5a3ad5c](https://github.com/living-atlases/la-docker-compose/commit/5a3ad5cce8410090aa644c02ee23127376314e62))
+- **spatial**: bump ala-install, spatial-hub without ALA's userdetails and sandbox ([c657a2c](https://github.com/living-atlases/la-docker-compose/commit/c657a2cbfa0eecaccfe6ef4eb0d8eda84d918098))
+- **collectory**: healthcheck also asks a non-default locale, the #506 poisoning ([3cfa417](https://github.com/living-atlases/la-docker-compose/commit/3cfa4170178bcfb91476fbf66b2070c284340115))
+- **bundle**: skip autoheal's systemd tasks in a bundle render ([91dbf3c](https://github.com/living-atlases/la-docker-compose/commit/91dbf3c3cb0e6edc88fa99d99934265ea0c33455))
+- **hubs**: bump ala-install, a hub's bie-hub serverURL without the context path twice ([8c77962](https://github.com/living-atlases/la-docker-compose/commit/8c7796259b7ed764e19f35892e81e58d65b4545a))
+- **hubs**: create every level of the branding mountpoint 0755 ([7819f04](https://github.com/living-atlases/la-docker-compose/commit/7819f046b8c6863a1d9df09fa8ecfae3f90071f0))
+- **hubs**: render the data hubs after every portal service, not in between ([8fd892b](https://github.com/living-atlases/la-docker-compose/commit/8fd892b248b641b55ffbe5eec1d4b6e6afb11d02))
+- **postfix**: default boky/postfix 5.2.0, libbrotli1 fixed (CVE-2026-111497) ([48ebffb](https://github.com/living-atlases/la-docker-compose/commit/48ebffb22c1f535aadc9e4da0a8324c56186739b))
+- **hubs**: create the hub branding mountpoint in srv, or nginx does not start ([2e8dc9f](https://github.com/living-atlases/la-docker-compose/commit/2e8dc9f3b3c2d51d8315a384a217ed170a726f67))
+- **hubs**: per-hub JVM heaps, and a branding change restarts the hub's apps ([a2ff552](https://github.com/living-atlases/la-docker-compose/commit/a2ff5529b4db33df1fb072318557bf5bf10eba64))
+- **ci**: retry the name index download, so one corrupt download does not drop a host ([43b3f7d](https://github.com/living-atlases/la-docker-compose/commit/43b3f7de3f8213b8433fa9169b65f1603b30a663))
+- **collectory**: healthcheck also probes without Accept-Language ([61dc2bb](https://github.com/living-atlases/la-docker-compose/commit/61dc2bbcdcf868b1f51fc4941de8c993d497569e))
+- **ci**: bump ala-install for the lists /ws split, refresh the URL baseline for generator 1.9.16 ([c2a688d](https://github.com/living-atlases/la-docker-compose/commit/c2a688dcfc36208bdaddea21d6f2549e069669ea))
+- **ci**: audit every alaAdmin service for ALA URLs, and block them pre-deploy ([3e8fb13](https://github.com/living-atlases/la-docker-compose/commit/3e8fb13cab0982e734de1473ae170dd9bebe748d))
+- **airflow**: upgrade libbrotli1 in the overlay image (CVE-2026-111497) ([f82cddc](https://github.com/living-atlases/la-docker-compose/commit/f82cddc1e836815702b4aa4f01db15012e421b8c))
+- **nginx**: alias only monitored names this nginx serves, prune orphan vhosts and checks ([629cf58](https://github.com/living-atlases/la-docker-compose/commit/629cf58608396069dca88993402ad96c40309a0c))
+
+#### Tests and CI
+
+- **e2e**: a biocollect login, a project in ecodata and a PDF ([39ca6c7](https://github.com/living-atlases/la-docker-compose/commit/39ca6c7a01729c5fb521e6b8eb932efba95e30d3))
+- **i18n-overlay**: compare today's fragments under the old and new partial ([d4bfb07](https://github.com/living-atlases/la-docker-compose/commit/d4bfb07e1cded940a10c8cc552cefc10663a0b4a))
+- **ci**: ala-hosts guard as a test script, and image-service CAS endpoint names ([0e6bfcf](https://github.com/living-atlases/la-docker-compose/commit/0e6bfcf6d1d3e5d5e989b28694d59f04c8e8510b))
+
+#### Documentation
+
+- TIMESTAMP columns shift when restoring a la_db-backup dump ([24793bc](https://github.com/living-atlases/la-docker-compose/commit/24793bcce37636d276f9f3b6f13599846a3b6c9f))
+- how to restore a la_db-backup mysql dump, with a script that proves one ([d5945d1](https://github.com/living-atlases/la-docker-compose/commit/d5945d11a0b7edcc608f7644ce9a1a6b4ca5ce63))
+- **changelog**: v1.13.0 ([cd629d4](https://github.com/living-atlases/la-docker-compose/commit/cd629d4bcc69029ba874316f5fc4715950cc1ba0))
+
+#### Maintenance
+
+- bump ala-install (image-service ownership) ([d54a558](https://github.com/living-atlases/la-docker-compose/commit/d54a558c3d48631cb26974b37592f9f49743a9e6))
+
+#### Other changes
+
+- skip the image cleanup on a bundle render ([f0fb721](https://github.com/living-atlases/la-docker-compose/commit/f0fb72189455f6f7068f07dbd95e2becb4db3225))
+- drop the images and build cache each build leaves behind ([04fcdd1](https://github.com/living-atlases/la-docker-compose/commit/04fcdd16e143d0632f8bce3ee231a86c27c16cc5))
+
+</details>
+
 <a name="v1.13.0"></a>
 
 ## v1.13.0 - 2026-10-28
