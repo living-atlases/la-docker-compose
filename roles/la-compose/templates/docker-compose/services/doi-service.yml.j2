@@ -16,6 +16,11 @@ services:
       # logback.xml writes to /var/log/tomcat9/...; image has no /var/log/tomcat9 (not writable
       # by uid 1000) so bind a host dir (created uid 1000 by config-dir-ensure).
       - {{ data_dir }}/doi-service/logs:/var/log/tomcat9
+      # doi_file_store (the doi-service role's doi-service-config.yml) defaults to
+      # /data/doi-service/files, and nothing was bound there: the files behind the minted DOIs
+      # went to the container's writable layer, where a recreate drops them and no backup ever
+      # sees them. Created uid 1000 by generate-compose, like the logs dir above.
+      - {{ data_dir }}/doi-service/files:/data/doi-service/files
     networks:
       default: {}
       {{ docker_network | default('internal') }}:
