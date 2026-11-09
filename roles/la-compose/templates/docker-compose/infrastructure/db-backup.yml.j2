@@ -35,12 +35,30 @@ services:
       - DEFAULT_BACKUP_INTERVAL={{ db_backup_interval | default('1440') }}
       - DEFAULT_BACKUP_BEGIN={{ db_backup_begin | default('0000') }}
       # MongoDB backup (DB01)
+      # ALL, not one database. CAS spreads itself over several: the ticket registry, the
+      # service registry, the spring sessions and the audit trail. A job named `admin` dumped
+      # the users of the server and none of that, so a portal with CAS on docker-compose had
+      # no copy of the only one that cannot be rebuilt, the audit trail.
+      # `admin` was also doubling as the authSource, which DB01_AUTH now carries on its own.
+      # The spelling the image reads is DBnn_NAME_EXCLUDE; DBnn_EXCLUDE is accepted and
+      # ignored, which is why this one is explicit. `local` is the oplog and `config` the
+      # sharding metadata: both belong to the server, not to the portal, and restore nowhere.
+      # DB01_SPLIT_DB=TRUE, the opposite of DB02/DB03, because a mongo dump here is not a
+      # mongodump archive: 5.0.7 writes a mongosh script of insertMany statements that names each
+      # database in a comment only. One file holding several databases restores every one of them
+      # into whichever database the shell happens to point at, so one file per database is the
+      # only restorable shape. Restore with `mongosh <db> --file <dump>` once decompressed. The
+      # script carries documents and their _ids, not index definitions: CAS rebuilds its own
+      # (including the TTL ones) when it starts.
       - DB01_TYPE=mongo
       - DB01_HOST={{ mongodb_docker_host_address | default('mongodb') }}
-      - DB01_NAME={{ mongo_backup_db | default('admin') }}
+      - DB01_NAME={{ mongo_backup_db | default('ALL') }}
+      - DB01_AUTH={{ mongo_backup_auth_db | default('admin') }}
+      - DB01_NAME_EXCLUDE={{ mongo_backup_db_exclude | default('local,config') }}
       - DB01_USER={{ mongodb_root_username }}
       - DB01_PASS=${MONGODB_ROOT_PASSWORD}
       - DB01_CLEANUP_TIME={{ db_cleanup_time | default('8640') }}
+      - DB01_SPLIT_DB=TRUE
       # MySQL backup (DB02)
       - DB02_TYPE=mysql
       - DB02_HOST={{ collectory_db_host_address }}

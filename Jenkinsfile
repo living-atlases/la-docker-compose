@@ -1062,6 +1062,12 @@ EOF
                     # DEFAULT_CLEANUP_TIME, and dumps grew unnoticed. Real image, ~1 min.
                     VENV_MOLECULE="$VENV_MOL" bash scripts/test-db-backup-retention.sh
 
+                    # la_db-backup copies every mongo database, not just `admin`: CAS lives in
+                    # four of them and its audit trail had no copy. The dump is a mongosh script,
+                    # so it also has to split per database to be restorable. Real image + real
+                    # mongo, round trip included, ~2 min.
+                    VENV_MOLECULE="$VENV_MOL" bash scripts/test-db-backup-mongo-all.sh
+
                     # The healthcheck binary probe caches passes by image ID (2.4-3.9 min of
                     # container starts per run in #430/#431). Shimmed docker, ~2s.
                     bash scripts/test-healthcheck-probe-cache.sh
