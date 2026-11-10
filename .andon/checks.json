@@ -324,6 +324,14 @@
     },
     {
       "match": [
+        "roles/la-compose/templates/nginx-replicas.conf.j2",
+        "roles/la-compose/templates/docker-compose/services/namematching-service.yml.j2",
+        "scripts/test-namematching-replicas.sh"
+      ],
+      "run": "VENV_MOLECULE=.venv-molecule bash scripts/test-namematching-replicas.sh"
+    },
+    {
+      "match": [
         "roles/la-compose/files/la-autoheal/la-autoheal",
         "roles/la-compose/templates/la-autoheal/*.j2",
         "roles/la-compose/tasks/autoheal.yml",

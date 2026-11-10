@@ -97,8 +97,11 @@ blocks = [b for b in re.split(r"(?m)^- name: ", tasks)
           if "namematching_service_replicas" in b and "docker_nginx_replica_failover" in b]
 if not blocks or "assert" not in blocks[0]:
     bad("generate-compose.yml does not assert that replicas > 1 needs the nginx drop-in")
+elif "groups['docker_compose']" not in blocks[0]:
+    bad("the assert does not gate replicas on a single compose host: replicating drops the "
+        "published port an off-host consumer needs")
 else:
-    pass_("generate-compose.yml refuses replicas > 1 without the nginx drop-in")
+    pass_("generate-compose.yml refuses replicas > 1 without the drop-in or on multi-host")
 
 # The drop-in is written AND removed again, or turning it off would leave it behind forever.
 if 'conf.d/replica-failover.conf' not in tasks or 'state: absent' not in tasks:

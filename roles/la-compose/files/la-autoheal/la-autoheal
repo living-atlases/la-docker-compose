@@ -13,7 +13,13 @@
 #    replica count has no container_name, so its containers are <project>-<service>-N and
 #    do NOT match ^la_: without the second half autoheal would quietly stop recovering
 #    them, which with the nginx replica drop-in (docker_nginx_replica_failover) leaves a
-#    permanently degraded portal that looks healthy, because nginx hides the 5xx;
+#    permanently degraded portal that looks healthy, because nginx hides the 5xx.
+#    The second half is read from docker, not from this file, on purpose: a fast deploy does
+#    not rewrite /etc/default/la-autoheal, so a list of replicated services kept there would
+#    go stale exactly when a fast deploy turned replicas on. Today it selects nothing new:
+#    every container_name in the repo's templates starts with la_, as do the only two
+#    inventory overrides, and the airflow overlay runs from its own directory
+#    (<compose dir>/overlay/pipelines-airflow/compose), so its label does not match;
 #  - biocache-service first: while it is unhealthy the hubs that depend on it wait. This only
 #    sees THIS host: a hub whose biocache-service runs on another host is handled on its own;
 #  - at most one restart per container every LA_AUTOHEAL_GRACE seconds (let it boot);
@@ -42,6 +48,7 @@ MATCH=${LA_AUTOHEAL_MATCH:-^la_}
 # from that directory (no --project-name is passed at deploy time). Another compose project
 # on the host (an overlay with its own directory) is left alone.
 COMPOSE_DIR=${LA_AUTOHEAL_COMPOSE_DIR:-/data/docker-compose}
+COMPOSE_DIR=${COMPOSE_DIR%/}  # the label carries no trailing slash; one here would never match
 GRACE=${LA_AUTOHEAL_GRACE:-600}
 MAX=${LA_AUTOHEAL_MAX:-3}
 FIRST=${LA_AUTOHEAL_FIRST:-la_biocache-service}

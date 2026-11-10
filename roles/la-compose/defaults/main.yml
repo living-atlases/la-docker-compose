@@ -114,6 +114,8 @@ docker_output_dir: "{{ docker_compose_output_dir | default('docker-compose-outpu
 # own: without it proxy_connect_timeout is nginx's default 60s.
 # Default false: it changes the behaviour of EVERY proxied location on the host, including the
 # cross-host static_upstream ones, so a portal opts in (staging first).
+# Turning it off needs a FULL deploy: only the Ansible task removes the file, and a fast
+# deploy untars the bundle over the tree without deleting anything.
 docker_nginx_replica_failover: false
 docker_nginx_replica_connect_timeout: 1s
 

@@ -564,7 +564,21 @@ one that stays up and answers 5xx. Adding those codes is what takes 34.6% to 0.
    replicas without the drop-in for the same reason.
 3. **The service has to be stateless and nobody may address it by container name or host
    port.** Replicating drops both the `container_name` and the published host port (two
-   replicas cannot bind it), so a consumer that uses either breaks — silently.
+   replicas cannot bind it), so a consumer that uses either breaks — silently. The published
+   port is how a consumer on *another* host reaches the service, through a
+   `docker_extra_hosts` alias pointing at the owner's private IP, so `generate-compose`
+   refuses replicas on an inventory with more than one docker-compose host.
+
+**Turn it on with a full deploy of the docker hosts, not a fast deploy.** A fast deploy does
+not run Ansible: it would scale the service without installing the autoheal that can find the
+replicas, and it does not delete a file either, so turning `docker_nginx_replica_failover`
+off again also needs a full deploy to remove `conf.d/replica-failover.conf`. Dropping the
+`container_name` of a service that is already running needs one more step, because a redeploy
+uses `--no-recreate` and so keeps the existing container on its old definition:
+
+```bash
+cd /data/docker-compose && docker compose up -d --no-deps --force-recreate namematching-service
+```
 
 ### What can be replicated, and what cannot
 
