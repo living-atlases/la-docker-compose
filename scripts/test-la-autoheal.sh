@@ -2,7 +2,8 @@
 # roles/la-compose/files/la-autoheal/la-autoheal (docker_autoheal) with a fake docker and
 # logger: no host, no root. The settings file is the role's real template rendered with the
 # role defaults, so a quoting slip in it (the dependent regex) breaks this test too.
-#   1. nothing unhealthy: no restart;          6. only la_* containers;
+#   1. nothing unhealthy: no restart;          6. only this stack's containers (6b: a replica
+#                                                  with no container_name, by compose label);
 #   2. biocache-service before the hubs;      7. application probes (3 strikes, reset, 000);
 #   3. 10 min grace between restarts;          8. --dry-run restarts nothing (nor counts probes);
 #   4. the hub once biocache-service is fine;  9. a data hub instance (la_bie-hub-<hub>) waits too;
@@ -17,6 +18,7 @@ command -v "$ANSIBLE_PLAYBOOK" >/dev/null || ANSIBLE_PLAYBOOK=ansible-playbook
 PYARG='ansible_python_interpreter={{ ansible_playbook_python }}'
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/bin" "$T/state"
+: > "$T/workdir"
 fail=0
 ok()  { echo "[PASS] $1"; }
 bad() { echo "[FAIL] $1" >&2; fail=1; }
@@ -43,8 +45,18 @@ cp "$T/role-defaults" "$T/defaults"
 cat > "$T/bin/docker" <<'EOF'
 #!/bin/bash
 T=${FAKE_T}
+# $T/unhealthy holds names; $T/workdir holds "<name> <compose working_dir>" lines for the
+# containers compose started (a replica with no container_name only appears there).
 case "$1" in
-  ps) cat "$T/unhealthy" 2>/dev/null ;;
+  ps)
+    if [[ "$*" == *"label=com.docker.compose.project.working_dir="* ]]; then
+      all="$*"; want=${all##*label=com.docker.compose.project.working_dir=}; want=${want%% *}
+      while read -r n d; do
+        [ "$d" = "$want" ] && grep -qx "$n" "$T/unhealthy" 2>/dev/null && echo "$n"
+      done < "$T/workdir" 2>/dev/null
+    else
+      cat "$T/unhealthy" 2>/dev/null
+    fi ;;
   inspect) c=${!#}; grep -qx "$c" "$T/healthy" 2>/dev/null && echo healthy || echo unhealthy ;;
   exec) c=$2; cat "$T/code.$c" 2>/dev/null || echo 200 ;;
   restart) echo "$2" >> "$T/restarts" ;;
@@ -86,9 +98,22 @@ n=$(grep -c "restarting la_regions" "$T/log"); [ "$n" = 3 ] && ok "at most 3 res
 grep -q "ERROR la_regions still unhealthy after 3" "$T/log" && ok "ERROR logged at the cap" || bad "no ERROR at the cap"
 run 205000; [ "$(restarted)" = "la_regions" ] && ok "after the hour it tries again" || bad "after the hour: $(restarted)"
 
-# 6. names outside ^la_ are not touched
-printf 'cadvisor\n' > "$T/unhealthy"
-run 300000; [ -z "$(restarted)" ] && ok "only la_* containers" || bad "touched another container: $(restarted)"
+# 6. a container outside ^la_ and outside this stack is not touched
+printf 'cadvisor\n' > "$T/unhealthy"; : > "$T/workdir"
+run 300000; [ -z "$(restarted)" ] && ok "only this stack's containers" || bad "touched another container: $(restarted)"
+
+# 6b. THE REPLICA CASE. A service declared with replicas has no container_name, so compose
+# names its containers <project>-<service>-N, which does NOT match ^la_. It is recovered
+# because it carries this stack's working_dir label; a container of another compose project
+# on the same host (an overlay with its own directory) still is not.
+printf 'docker-compose-namematching-service-1\notra-cosa-web-1\n' > "$T/unhealthy"
+printf 'docker-compose-namematching-service-1 /data/docker-compose\notra-cosa-web-1 /opt/otra-cosa\n' > "$T/workdir"
+rm -f "$T/state/"*
+run 310000
+[ "$(restarted)" = "docker-compose-namematching-service-1" ] &&
+  ok "a replica with no container_name is recovered, another project's is not" ||
+  bad "replica by label: $(restarted)"
+: > "$T/workdir"
 
 # 7. probe: healthy but 500 -> restarted on the 3rd pass; a 200 resets the count
 : > "$T/unhealthy"; echo la_biocache-hub > "$T/healthy"

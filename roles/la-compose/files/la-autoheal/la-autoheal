@@ -8,7 +8,12 @@
 # gbif.es on 2026-10-21, when unattended-upgrades updated docker-ce and restarted everything.
 #
 # Rules:
-#  - only containers whose name matches LA_AUTOHEAL_MATCH (default ^la_);
+#  - only this stack's containers: those whose name matches LA_AUTOHEAL_MATCH (default ^la_)
+#    plus those compose started from LA_AUTOHEAL_COMPOSE_DIR. A service declared with a
+#    replica count has no container_name, so its containers are <project>-<service>-N and
+#    do NOT match ^la_: without the second half autoheal would quietly stop recovering
+#    them, which with the nginx replica drop-in (docker_nginx_replica_failover) leaves a
+#    permanently degraded portal that looks healthy, because nginx hides the 5xx;
 #  - biocache-service first: while it is unhealthy the hubs that depend on it wait. This only
 #    sees THIS host: a hub whose biocache-service runs on another host is handled on its own;
 #  - at most one restart per container every LA_AUTOHEAL_GRACE seconds (let it boot);
@@ -31,10 +36,20 @@ DEFAULTS=${LA_AUTOHEAL_DEFAULTS:-/etc/default/la-autoheal}
 # shellcheck disable=SC1090
 [ -r "$DEFAULTS" ] && . "$DEFAULTS"
 MATCH=${LA_AUTOHEAL_MATCH:-^la_}
+# The directory `docker compose up` runs in. Compose labels every container it starts with
+# com.docker.compose.project.working_dir, so this selects exactly this stack, by the one
+# thing we know for certain, without having to predict the project name compose derives
+# from that directory (no --project-name is passed at deploy time). Another compose project
+# on the host (an overlay with its own directory) is left alone.
+COMPOSE_DIR=${LA_AUTOHEAL_COMPOSE_DIR:-/data/docker-compose}
 GRACE=${LA_AUTOHEAL_GRACE:-600}
 MAX=${LA_AUTOHEAL_MAX:-3}
 FIRST=${LA_AUTOHEAL_FIRST:-la_biocache-service}
 # Data hub instances are la_<hub>-<suffix> (la_biocache-hub-testhub): the suffix is allowed.
+# FIRST and DEPENDENT are container NAMES on purpose: none of those services is a candidate
+# for replication (the hubs carry user sessions, biocache-service shares a writable download
+# queue), so they keep their container_name. Replicating one of them would mean moving these
+# two to the com.docker.compose.service label first.
 DEPENDENT=${LA_AUTOHEAL_DEPENDENT:-^la_(biocache-hub|bie-hub|bie-index|regions|collectory|species-list|spatial-hub)(-.+)?$}
 STATE=${LA_AUTOHEAL_STATE:-/var/lib/la-autoheal}
 PROBES=${LA_AUTOHEAL_PROBES:-}
@@ -52,7 +67,11 @@ if [ -n "$(find "$MARKER" -maxdepth 0 -mmin "-${MARKER_MAX_AGE_MIN}" 2>/dev/null
 fi
 
 mkdir -p "$STATE"
-mapfile -t unhealthy < <(docker ps --filter health=unhealthy --format '{{.Names}}' | grep -E "$MATCH" | sort)
+mapfile -t unhealthy < <({
+  docker ps --filter health=unhealthy --format '{{.Names}}' | grep -E "$MATCH"
+  docker ps --filter health=unhealthy \
+    --filter "label=com.docker.compose.project.working_dir=$COMPOSE_DIR" --format '{{.Names}}'
+} | sort -u)
 
 # Probes only on healthy containers (the others are already in the list).
 while read -r pc purl; do
