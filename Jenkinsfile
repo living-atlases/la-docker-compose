@@ -1068,6 +1068,11 @@ EOF
                     # mongo, round trip included, ~2 min.
                     VENV_MOLECULE="$VENV_MOL" bash scripts/test-db-backup-mongo-all.sh
 
+                    # The files behind the minted DOIs live on the host, not in the container's
+                    # writable layer: only `config` and `logs` were bound, so a recreate dropped
+                    # them and no backup ever saw them. Static, ~1s.
+                    VENV_MOLECULE="$VENV_MOL" bash scripts/test-doi-file-store.sh
+
                     # The healthcheck binary probe caches passes by image ID (2.4-3.9 min of
                     # container starts per run in #430/#431). Shimmed docker, ~2s.
                     bash scripts/test-healthcheck-probe-cache.sh

@@ -269,6 +269,13 @@
     },
     {
       "match": [
+        "roles/la-compose/templates/docker-compose/services/doi-service.yml.j2",
+        "scripts/test-doi-file-store.sh"
+      ],
+      "run": "VENV_MOLECULE=.venv-molecule bash scripts/test-doi-file-store.sh"
+    },
+    {
+      "match": [
         "ansible-constraints.txt",
         "scripts/test-ansible-version-pin.sh",
         "scripts/setup-molecule.sh"
