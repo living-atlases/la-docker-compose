@@ -1,0 +1,33 @@
+# Managed by Ansible (la-compose role, generate-compose.yml; docker_nginx_replica_failover).
+# Do not edit.
+#
+# nginx.conf includes conf.d/*.conf INSIDE http (ala-install .../nginx/templates/nginx.conf.j2,
+# `include {{ '{{' }} nginx_conf_path {{ '}}' }}/*.conf;`), before sites-enabled, so these two
+# directives are inherited by every proxied location that does not set them itself. None does:
+# nginx_vhost's templates set proxy_read_timeout and nothing else of this family.
+#
+# WHY. The rendered portal has ZERO upstream blocks (nginx_load_balancing is false, so
+# nginx_vhost/templates/fragment_02_upstream.j2 never renders). What it has is ~91 locations
+# with dynamic resolution: `resolver 127.0.0.11 valid=30s` plus a proxy_pass with a variable,
+# behind nginx_docker_internal_resolver. nginx therefore re-resolves the service name on every
+# request, and docker's embedded DNS answers with EVERY replica address, rotated. Measured with
+# scripts/experiments/measure-replica-failover.sh:
+#   - 3 replicas, one wedged (container alive, answering 503), nginx as it is today: 34.1% of
+#     requests failed (736 of 2160);
+#   - the same, with these two directives: 0 of 2083.
+# nginx's own default for proxy_next_upstream is `error timeout`, which already covers a replica
+# that STOPPED. What it does not cover is the one that stays up and answers 5xx, which is exactly
+# the failure autoheal exists for. Adding the 5xx codes is what takes 34% to 0.
+#
+# It also helps a portal with no replicas at all: proxy_connect_timeout defaults to 60s, so today
+# a backend whose host drops the SYN hangs the client for a minute before nginx gives up.
+#
+# NOT proxy_read_timeout. Each location sets 10m on purpose (offline downloads, long queries);
+# lowering it here would cut them. So a JVM that accepts the connection and then never answers is
+# NOT covered by this file — that one is autoheal's job, and it is why the autoheal selector has
+# to work with replicas before any service is replicated.
+#
+# Non-idempotent requests (POST, PATCH, LOCK) are NOT retried: nginx only retries those when
+# `non_idempotent` is in the list, and it deliberately is not.
+proxy_connect_timeout {{ docker_nginx_replica_connect_timeout }};
+proxy_next_upstream error timeout http_502 http_503 http_504;

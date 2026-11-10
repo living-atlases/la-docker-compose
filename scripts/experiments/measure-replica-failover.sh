@@ -17,6 +17,11 @@ set -u
 PORT="${1:-18099}"
 P=lareplicas
 T=$(mktemp -d); chmod 700 "$T"
+# Lo que anade el drop-in de conf.d (roles/la-compose/templates/nginx-replicas.conf.j2).
+# Sin read_timeout: bajarlo a nivel global cortaria las descargas largas del portal,
+# que es justo para lo que el location pone 10m.
+RETRY='proxy_connect_timeout 1s;
+proxy_next_upstream error timeout http_502 http_503 http_504;' 
 cleanup() {
   docker compose -p $P -f "$T/base.yml" -f "$T/sick.yml" down -v >/dev/null 2>&1 || true
   docker compose -p ${P}cn -f "$T/cn.yml" down -v >/dev/null 2>&1 || true
@@ -32,21 +37,35 @@ EOF
 cat > "$T/sick.conf" <<'EOF'
 server { listen 9180; location / { default_type text/plain; return 503 "SICK\n"; } }
 EOF
-front() { # $1 = directivas extra dentro del location
+# $1 = directivas dentro del location; $2 = directivas a nivel http, que es como se
+# despliegan de verdad: un drop-in en conf.d, que nginx.conf incluye DENTRO de http
+# (ala-install/.../nginx/templates/nginx.conf.j2:89-90) y antes de sites-enabled.
+# El location lleva siempre proxy_read_timeout 10m porque es lo que pone el portal
+# (fragment_73_location.j2:98-101) y un location gana al http que lo contiene.
+front() {
+cat > "$T/http.conf" <<EOF
+${2:-}
+EOF
 cat > "$T/front.conf" <<EOF
 server {
   listen 80;
   location / {
     resolver 127.0.0.11 valid=30s ipv6=off;
+    proxy_read_timeout 10m;
     set \$backend_proto "http";
     set \$backend_host "web";
     set \$backend_port "9180";
-$1
+${1:-}
     proxy_pass \$backend_proto://\$backend_host:\$backend_port;
   }
 }
 EOF
 docker compose -p $P -f "$T/base.yml" restart front >/dev/null 2>&1
+# Solo cuando front ya existe: la primera llamada es antes del primer up.
+if [ -n "$(docker compose -p $P -f "$T/base.yml" ps -q front 2>/dev/null)" ]; then
+  docker compose -p $P -f "$T/base.yml" exec -T front nginx -t 2>&1 | grep -q "syntax is ok" \
+    || echo "  AVISO: nginx -t NO pasa con esta configuracion"
+fi
 }
 cat > "$T/base.yml" <<EOF
 services:
@@ -57,7 +76,9 @@ services:
   front:
     image: nginx:1.30-alpine
     ports: ["127.0.0.1:$PORT:80"]
-    volumes: ["$T/front.conf:/etc/nginx/conf.d/default.conf:ro"]
+    volumes:
+      - "$T/front.conf:/etc/nginx/conf.d/default.conf:ro"
+      - "$T/http.conf:/etc/nginx/conf.d/00-replicas.conf:ro"
     networks: [internal]
 networks: {internal: {}}
 EOF
@@ -68,6 +89,7 @@ services:
     volumes: ["$T/sick.conf:/etc/nginx/conf.d/default.conf:ro"]
     networks: {internal: {aliases: [web]}}
 EOF
+: > "$T/http.conf"
 printf 'services:\n  w:\n    image: nginx:1.30-alpine\n    container_name: la_w\n' > "$T/cn.yml"
 
 dc() { docker compose -p $P -f "$T/base.yml" "$@"; }
@@ -92,29 +114,28 @@ echo
 echo "== JVM ATASCADA (viva, responde 503): replicar MEJORA o EMPEORA? =="
 echo "   la comparacion honesta es contra UNA sola replica atascada, no contra cero fallos"
 dcs up -d sick >/dev/null 2>&1
-dc up -d --scale web=0 >/dev/null 2>&1; front ""; load 25 "$T/m1" 0
+dc up -d --scale web=0 >/dev/null 2>&1; front "" ""; load 25 "$T/m1" 0
 pct "A) 1 replica, y esta atascada (hoy, sin replicar)" "$T/m1"
-dc up -d --scale web=2 >/dev/null 2>&1; front ""; load 30 "$T/m2" 0
+dc up -d --scale web=2 >/dev/null 2>&1; front "" ""; load 30 "$T/m2" 0
 pct "B) 3 replicas, 1 atascada, como esta hoy nginx" "$T/m2"
-front "    proxy_connect_timeout 1s;
-    proxy_read_timeout 5s;
-    proxy_next_upstream error timeout http_502 http_503 http_504;"
-load 30 "$T/m3" 0
-pct "C) idem + proxy_next_upstream (sin bloque upstream)" "$T/m3"
+front "$RETRY" ""; load 30 "$T/m3" 0
+pct "C) idem, directivas en el location" "$T/m3"
+front "" "$RETRY"; load 30 "$T/m4" 0
+pct "D) idem, directivas en http (el drop-in que se despliega)" "$T/m4"
 
 echo
 echo "== REPLICA PARADA LIMPIAMENTE (docker stop), el caso benigno =="
 dcs rm -sf sick >/dev/null 2>&1; dc up -d --scale web=3 >/dev/null 2>&1
-front "    proxy_connect_timeout 1s;
-    proxy_next_upstream error timeout http_502 http_503 http_504;"
+front "" "$RETRY"
 load 10 "$T/d1" 0; EV=$(tail -1 "$T/d1" | cut -d' ' -f1)
 docker stop ${P}-web-2 >/dev/null 2>&1
 load 40 "$T/d2" "$EV"; cat "$T/d1" "$T/d2" > "$T/d"
 awk -v ev="$EV" '{if($1>=ev){q++; if($2!="200"){qb++; if(!f)f=$1; l=$1}}}
-  END{printf "  D) tras la parada, con next_upstream   %5d/%-5d con error  %5.1f%%\n",qb+0,q+0,(qb*100.0)/q
+  END{printf "  E) tras la parada, con el drop-in      %5d/%-5d con error  %5.1f%%\n",qb+0,q+0,(qb*100.0)/q
       if(qb)printf "     los fallos duran hasta +%.1fs (la cache valid=30s del resolver)\n",(l-ev)/1000
       else  print  "     ningun fallo"}' "$T/d"
 echo
-echo "RECORDATORIO: autoheal selecciona por nombre (^la_, LA_AUTOHEAL_MATCH en"
-echo "roles/la-compose/files/la-autoheal/la-autoheal). Sin container_name el"
-echo "contenedor pasa a <proyecto>-<servicio>-N y autoheal DEJA de recuperarlo."
+echo "NOTA: sin container_name el contenedor pasa a <proyecto>-<servicio>-N, que no casa"
+echo "con el ^la_ con el que autoheal seleccionaba. Por eso la-autoheal anade ahora los"
+echo "contenedores etiquetados con com.docker.compose.project.working_dir (test:"
+echo "scripts/test-la-autoheal.sh, caso 6b)."

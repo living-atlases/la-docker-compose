@@ -105,6 +105,18 @@ docker_compose_data_dir: /data/docker-compose
 nginx_conf_dir: "{{ docker_compose_data_dir }}/nginx"
 docker_output_dir: "{{ docker_compose_output_dir | default('docker-compose-output') }}"
 
+# docker_nginx_replica_failover: true drops conf.d/replica-failover.conf, two http-level
+# directives that make nginx retry the NEXT address its resolver returned when a backend
+# answers 5xx or does not accept the connection. The rendered portal has no upstream blocks,
+# only ~91 locations with dynamic resolution, so this is the only place that behaviour can
+# come from. See roles/la-compose/templates/nginx-replicas.conf.j2 for the measurements and
+# the README section on replicas for the scope. REQUIRED before replicating any service, and useful on its
+# own: without it proxy_connect_timeout is nginx's default 60s.
+# Default false: it changes the behaviour of EVERY proxied location on the host, including the
+# cross-host static_upstream ones, so a portal opts in (staging first).
+docker_nginx_replica_failover: false
+docker_nginx_replica_connect_timeout: 1s
+
 # ============================================
 # Build Configuration
 # ============================================

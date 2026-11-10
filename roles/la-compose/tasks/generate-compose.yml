@@ -777,6 +777,31 @@
   tags:
     - docker-compose
 
+# Same drop-in mechanism as metrics.conf above. Absent (and removed) unless the portal opts in,
+# because it changes every proxied location on the host.
+- name: Ensure nginx retries the next replica when one is down or wedged
+  ansible.builtin.template:
+    src: nginx-replicas.conf.j2
+    dest: "{{ nginx_conf_dir }}/conf.d/replica-failover.conf"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when:
+    - "'nginx' in services_enabled"
+    - docker_nginx_replica_failover | bool
+  tags:
+    - docker-compose
+
+- name: Remove the replica failover drop-in when it is off
+  ansible.builtin.file:
+    path: "{{ nginx_conf_dir }}/conf.d/replica-failover.conf"
+    state: absent
+  when:
+    - "'nginx' in services_enabled"
+    - not docker_nginx_replica_failover | bool
+  tags:
+    - docker-compose
+
 - name: Ensure nginx has the quality filter cache
   ansible.builtin.template:
     src: "data-quality-cache.{{ item }}.j2"
