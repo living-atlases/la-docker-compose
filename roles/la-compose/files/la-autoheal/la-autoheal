@@ -18,8 +18,10 @@
 #    not rewrite /etc/default/la-autoheal, so a list of replicated services kept there would
 #    go stale exactly when a fast deploy turned replicas on. Today it selects nothing new:
 #    every container_name in the repo's templates starts with la_, as do the only two
-#    inventory overrides, and the airflow overlay runs from its own directory
-#    (<compose dir>/overlay/pipelines-airflow/compose), so its label does not match;
+#    inventory overrides, and the other compose projects on these hosts run from their own
+#    directories, so their label does not match: the airflow overlay from
+#    <compose dir>/overlay/pipelines-airflow/compose, and cadvisor (checked on a real host)
+#    from /opt/cadvisor as a project of its own;
 #  - biocache-service first: while it is unhealthy the hubs that depend on it wait. This only
 #    sees THIS host: a hub whose biocache-service runs on another host is handled on its own;
 #  - at most one restart per container every LA_AUTOHEAL_GRACE seconds (let it boot);
