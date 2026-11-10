@@ -177,6 +177,11 @@ biocache_service_port: 8080
 image_service_port: 8080
 logger_service_port: 8080
 namematching_service_port: 9179
+# namematching_service_replicas > 1 drops the container_name and the published host port and
+# declares `deploy: replicas:` instead (see the service template and the README section on replicas). 1 keeps
+# today's rendering byte for byte. It needs docker_nginx_replica_failover: true, or nginx sends
+# a share of the traffic to a wedged replica; generate-compose.yml asserts that.
+namematching_service_replicas: 1
 namematching_admin_port: 9180
 doi_service_port: 8080
 sensitive_data_service_port: 9189

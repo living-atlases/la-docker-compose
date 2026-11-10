@@ -514,6 +514,83 @@ cd /data/docker-compose && docker compose up -d --no-deps biocache-hub
 | `docker_autoheal_grace` / `docker_autoheal_max_per_hour` | `600` / `3` | seconds between restarts of a container / restarts an hour |
 | `docker_autoheal_probes` | `[]` | extra `"container url"` checks: a healthy container whose URL answers 5xx three times in a row is restarted too |
 
+## Running more than one replica of a stateless service (availability, not throughput)
+
+Every service runs a single container, so restarting any of them cuts its traffic and a crash
+takes it down entirely. A read-only service can run more than one replica, and the mechanism
+nginx needs for that is **already there**: the portal has no `upstream` blocks at all
+(`nginx_load_balancing` is false, so ala-install's `fragment_02_upstream.j2` never renders).
+What it has is ~91 locations with dynamic resolution — `resolver 127.0.0.11 valid=30s` plus a
+`proxy_pass` with a variable — so nginx re-resolves the service name on every request, and
+Docker's embedded DNS answers with every replica address, rotated.
+
+**This buys availability, not capacity.** A portal's read ceiling is Solr, not these JVMs, so
+nothing here promises more throughput; until there is a load test that says otherwise, do not
+sell it as one.
+
+Measured on a throwaway compose project that reproduces the rendered nginx pattern
+(`scripts/experiments/measure-replica-failover.sh`, ~3 min, needs Docker, not in CI):
+
+| | requests with an error |
+| --- | --- |
+| one replica, and it is wedged (where a portal is today) | 100% |
+| three replicas, one wedged, nginx as it is today | 34.6% |
+| the same, with the two directives below | **0 of 2076** |
+| a replica stopped cleanly, with the two directives | **0 of 1292** |
+
+"Wedged" means the container is up and answering 5xx — a JVM that lost its application context,
+which is the failure `autoheal` exists for. nginx's own default `proxy_next_upstream` is
+`error timeout`, which already covers a replica that **stopped**; what it does not cover is the
+one that stays up and answers 5xx. Adding those codes is what takes 34.6% to 0.
+
+### Three things have to be true
+
+1. **`docker_nginx_replica_failover: true`.** It drops `conf.d/replica-failover.conf`, two
+   http-level directives (`proxy_connect_timeout`, `proxy_next_upstream … http_502 http_503
+   http_504`) inherited by every proxied location. It is **off by default** because it changes
+   the behaviour of every location on the host, including the cross-host ones — so turn it on
+   in staging first. It is worth having even with no replicas at all: `proxy_connect_timeout`
+   otherwise defaults to 60 s, so a backend whose host drops the SYN hangs the client for a
+   minute. It deliberately does **not** touch `proxy_read_timeout`: each location sets 10 m for
+   the long downloads. A JVM that accepts the connection and then never answers is therefore
+   not covered here — that one is autoheal's job.
+2. **autoheal has to find the replicas.** A replicated service has no `container_name`, so its
+   containers are `<project>-<service>-N` and no longer match the `^la_` that autoheal selected
+   by. It now also takes the containers Compose labels with this stack's working directory
+   (`com.docker.compose.project.working_dir`), so replicas are recovered and another Compose
+   project on the same host still is not. This is not optional: with the drop-in in place nginx
+   hides the wedged replica's 5xx, so without autoheal nobody notices, and the portal stays
+   permanently degraded while looking perfectly healthy. `generate-compose` refuses to render
+   replicas without the drop-in for the same reason.
+3. **The service has to be stateless and nobody may address it by container name or host
+   port.** Replicating drops both the `container_name` and the published host port (two
+   replicas cannot bind it), so a consumer that uses either breaks — silently.
+
+### What can be replicated, and what cannot
+
+`namematching-service` is the first candidate: every volume it mounts is `:ro`, nginx already
+reaches it by its service name, and it is on the hot path, since biocache-service asks it on
+every name lookup. `sensitive-data-service` is the same shape, except that one `proxy_pass` in
+`generate-compose.yml` still names its container, which would have to be fixed first.
+
+Out of scope, and not by accident:
+
+- **the hubs and anything with a user session.** A `proxy_pass` with a variable cannot do
+  `ip_hash`, and session affinity is the one case where an `upstream` block is genuinely
+  needed. That is a different, more expensive change.
+- **biocache-service**, although it owns 41 of the 91 locations: its replicas would share two
+  *writable* directories for offline downloads (`/data/cache/downloads`, where the queue's
+  `offline<ts>.json` lives, and `/data/biocache-download`, where the ZIP lands). Two replicas
+  consuming one queue is worse than one replica.
+- **Swarm.** Swarm balances through a VIP rather than one A record per replica, so none of the
+  above was measured there.
+
+| Variable | Default | |
+| --- | --- | --- |
+| `docker_nginx_replica_failover` | `false` | `true` drops `conf.d/replica-failover.conf` |
+| `docker_nginx_replica_connect_timeout` | `1s` | `proxy_connect_timeout` in that drop-in |
+| `namematching_service_replicas` | `1` | `1` renders exactly as before; `>1` drops the container name and host port and declares `deploy.replicas` |
+
 ## Migrating an existing portal (VMs → Docker)
 
 Moving a Living Atlas that runs on VMs into this deployment means carrying over

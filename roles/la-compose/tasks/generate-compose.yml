@@ -233,6 +233,24 @@
 # production VM, and the containers would read and write the production database in silence.
 # This is an invariant assertion, not a heuristic — if it fires, the owner selection
 # regressed.
+# Replicating a service without the nginx drop-in makes availability WORSE than it looks:
+# measured on the bench (scripts/experiments/measure-replica-failover.sh), three replicas with
+# one wedged and nginx as it is today fail 34.6% of requests, because nginx's default
+# proxy_next_upstream does not include the 5xx a wedged JVM answers. With the drop-in it is 0.
+- name: "Validate: a replicated service needs the nginx replica drop-in"
+  ansible.builtin.assert:
+    that:
+      - (namematching_service_replicas | default(1) | int) <= 1 or (docker_nginx_replica_failover | bool)
+    fail_msg: >-
+      namematching_service_replicas is {{ namematching_service_replicas | default(1) }} but
+      docker_nginx_replica_failover is false. nginx would keep sending a share of the traffic
+      to a replica that is up and answering 5xx (34.6% of requests on the bench), and autoheal
+      would be the only thing noticing. Set docker_nginx_replica_failover: true.
+    success_msg: "Replica counts and the nginx replica drop-in agree."
+  tags:
+    - docker-compose
+    - nginx
+
 - name: "Validate: a stack-local datastore is never owned by a host outside the stack"
   ansible.builtin.assert:
     that:

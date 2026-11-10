@@ -935,8 +935,12 @@ EOF
                     bash scripts/test-hub-context-path.sh
                     # The hub healthchecks, executed against a fake curl, go red on a 500 page.
                     bash scripts/test-hub-healthcheck-exec.sh
-                    # docker_autoheal: order, grace, hourly cap, probes, deploy marker. Fake docker, ~5s.
+                    # docker_autoheal: order, grace, hourly cap, probes, deploy marker, and a
+                    # replica with no container_name found by its compose label. Fake docker, ~5s.
                     VENV_MOLECULE="$VENV_MOL" bash scripts/test-la-autoheal.sh
+                    # namematching_service_replicas: 1 renders as before, 2 drops container_name and
+                    # the host port, and replicas without the nginx drop-in do not deploy. ~1s.
+                    VENV_MOLECULE="$VENV_MOL" bash scripts/test-namematching-replicas.sh
                     # docker_config_files from a real .ini: per-host placement, mode, idempotency,
                     # i18n overlay and nginx conf.d dests. ~15s.
                     VENV_MOLECULE="$VENV_MOL" bash scripts/test-config-files.sh

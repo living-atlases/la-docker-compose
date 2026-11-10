@@ -1,15 +1,31 @@
 services:
    namematching-service:
+{% if namematching_service_replicas | int <= 1 %}
+     # Only with a single replica: docker compose REFUSES to scale a service that declares a
+     # container_name, and it says so as a WARNING, not an error ("Remove the custom name to
+     # scale the service") — so without this the service would silently stay at one replica.
+     # Kept by default so the rendered bundle is byte-identical for a portal that does not
+     # replicate, and so the ~15 scripts that do `docker exec la_<svc>` keep working.
      container_name: la_namematching_service
+{% endif %}
      profiles: [app-core, full]
      image: {% set svc_reg = namematching_registry | default(docker_registry | default('')) %}{{ svc_reg }}{% if svc_reg %}/{% endif %}ala-namematching-server:{{ namematching_docker_tag | default('latest') }}
+{% if namematching_service_replicas | int <= 1 %}
      # Service port on the host's PRIVATE address only, like every other published port
      # (solr, the databases): a bare "port:port" binds 0.0.0.0, and Docker's NAT rules run
      # before ufw, so on a host with a public IP it was open to the internet. The Dropwizard
      # admin port (9180: healthcheck, metrics, thread dump, tasks) is not published at all:
      # the healthcheck below runs inside the container and nothing else uses it.
+     #
+     # Published only with a single replica: two replicas cannot bind the same host port.
+     # Nothing in this repo consumes it — every in-stack consumer goes through the compose
+     # service name (namematching_service_url: http://namematching-service:9179), and nginx
+     # through namematching_service_upstream_host, also the service name. It exists for a
+     # consumer on ANOTHER host in a multi-host topology, configured by hand in an inventory.
+     # If a portal has one of those, it cannot replicate this service yet.
      ports:
        - "{{ host_private_ip }}:{{ namematching_service_port }}:9179"
+{% endif %}
      environment:
        - JAVA_OPTS=${NAMEMATCHINGSERVICE_JAVA_OPTS:--Xmx2g -Xms1g}
      # The published image freezes `java -Xmx2g -Xms2g ...` into its CMD, so JAVA_OPTS alone
@@ -28,4 +44,12 @@ services:
        timeout: 10s
        retries: 3
        start_period: 60s
+{% if namematching_service_replicas | int > 1 %}
+     # Availability, NOT throughput (see the README section on replicas): nginx re-resolves
+     # the service name on every request and docker's DNS hands it every replica address, so
+     # one replica can be restarted or wedged without the portal losing the service. The
+     # portal's read ceiling is Solr, not this JVM, so nothing here promises more capacity.
+     deploy:
+       replicas: {{ namematching_service_replicas | int }}
+{% endif %}
      restart: unless-stopped

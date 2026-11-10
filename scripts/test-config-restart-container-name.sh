@@ -39,7 +39,7 @@ chmod +x "$tmp/bin/docker"
 run() { (cd "$tmp" && PATH="$tmp/bin:$PATH" bash "$tmp/$1.sh" 2>&1); }
 
 out=$(run namematching-service)
-[ "$out" = RESTARTED ] && ok "a container named la_namematching_service is found through compose and restarted" || bad "namematching: $out"
+[ "$out" = RESTARTED ] && ok "the container is found through compose, by service name, not by guessing la_<svc>" || bad "namematching: $out"
 grep -qx 'compose restart namematching-service' "$tmp/calls" && ok "it restarts the compose service" || bad "no compose restart call"
 
 : > "$tmp/calls"
