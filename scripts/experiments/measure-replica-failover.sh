@@ -24,7 +24,8 @@ RETRY='proxy_connect_timeout 1s;
 proxy_next_upstream error timeout http_502 http_503 http_504;' 
 cleanup() {
   docker compose -p $P -f "$T/base.yml" -f "$T/sick.yml" down -v >/dev/null 2>&1 || true
-  docker compose -p ${P}cn -f "$T/cn.yml" down -v >/dev/null 2>&1 || true
+  docker compose -p ${P}cn -f "$T/cn.yml" down -v >/dev/null 2>&1
+  docker compose -p ${P}heal -f "$T/heal.yml" down -v >/dev/null 2>&1 || true || true
   echo "logs y configs del banco: $T  (borralo tu cuando acabes)"
 }
 trap cleanup EXIT
@@ -134,6 +135,40 @@ awk -v ev="$EV" '{if($1>=ev){q++; if($2!="200"){qb++; if(!f)f=$1; l=$1}}}
   END{printf "  E) tras la parada, con el drop-in      %5d/%-5d con error  %5.1f%%\n",qb+0,q+0,(qb*100.0)/q
       if(qb)printf "     los fallos duran hasta +%.1fs (la cache valid=30s del resolver)\n",(l-ev)/1000
       else  print  "     ningun fallo"}' "$T/d"
+echo
+echo
+echo "== AUTOHEAL contra replicas DE VERDAD (no el docker de mentira del test) =="
+# El unico sitio donde se puede comprobar que el selector nuevo funciona con contenedores
+# reales: etiquetas de compose reales, nombres <proyecto>-<servicio>-N reales y el script
+# tal cual se instala. El test unitario usa un docker falso, asi que esto es complementario.
+cat > "$T/heal.yml" <<EOF
+services:
+  enferma:
+    image: nginx:1.30-alpine
+    volumes: ["$T/sick.conf:/etc/nginx/conf.d/default.conf:ro"]
+    healthcheck:
+      test: ["CMD-SHELL", "exit 1"]
+      interval: 2s
+      timeout: 2s
+      retries: 1
+    deploy: {replicas: 2}
+EOF
+docker compose -p ${P}heal -f "$T/heal.yml" up -d >/dev/null 2>&1
+for _ in $(seq 1 20); do
+  [ "$(docker ps --filter health=unhealthy --filter "label=com.docker.compose.project.working_dir=$T" -q | grep -c .)" -ge 2 ] && break
+  sleep 1
+done
+names=$(docker ps --filter "label=com.docker.compose.project.working_dir=$T"   --filter name=enferma --format '{{.Names}}' | sort | tr '\n' ' ')
+echo "  contenedores sin container_name: $names"
+case "$names" in *_*) echo "  OJO: casan con ^la_, el caso no se esta probando" ;; esac
+mkdir -p "$T/state"
+out=$(LA_AUTOHEAL_STATE="$T/state" LA_AUTOHEAL_DEFAULTS=/dev/null       LA_AUTOHEAL_COMPOSE_DIR="$T" LA_AUTOHEAL_DEPLOY_MARKER="$T/nohay"       bash roles/la-compose/files/la-autoheal/la-autoheal --dry-run 2>&1)
+n=$(printf '%s\n' "$out" | grep -c "would restart ${P}heal-enferma")
+[ "$n" -ge 2 ]   && echo "  OK autoheal recuperaria las $n replicas por la etiqueta de compose"   || { echo "  FALLA autoheal NO las ve:"; printf '%s\n' "$out" | sed 's/^/    /'; }
+# Y que no se lleva por delante contenedores de otro proyecto compose del mismo host.
+printf '%s\n' "$out" | grep -q "would restart ${P}-"   && echo "  FALLA toca contenedores de otro proyecto compose"   || echo "  OK no toca los del proyecto $P, que tiene otro working_dir"
+docker compose -p ${P}heal -f "$T/heal.yml" down -v >/dev/null 2>&1
+
 echo
 echo "NOTA: sin container_name el contenedor pasa a <proyecto>-<servicio>-N, que no casa"
 echo "con el ^la_ con el que autoheal seleccionaba. Por eso la-autoheal anade ahora los"
