@@ -263,6 +263,32 @@
     - docker-compose
     - nginx
 
+# The drop-in on its own, with no service replicated. The assertion above gates REPLICAS on a
+# single host; this one gates the drop-in, because the two are not the same risk. The file is
+# two http-level directives, so every proxied location inherits them -- including the ones that
+# proxy to another host (static_upstream). A 1s connect timeout across the link between two
+# hosts turns a slow SYN into a 502 for the whole portal, and the drop-in buys nothing there:
+# replicating is already refused on multi-host, so there is no second address to retry.
+- name: "Validate: the nginx replica drop-in only on a single compose host"
+  ansible.builtin.assert:
+    that:
+      - >-
+        not (docker_nginx_replica_failover | default(false) | bool)
+        or ((groups['docker_compose'] | default([])) | length) <= 1
+    fail_msg: >-
+      docker_nginx_replica_failover is true on an inventory with
+      {{ (groups['docker_compose'] | default([])) | length }} docker_compose hosts. The drop-in
+      is two http-level directives, so EVERY proxied location on this host inherits them,
+      the ones that proxy to another host included. proxy_connect_timeout
+      {{ docker_nginx_replica_connect_timeout | default('1s') }} across the link between hosts
+      turns a slow SYN into a 502 for the whole portal, and it buys nothing here: replicating
+      is refused on more than one host, so there is no second address to retry. Set it to
+      false, or replicate on a single compose host.
+    success_msg: "The nginx replica drop-in is off, or this is a single compose host."
+  tags:
+    - docker-compose
+    - nginx
+
 - name: "Validate: a stack-local datastore is never owned by a host outside the stack"
   ansible.builtin.assert:
     that:

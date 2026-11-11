@@ -103,6 +103,20 @@ elif "groups['docker_compose']" not in blocks[0]:
 else:
     pass_("generate-compose.yml refuses replicas > 1 without the drop-in or on multi-host")
 
+# The drop-in ALONE, with nothing replicated, must not deploy on multi-host either: it is
+# http-level, so it also changes the locations that proxy to another host, where a 1s connect
+# timeout is a 502 for the whole portal and there is no second address to retry anyway.
+alone = [b for b in re.split(r"(?m)^- name: ", tasks)
+         if "docker_nginx_replica_failover" in b and "namematching_service_replicas" not in b
+         and "assert" in b]
+if not alone:
+    bad("generate-compose.yml does not assert the drop-in alone needs a single compose host")
+elif "groups['docker_compose']" not in alone[0]:
+    bad("the drop-in assert does not gate it on a single compose host: its two directives are "
+        "http-level and reach the locations that proxy to another host")
+else:
+    pass_("generate-compose.yml refuses the drop-in alone on a multi-host inventory")
+
 # The drop-in is written AND removed again, or turning it off would leave it behind forever.
 if 'conf.d/replica-failover.conf' not in tasks or 'state: absent' not in tasks:
     bad("generate-compose.yml does not remove the drop-in when it is off")
