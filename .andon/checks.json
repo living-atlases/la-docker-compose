@@ -333,6 +333,14 @@
     },
     {
       "match": [
+        "scripts/experiments/measure-replica-failover.sh",
+        "roles/la-compose/templates/nginx-replicas.conf.j2",
+        "roles/la-compose/files/la-autoheal/la-autoheal"
+      ],
+      "run": "bash scripts/experiments/measure-replica-failover.sh --check"
+    },
+    {
+      "match": [
         "roles/la-compose/files/la-autoheal/la-autoheal",
         "roles/la-compose/templates/la-autoheal/*.j2",
         "roles/la-compose/tasks/autoheal.yml",

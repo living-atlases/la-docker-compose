@@ -1097,6 +1097,33 @@ EOF
             }
         }
 
+        // The one check that runs REAL containers. The bench stands up its OWN compose
+        // project (toy nginx plus backends), reproduces the pattern the portal emits
+        // (resolver 127.0.0.11 plus a proxy_pass with a variable, zero upstream blocks, the
+        // location's proxy_read_timeout 10m and the drop-in at http level) and measures what
+        // a replica that is ALIVE and answering 503 does to the traffic, with and without
+        // conf.d/replica-failover.conf -- the failure mode docker never takes out of DNS,
+        // because the container does not stop. It also runs la-autoheal as installed against
+        // two real replicas with no container_name, to prove the compose label finds them and
+        // that it leaves another project on the same host alone.
+        //
+        // It touches no portal and needs no deployed host: the agent's own docker is enough,
+        // the same one the E2E stage uses. --check asserts thresholds instead of only
+        // printing numbers, so this stage can go red (TASK-112 #7). The project name and
+        // port come from the build, or two builds on one agent would collide. ~2 min.
+        stage('Replica failover bench') {
+            when { expression { !params.ONLY_CLEAN } }
+            steps {
+                sh '''
+                    set -eu
+                    B="${BUILD_NUMBER:-0}"
+                    LA_BENCH_PROJECT="labench${B}" \
+                        bash scripts/experiments/measure-replica-failover.sh \
+                        --check "$(( 18000 + (B % 900) ))"
+                '''
+            }
+        }
+
         // Level-1 topology validation: every topologies/*.placement.json variant is
         // checked against its COMMITTED fixture inventory (resolved-hostvars only:
         // scope leaks, orphan services, duplicated vhosts, placement invariants).
