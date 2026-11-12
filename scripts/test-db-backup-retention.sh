@@ -80,8 +80,30 @@ pull_retry() {
   return 1
 }
 
+# A wait that runs out has to say so. Both of these used to fall through in silence, and the
+# checks below then read a backup directory the job had not finished with: in #530 the postgres
+# dump was still being written, so they reported the pruning as broken and the new dump as
+# missing (it was there, still empty) instead of the timeout that really happened. The budget is
+# generous because the nightly agent pulls images and runs molecule alongside: 40s of work here
+# took over a minute under that load.
+wait_for() {  # budget in seconds, what we are waiting for, predicate
+  local budget=$1 what=$2 i
+  shift 2
+  for i in $(seq 1 "$budget"); do
+    "$@" && return 0
+    sleep 1
+  done
+  bad "$what did not happen in ${budget}s"
+  return 1
+}
+pg_ready() { docker exec "$N-pg" psql -U postgres -h 127.0.0.1 -qc "SELECT 1" >/dev/null 2>&1; }
+pg_job_done() {
+  docker exec "$N-bk" cat /logs/dbbackup.log 2>/dev/null \
+    | grep -q 'action=backup job=db03.*status=finished'
+}
+
 try_tag() {
-  local tag=$1 i
+  local tag=$1
   local too_old_mysql too_old_mongo too_old_pg recent
   too_old_mysql=$(dump_at mysql-ALL-mysql 19 sql)
   too_old_mongo=$(dump_at mongo-admin-mongodb 7 mongo)
@@ -99,22 +121,15 @@ try_tag() {
 
   docker run -d --name "$N-pg" --network "$N" --network-alias postgres \
     -e POSTGRES_PASSWORD=secret "$PG_IMAGE" >/dev/null
-  for i in $(seq 1 60); do
-    docker exec "$N-pg" psql -U postgres -h 127.0.0.1 -qc "SELECT 1" >/dev/null 2>&1 && break
-    sleep 1
-  done
+  wait_for 60 "$tag: postgres" pg_ready || return
   docker exec "$N-pg" psql -U postgres -h 127.0.0.1 -qc "CREATE DATABASE demo" >/dev/null
   docker exec "$N-pg" psql -U postgres -h 127.0.0.1 -d demo \
     -qc "CREATE TABLE marker AS SELECT 'dump-marker-row'::text AS v" >/dev/null
 
   docker run -d --name "$N-bk" --network "$N" -v "$N:/backup" --env-file "$T/env" \
     "nfrastack/db-backup:$tag" >/dev/null
+  wait_for 240 "$tag: the postgres backup job" pg_job_done || return
   local cfg
-  for i in $(seq 1 60); do
-    docker exec "$N-bk" cat /logs/dbbackup.log 2>/dev/null \
-      | grep -q 'action=backup job=db03.*status=finished' && break
-    sleep 1
-  done
   cfg=$(docker exec "$N-bk" cat /config/db-backup.yml 2>/dev/null)
   local count
   count=$(printf '%s\n' "$cfg" | grep -c 'within: 8640m')
