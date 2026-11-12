@@ -125,3 +125,56 @@
   no_log: true
   when: logger_known_ips.stdout_lines is defined
   tags: [db-init, db-migrations]
+
+# --- Migration 3: emmet authorised_system from userdetails_authorize_ip_list -
+# userdetails answers 401 to its web-service calls from a host missing from
+# emmet.authorised_system, and the callers log nothing a health check would show:
+# ala-hub's user profile and its saved-fields download simply come back empty.
+# The ala-install task that fills the table runs auth-ip.sql from the userdetails
+# role's `vm-tasks.yml`, so it is skipped on compose deploys and the table keeps
+# whatever an imported dump brought. Every host added to the stack afterwards
+# then needs a manual INSERT, which is how the gap stays open.
+# Same shape and same promise as migration 2: only adds rows, so an IP added by
+# hand stays, and so does one the inventory no longer lists.
+
+- name: "DB Migration: emmet — check authorised_system exists"
+  ansible.builtin.command: >
+    docker exec la_mysql mysql -N -u root -p{{ mysql_root_password }}
+    -e "SELECT COUNT(*) FROM information_schema.TABLES
+        WHERE TABLE_SCHEMA='{{ cas_db_name | default('emmet') }}'
+          AND TABLE_NAME='authorised_system';"
+  register: emmet_authorised_system_table
+  become: true
+  changed_when: false
+  no_log: true
+  when:
+    - "'mysql' in db_compose_services.stdout_lines"
+    - "'cas-servers' in physical_server_groups | default([])"
+  tags: [db-init, db-migrations]
+
+- name: "DB Migration: emmet — list the authorised hosts"
+  ansible.builtin.command: >
+    docker exec la_mysql mysql -N -u root -p{{ mysql_root_password }}
+    -e "SELECT host FROM {{ cas_db_name | default('emmet') }}.authorised_system;"
+  register: emmet_authorised_hosts
+  become: true
+  changed_when: false
+  no_log: true
+  when: (emmet_authorised_system_table.stdout | default('0') | trim) == '1'
+  tags: [db-init, db-migrations]
+
+# `version` is the GORM optimistic-locking column and is NOT NULL; auth-ip.sql
+# seeds it with 1 and an empty description, and this stays byte-compatible with
+# the rows that script writes, so the two can never disagree about a host.
+- name: "DB Migration: emmet — authorise the hosts missing from authorised_system"
+  ansible.builtin.command: >
+    docker exec la_mysql mysql -u root -p{{ mysql_root_password }}
+    -e "INSERT INTO {{ cas_db_name | default('emmet') }}.authorised_system (host, description, version)
+        VALUES ('{{ item }}', '', 1);"
+  loop: >-
+    {{ (userdetails_authorize_ip_list | default('') | regex_replace(' ', '')).split(',')
+       | reject('equalto', '') | difference(emmet_authorised_hosts.stdout_lines) }}
+  become: true
+  no_log: true
+  when: emmet_authorised_hosts.stdout_lines is defined
+  tags: [db-init, db-migrations]

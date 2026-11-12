@@ -922,6 +922,10 @@ EOF
                     # logger_authorize_ip_list reaches logger's remote_address on a compose
                     # deploy: a stubbed docker around the real migration, ~20s.
                     bash scripts/test-logger-authorize-ips.sh
+                    # userdetails_authorize_ip_list reaches emmet's authorised_system on a
+                    # compose deploy: without it userdetails 401s every host added to the
+                    # stack and the callers stay silent. Stubbed docker, ~20s.
+                    bash scripts/test-userdetails-authorize-ips.sh
                     # Bundle spike: capture/apply against a shimmed docker, ~2s.
                     bash scripts/test-bundle-spike.sh
                     # Bundle applier: host-apply/la-bundle-apply against shims, ~3s.
