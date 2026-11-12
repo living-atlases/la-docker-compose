@@ -5,10 +5,28 @@ services:
     profiles: [monitoring, full]
     # Pinned, not :latest -- :latest is a build of gatus master, so the dashboard
     # could change (or break) under us on any upstream commit, the way
-    # tiredofit/db-backup:latest did on 2026-09-09. v5.36.0 is what upstream tags
-    # `stable`; it parses this deployment's config (138 endpoints) and opens a
-    # data.db written by a master build without migrating anything.
-    image: twinproduction/gatus:{{ gatus_version | default('v5.36.0') }}
+    # tiredofit/db-backup:latest did on 2026-09-09. The pin follows what upstream
+    # tags `stable`, which as of 2026-11-12 is v5.38.0 (identical digest).
+    #
+    # Moved off v5.36.0 for the CA distrust: its bundle still trusts the eMudhra
+    # roots revoked on 2026-10-17 (measured, 145 certs, one of them 86A1ECBA), and
+    # gatus is the one container here whose whole job is outbound HTTPS, so that
+    # store is the one that actually gets used. v5.37.0 still trusts it; v5.38.0
+    # does not (118 certs, none revoked). See scripts/ca-distrust-ci-collect.sh.
+    #
+    # Checked before bumping. v5.36.0...v5.38.0 is 29 commits over 48 files (the
+    # whole list, well under the compare API's cap): nothing under the storage
+    # package, no .sql, no migration -- so the code that opens an existing
+    # data.db is the same code, which is what the old pin's data.db note was
+    # really about. This deployment also sets no maintenance windows, the one
+    # area 5.38 tightened validation on.
+    #
+    # scripts/test-gatus-extra-checks.sh with GATUS_VALIDATE=1 loads a config
+    # rendered from this template with this image. That covers the template's
+    # constructs against a small test inventory, NOT a portal's full endpoint
+    # list: the first time the real config meets 5.38 is a full CI run or a
+    # deploy.
+    image: twinproduction/gatus:{{ gatus_version | default('v5.38.0') }}
     extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
     volumes:
       - ../gatus/config:/config
