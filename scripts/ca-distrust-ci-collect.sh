@@ -10,8 +10,9 @@
 #
 # Per container and trust store, one tab-separated line on stdout:
 #   <container> <image> <store> <OK|TRUSTS|ERR> <detail>
-# Stores: the system bundle, the JVM cacerts (keytool inside the container) and
-# Node's built-in roots. Nothing else on stdout; always exits 0, the verdict is
+# Stores: the system bundle (read with `cat`, or with `docker cp` when the image has
+# no shell), the JVM cacerts (keytool inside the container), Node's built-in roots and
+# certifi's bundle. A store an image does not have prints nothing. Nothing else on stdout; always exits 0, the verdict is
 # the summary's job.
 #
 # DOCKER overrides the docker command (tests only).
@@ -42,6 +43,21 @@ pem_fps() { # PEM bundle -> one SHA-256 per certificate
   done
 }
 line() { printf '%s\t%s\t%s\t%s\t%s\n' "$@"; }
+grab() { # container path -> the bundle in $w/bundle, 0 when it got one
+  # `exec cat` first, it is cheapest. Then `docker cp`, which runs nothing inside the
+  # container: a distroless image ships the bundle but has no shell, so `cat` fails on
+  # an image whose trust store is perfectly readable from outside. That read as
+  # "unreadable" for la_gatus_service, the one container whose whole job is outbound
+  # HTTPS -- the check was blind exactly where a bad root would be used. -L: on alpine
+  # /etc/ssl/cert.pem is a symlink, and cp without it copies the link, not the bundle.
+  rm -f "$w/b1"
+  if "${docker[@]}" exec "$1" cat "$2" >"$w/b1" 2>/dev/null </dev/null && [ -s "$w/b1" ]; then
+    mv "$w/b1" "$w/bundle"; return 0
+  fi
+  "${docker[@]}" cp -L "$1:$2" - 2>/dev/null | tar -xOf - >"$w/b1" 2>/dev/null
+  [ -s "$w/b1" ] || return 1
+  mv "$w/b1" "$w/bundle"
+}
 verdict() { # container image store bad-list
   if [ -n "$4" ]; then line "$1" "$2" "$3" TRUSTS "roots: $4"; else line "$1" "$2" "$3" OK "-"; fi
 }
@@ -50,13 +66,13 @@ verdict() { # container image store bad-list
 while IFS=$'\t' read -r name image; do
   got=""
   for b in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/cert.pem; do
-    if "${docker[@]}" exec "$name" cat "$b" >"$w/bundle" 2>/dev/null </dev/null && [ -s "$w/bundle" ]; then
+    if grab "$name" "$b"; then
       verdict "$name" "$image" "$b" "$(pem_fps "$w/bundle" | bad_of)"
       got=1
       break
     fi
   done
-  [ -n "$got" ] || line "$name" "$image" system ERR "no CA bundle, or no cat"
+  [ -n "$got" ] || line "$name" "$image" system ERR "no CA bundle at any known path"
 
   # Java: keytool inside the container, from the JVM that would run.
   if "${docker[@]}" exec "$name" sh -c '
@@ -85,5 +101,20 @@ while IFS=$'\t' read -r name image; do
       line "$name" "$image" node ERR "tls.rootCertificates empty"
     fi
   fi
+
+  # Python: certifi ships its OWN bundle and requests/boto3 verify against that, not
+  # against /etc/ssl/certs, so an image can have a clean system bundle and a stale
+  # certifi. The airflow base had exactly that: ca-certificates upgraded to a fixed
+  # version, certifi 2024.08.30 still carrying both eMudhra roots. No certifi installed
+  # prints nothing, as an absent JVM or Node does.
+  for py in python python3; do
+    "${docker[@]}" exec "$name" sh -c "command -v $py" >/dev/null 2>&1 </dev/null || continue
+    "${docker[@]}" exec "$name" "$py" -c \
+      'import certifi,sys; sys.stdout.write(open(certifi.where()).read())' \
+      >"$w/py.pem" 2>/dev/null </dev/null
+    [ -s "$w/py.pem" ] || break
+    verdict "$name" "$image" certifi "$(pem_fps "$w/py.pem" | bad_of)"
+    break
+  done
 done <"$w/ctrs"
 exit 0
