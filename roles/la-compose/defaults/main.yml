@@ -180,9 +180,14 @@ image_service_port: 8080
 logger_service_port: 8080
 namematching_service_port: 9179
 # namematching_service_replicas > 1 drops the container_name and the published host port and
-# declares `deploy: replicas:` instead (see the service template and the README section on replicas). 1 keeps
-# today's rendering byte for byte. It needs docker_nginx_replica_failover: true, or nginx sends
-# a share of the traffic to a wedged replica; generate-compose.yml asserts that.
+# declares `deploy: replicas:` instead (see the service template and the README section on replicas).
+# With 1 the SERVICE DEFINITION is unchanged, which is the half that matters on a redeploy. The
+# rendered file is NOT byte-identical to the one before this variable existed: the comments the
+# template guards render too (measured: 12 lines). Nothing recreates a container over them, because
+# both the drift script (recreate-drifted-services.sh) and the --no-recreate warning compare
+# `docker compose config --hash`, computed from the resolved model and not from the text (measured:
+# two files differing only in comments hash the same). It needs docker_nginx_replica_failover: true,
+# or nginx sends a share of the traffic to a wedged replica; generate-compose.yml asserts that.
 namematching_service_replicas: 1
 namematching_admin_port: 9180
 doi_service_port: 8080

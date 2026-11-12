@@ -4,8 +4,10 @@ services:
      # Only with a single replica: docker compose REFUSES to scale a service that declares a
      # container_name, and it says so as a WARNING, not an error ("Remove the custom name to
      # scale the service") — so without this the service would silently stay at one replica.
-     # Kept by default so the rendered bundle is byte-identical for a portal that does not
-     # replicate, and so the ~15 scripts that do `docker exec la_<svc>` keep working.
+     # Kept by default so the SERVICE DEFINITION of a portal that does not replicate is unchanged
+     # (the rendered bytes are not: these comments render as well, but compose hashes the resolved
+     # model, so no container is recreated over them), and so the ~15 scripts that do
+     # `docker exec la_<svc>` keep working.
      container_name: la_namematching_service
 {% endif %}
      profiles: [app-core, full]
