@@ -1105,6 +1105,18 @@
     - normalize
     - docker-compose
 
+- name: "Branding: base URL for collectory"
+  ansible.builtin.include_tasks: branding-bs5-url.yml
+  vars:
+    bs5_service: collectory
+  when:
+    - "'collectory' in services_enabled"
+  tags:
+    - collectory
+    - config
+    - branding
+    - docker-compose
+
 - name: Run collectory configuration generation (asset copy, config templates)
   ansible.builtin.include_role:
     name: collectory
@@ -1112,6 +1124,8 @@
       become: true
   vars:
     nginx_vhost_fast_mode: true
+    # Resolved just above: the Bootstrap 5 build for 6.2.2+, the inventory value otherwise.
+    header_and_footer_baseurl: "{{ la_service_branding_baseurl }}"
   # Gate solo por services_enabled (derivado de physical_server_groups = co-ubicación).
   # El gate extra service_aliases.get('collectory') era asimétrico: si el alias no
   # casaba el regex pero el servicio estaba enabled, se saltaba la generación de config
@@ -1541,16 +1555,10 @@
     - normalize
     - docker-compose
 
-# logger 4.6.0 is the first ala-bootstrap5 release (4.5.0 was the last Bootstrap 3 one).
-# A non-numeric pin such as "latest" keeps the Bootstrap 3 URL: guessing wrong here would
-# unstyle a portal that is working today, and a portal on latest can say so explicitly with
-# logger_header_and_footer_baseurl.
 - name: "Branding: base URL for logger-service"
   ansible.builtin.include_tasks: branding-bs5-url.yml
   vars:
-    bs5_service: logger-service
-    bs5_explicit: "{{ logger_header_and_footer_baseurl | default('') }}"
-    bs5_needed: "{{ (logger_version | default('') | string) is match('^[0-9]') and (logger_version | string) is version('4.6.0', '>=') }}"
+    bs5_service: logger
   when:
     - "'logger' in services_enabled"
     - "service_aliases.get('logger-service') is defined"
@@ -1577,7 +1585,7 @@
     # appender fails and only the console appender survives. Bind-mounted from
     # {{ data_dir }}/logger/logs, see the log dirs task and logger-service.yml.j2.
     jar_log_path: "/data/logger-service/logs"
-    # Resolved just above: the Bootstrap 5 build for 4.6.0+, the inventory value otherwise.
+    # Resolved just above from docker-services-desc's bootstrap5_from.
     header_and_footer_baseurl: "{{ la_service_branding_baseurl }}"
   when:
     - "'logger' in services_enabled"
@@ -1736,15 +1744,10 @@
     - normalize
     - docker-compose
 
-# alerts 5.2.5 is the first ala-bootstrap5 release (5.2.4 was the last Bootstrap 3 one),
-# the same threshold the toolkit's compatibility matrix uses. See the logger block above
-# for why a non-numeric pin stays on Bootstrap 3.
 - name: "Branding: base URL for alerts"
   ansible.builtin.include_tasks: branding-bs5-url.yml
   vars:
     bs5_service: alerts
-    bs5_explicit: "{{ alerts_header_and_footer_baseurl | default('') }}"
-    bs5_needed: "{{ (alerts_version | default('') | string) is match('^[0-9]') and (alerts_version | string) is version('5.2.5', '>=') }}"
   when:
     - "'alerts' in services_enabled"
     - "service_aliases.get('alerts-service') is defined"
@@ -1775,7 +1778,7 @@
     # Hibernate already made, exits 0 and restart-loops forever, which aborts the health gate
     # (builds #391-394). Pre-5 images have no Liquibase and still need update.
     dataSource_dbCreate: "{{ 'update' if (alerts_version | default('latest') | string) is match('^[0-4][.]') else 'none' }}"
-    # Resolved just above: the Bootstrap 5 build for 5.2.5+, the inventory value otherwise.
+    # Resolved just above from docker-services-desc's bootstrap5_from.
     header_and_footer_baseurl: "{{ la_service_branding_baseurl }}"
   when:
     - "'alerts' in services_enabled"

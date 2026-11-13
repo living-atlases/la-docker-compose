@@ -44,6 +44,9 @@ docker_services_desc:
     repository: 'https://github.com/AtlasOfLivingAustralia/collectory/'
     # Can be 'gradle' or 'maven' for now, if not buildTool is specified, no Dockefile is generated
     buildTool: 'gradle'
+    # nextgen-compat.yaml: `collectory: from '> 6.2.2'`. 6.2.2 was never tagged, so the
+    # first ala-bootstrap5 release people actually run is 6.3.0.
+    bootstrap5_from: '6.2.2'
     version_variable: 'collectory_version'
     log_config_filename: 'logback.xml'
   ala_hub:
@@ -180,6 +183,8 @@ docker_services_desc:
     extension: 'jar'
     classifier: 'exec'
     repository: 'https://github.com/AtlasOfLivingAustralia/logger-service'
+    # nextgen-compat.yaml: `logger: from '> 4.5.0'` (4.5.0 was the last ala-bootstrap3).
+    bootstrap5_from: '4.5.0'
     version_variable: 'logger_version'
     log_config_filename: 'logback.xml'
     extra_config_name: 'logger-config'
@@ -369,6 +374,9 @@ docker_services_desc:
     artifacts: 'alerts'
     buildTool: 'gradle'
     repository: 'https://github.com/AtlasOfLivingAustralia/alerts'
+    # ala-bootstrap5 from here on (exclusive), mirroring nextgen-compat.yaml's
+    # `alerts: from '> 5.2.4'`: 5.2.4 was the last ala-bootstrap3 release.
+    bootstrap5_from: '5.2.4'
     version_variable: 'alerts_version'
     log_config_filename: 'logback.xml'
     extra_config_name: 'alerts-config'
