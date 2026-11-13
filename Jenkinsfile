@@ -83,6 +83,30 @@ def spatialOverrideVars() {
     return v
 }
 
+// Per-topology ansible overrides, declared in the placement's optional "extra_vars" and
+// consumed HERE, exactly like its skip_services: apply-topology.py ignores both, because the
+// .yo-rc a placement generates models neither. 'Resolve topology' flattens them into
+// TOPOLOGY_EXTRA_VARS as key=value pairs, and leaves it EMPTY on the default topology, so the
+// 3-host build is unchanged by construction. Only 1host-replicas uses it today, to turn on
+// namematching_service_replicas and docker_nginx_replica_failover for that build alone
+// (TASK-115); putting them in the placement keeps "which topology replicates" in one file.
+def topologyExtraVars() {
+    def v = [:]
+    if (!env.TOPOLOGY_EXTRA_VARS?.trim()) { return v }
+    for (pair in env.TOPOLOGY_EXTRA_VARS.tokenize(',')) {
+        def i = pair.indexOf('=')
+        if (i < 1) { continue }
+        def k = pair.substring(0, i).trim()
+        def raw = pair.substring(i + 1).trim()
+        // ansible reads --extra-vars JSON typed: "2" is not 2 for `| int` comparisons in an
+        // assert, and "false" is truthy in Jinja without `| bool`. Restore the JSON types.
+        if (raw == 'true' || raw == 'false') { v[k] = (raw == 'true') }
+        else if (raw ==~ /-?\d+/) { v[k] = raw.toInteger() }
+        else { v[k] = raw }
+    }
+    return v
+}
+
 def renderArgs() {
     def inventoryArg = "-i ${env.INVENTORY_DIR}/lademo-inventory.ini"
     if (fileExists("${env.INVENTORY_DIR}/lademo-local-extras.ini")) {
@@ -98,7 +122,7 @@ def renderArgs() {
     if (params.SKIP_SERVICES?.trim()) { skipList += params.SKIP_SERVICES.tokenize(',') }
     if (env.TOPOLOGY_SKIP_SERVICES?.trim()) { skipList += env.TOPOLOGY_SKIP_SERVICES.tokenize(',') }
     skipList = skipList.collect { it.trim() }.findAll { it }.unique()
-    def extraVars = groovy.json.JsonOutput.toJson([auto_deploy: false, skip_services: skipList] + spatialOverrideVars())
+    def extraVars = groovy.json.JsonOutput.toJson([auto_deploy: false, skip_services: skipList] + spatialOverrideVars() + topologyExtraVars())
     return [inventoryArg: inventoryArg, extraVars: extraVars]
 }
 
@@ -428,8 +452,9 @@ EOF
     if (params.SKIP_SERVICES?.trim()) { skipList += params.SKIP_SERVICES.tokenize(',') }
     if (env.TOPOLOGY_SKIP_SERVICES?.trim()) { skipList += env.TOPOLOGY_SKIP_SERVICES.tokenize(',') }
     skipList = skipList.collect { it.trim() }.findAll { it }.unique()
-    def extraMap = (skipList ? [skip_services: skipList] : [:]) + spatialOverrideVars()
+    def extraMap = (skipList ? [skip_services: skipList] : [:]) + spatialOverrideVars() + topologyExtraVars()
     if (spatialOverrideVars()) { echo "Spatial overrides: ${spatialOverrideVars()}" }
+    if (topologyExtraVars()) { echo "Topology overrides: ${topologyExtraVars()}" }
     if (extraMap) {
         skipArg = " --extra-vars '" + groovy.json.JsonOutput.toJson(extraMap) + "'"
     }
@@ -574,8 +599,8 @@ pipeline {
         )
         choice(
             name: 'TOPOLOGY',
-            choices: ['default', '3host-alt', '2host', '1host', 'biocollect-4host'],
-            description: 'Deployment topology. default = the la-toolkit-synced layout (current 3-host split, untouched). Any other value applies topologies/<name>.placement.json over the agent\'s .yo-rc (backed up and restored on the next default build), trims TARGET_HOSTS to the variant\'s host count and merges its skip_services. MANUAL BUILDS ONLY — SCM-triggered builds refuse non-default topologies. Remember to point the external front proxy per topologies/README.md (scripts/apply-topology.py proxy-map) before/after.'
+            choices: ['default', '3host-alt', '2host', '1host', '1host-replicas', 'biocollect-4host'],
+            description: 'Deployment topology. default = the la-toolkit-synced layout (current 3-host split, untouched). Any other value applies topologies/<name>.placement.json over the agent\'s .yo-rc (backed up and restored on the next default build), trims TARGET_HOSTS to the variant\'s host count, merges its skip_services and passes its optional extra_vars as --extra-vars (1host-replicas uses them to run namematching-service with 2 replicas). MANUAL BUILDS ONLY — SCM-triggered builds refuse non-default topologies. Remember to point the external front proxy per topologies/README.md (scripts/apply-topology.py proxy-map) before/after.'
         )
         string(
             name: 'GENERATOR_BRANCH',
@@ -710,6 +735,7 @@ pipeline {
                 script {
                     def topo = params.TOPOLOGY ?: 'default'
                     env.TOPOLOGY_SKIP_SERVICES = ''
+                    env.TOPOLOGY_EXTRA_VARS = ''
                     if (!env.TARGET_HOSTS?.trim()) {
                         env.TARGET_HOSTS = env.DEFAULT_TARGET_HOSTS
                     }
@@ -734,8 +760,13 @@ pipeline {
                         env.TARGET_HOSTS = picked.join(' ')
                         env.TOPOLOGY_SKIP_SERVICES = sh(returnStdout: true,
                             script: "python3 -c \"import json; print(','.join(json.load(open('${placementFile}')).get('skip_services', [])))\"").trim()
+                        // Optional per-topology ansible vars, flattened to key=value (see
+                        // topologyExtraVars). A bool prints as True/False in python, and ansible
+                        // would read that as a string, so lower it.
+                        env.TOPOLOGY_EXTRA_VARS = sh(returnStdout: true,
+                            script: "python3 -c \"import json; d = json.load(open('${placementFile}')).get('extra_vars', {}); print(','.join('%s=%s' % (k, str(v).lower() if isinstance(v, bool) else v) for k, v in d.items()))\"").trim()
                         currentBuild.description = "TOPOLOGY=${topo} (${hostCount} hosts)"
-                        echo "TOPOLOGY=${topo}: TARGET_HOSTS=${env.TARGET_HOSTS} topology skip_services=${env.TOPOLOGY_SKIP_SERVICES}"
+                        echo "TOPOLOGY=${topo}: TARGET_HOSTS=${env.TARGET_HOSTS} topology skip_services=${env.TOPOLOGY_SKIP_SERVICES} topology extra_vars=${env.TOPOLOGY_EXTRA_VARS}"
                         echo "REMINDER: the external front proxy must route the public vhosts per this variant (scripts/apply-topology.py proxy-map — see topologies/README.md)."
                     }
                 }
@@ -945,6 +976,10 @@ EOF
                     # namematching_service_replicas: 1 renders as before, 2 drops container_name and
                     # the host port, and replicas without the nginx drop-in do not deploy. ~1s.
                     VENV_MOLECULE="$VENV_MOL" bash scripts/test-namematching-replicas.sh
+                    # A placement's optional extra_vars reach ansible with their JSON types
+                    # (an Integer replica count, a Boolean drop-in flag), and every other
+                    # topology contributes none. Runs the real Jenkinsfile helper. ~5s.
+                    bash scripts/test-topology-extra-vars.sh
                     # docker_config_files from a real .ini: per-host placement, mode, idempotency,
                     # i18n overlay and nginx conf.d dests. ~15s.
                     VENV_MOLECULE="$VENV_MOL" bash scripts/test-config-files.sh
@@ -1664,8 +1699,9 @@ EOF
                     if (params.SKIP_SERVICES?.trim()) { skipList += params.SKIP_SERVICES.tokenize(',') }
                     if (env.TOPOLOGY_SKIP_SERVICES?.trim()) { skipList += env.TOPOLOGY_SKIP_SERVICES.tokenize(',') }
                     skipList = skipList.collect { it.trim() }.findAll { it }.unique()
-                    def extraMap = (skipList ? [skip_services: skipList] : [:]) + spatialOverrideVars() + cleanPullVars()
+                    def extraMap = (skipList ? [skip_services: skipList] : [:]) + spatialOverrideVars() + cleanPullVars() + topologyExtraVars()
                     if (spatialOverrideVars()) { echo "Spatial overrides: ${spatialOverrideVars()}" }
+                    if (topologyExtraVars()) { echo "Topology overrides: ${topologyExtraVars()}" }
                     if (extraMap) {
                         skipArg = " --extra-vars '" + groovy.json.JsonOutput.toJson(extraMap) + "'"
                     }

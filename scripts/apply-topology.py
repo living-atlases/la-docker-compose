@@ -31,9 +31,14 @@ Placement overlay format (topologies/*.placement.json):
     "hubs": {"lademohub": {"ala_bie": "host2"}},  # OPTIONAL per-data-hub override;
                                           # any front-end left out follows the
                                           # PORTAL's slot for the same service
-    "skip_services": ["spatial", ...]     # runtime SKIP_SERVICES for reduced
+    "skip_services": ["spatial", ...],    # runtime SKIP_SERVICES for reduced
                                           # variants (consumed by Jenkinsfile,
                                           # not by this script)
+    "extra_vars": {"namematching_service_replicas": 2, ...}
+                                          # OPTIONAL ansible --extra-vars for
+                                          # THIS variant's deploys; like
+                                          # skip_services, consumed by the
+                                          # Jenkinsfile, not by this script
   }
 
 Data hubs (LA_hubs) are placed per front-end, exactly like the portal's services:

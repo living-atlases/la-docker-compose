@@ -21,7 +21,12 @@ always pass it), `3host-alt` (same 3 hosts, deliberately shuffled split),
 `2host` (auth+apps / datastores, heavy services skipped), `hub-split`
 (control portal layout, but a data hub spread across two hosts where the
 portal runs no front-end), `1host`
-(all-in-one, aggressive skips), `shared-hostname-2host` / `shared-hostname-3host`
+(all-in-one, aggressive skips), `1host-replicas` (`1host`'s placement, but it
+deploys `namematching-service` and runs it with 2 replicas and the nginx
+replica drop-in, through the `extra_vars` below — the only variant where a
+replicated service can be seen in a deployed portal, because every other one
+that deploys it has 2 hosts or more and `generate-compose` refuses replicas
+there), `shared-hostname-2host` / `shared-hostname-3host`
 (portal's `ala_hub`/`ala_bie`/`regions` front-ends point at ONE shared
 hostname on different paths, each placed on a different host — the
 Austria/Tanzania-style layout from `ala-install#256`; exercises the
@@ -40,6 +45,15 @@ different hosts — e.g. `portal-shared.l-a.site/records` on host1,
 },
 "shared_vhost_splits": ["<hostname>"]
 ```
+
+A placement may also carry `"extra_vars": {"<ansible var>": <value>}`: ansible
+variables passed as `--extra-vars` on every deploy of THAT variant only. Like
+`skip_services`, it is read by the Jenkinsfile (`Resolve topology` flattens it
+into `TOPOLOGY_EXTRA_VARS`, `topologyExtraVars()` parses it back) and ignored by
+`apply-topology.py`, because the generated `.yo-rc` models neither. Numbers and
+booleans keep their JSON type, which matters where a role compares `| int` or
+reads `| bool`; `scripts/test-topology-extra-vars.sh` asserts it. A variant that
+declares none changes nothing, so the default build is untouched by construction.
 
 `shared_hostname` rewrites each listed service's `LA_<svc>_url`/`_path`
 (and turns off `_uses_subdomain`) before alias computation; `shared_vhost_splits`
