@@ -957,6 +957,11 @@ EOF
                     # compose deploy: without it userdetails 401s every host added to the
                     # stack and the callers stay silent. Stubbed docker, ~20s.
                     bash scripts/test-userdetails-authorize-ips.sh
+
+                    # An ala-bootstrap5 app pointed at the Bootstrap 3 branding renders with
+                    # no CSS and nothing fails, so this is the only thing that would catch it.
+                    # Static, ~5s.
+                    bash scripts/test-branding-bs5-url.sh
                     # Bundle spike: capture/apply against a shimmed docker, ~2s.
                     bash scripts/test-bundle-spike.sh
                     # Bundle applier: host-apply/la-bundle-apply against shims, ~3s.

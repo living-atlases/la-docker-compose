@@ -1,0 +1,70 @@
+---
+# Which branding build one service's config should point at.
+#
+# WHY THIS EXISTS
+#
+# ala-bootstrap5 apps ask their branding for {assets,banner,footer}.mustache; the
+# Bootstrap 3 build only has {head,banner,footer}.html. Pointed at a Bootstrap 3
+# branding, a Bootstrap 5 app renders with no CSS at all and its console fills with
+# "$ is not defined": the mustache that would have loaded jQuery and Bootstrap 5
+# answered 404. Nothing fails, so gatus stays green and the build passes -- which is
+# how alerts 5.3.1 and logger 4.7.0 both ran unstyled on the CI portal unnoticed.
+#
+# base-branding builds the Bootstrap 5 assets into <branding>/bs5 (`npm run build:bs5`,
+# wired into the branding image by files/docker/branding/Dockerfile), so the URL is the
+# Bootstrap 3 one plus /bs5. That derivation is only a default:
+#   - a portal whose Bootstrap 5 build lives elsewhere sets <service>_header_and_footer_baseurl
+#     (gbif.es serves it from a separate path, .../brand-2025-vite-bs5/bs5);
+#   - a header_and_footer_baseurl that already ends in /bs5 is left alone, so a portal
+#     that set the Bootstrap 5 URL host-wide does not end up with /bs5/bs5;
+#   - the ALA commonui URLs (the role defaults) map to commonui-bs5-2019 instead of
+#     growing a /bs5 path that does not exist there.
+#
+# Services below the version threshold keep whatever the inventory gave them, so this
+# file is a no-op for a portal that pins an older release.
+#
+# PARAMETERS (pass through `vars:` on the include)
+#   bs5_service    the service name, for the debug line
+#   bs5_needed     true when the pinned version is an ala-bootstrap5 one
+#   bs5_explicit   that service's own override, or '' when it has none
+#
+# The result lands in `la_service_branding_baseurl`, which the caller passes to the
+# ala-install role as `header_and_footer_baseurl`. It is deliberately NOT written back
+# to `header_and_footer_baseurl` itself: that name is also read, later in the same play,
+# by the branding vhost, wait-for-branding and spatial-hub, and a set_fact would leak
+# one service's /bs5 into all of them.
+
+# One line on purpose: a folded scalar (>-) keeps the newline before a more-indented
+# continuation line, and the value would reach the role with a line break in it.
+- name: "Branding: resolve the base URL for {{ bs5_service }}"
+  ansible.builtin.set_fact:
+    la_branding_bs3_url: "{{ header_and_footer_baseurl | default('') | regex_replace('/+$', '') }}"
+  tags:
+    - config
+    - branding
+    - docker-compose
+
+- name: "Branding: derive the Bootstrap 5 URL for {{ bs5_service }}"
+  ansible.builtin.set_fact:
+    la_branding_bs5_url: "{{ 'https://www.ala.org.au/commonui-bs5-2019' if (la_branding_bs3_url | length == 0 or 'commonui-bs' in la_branding_bs3_url) else (la_branding_bs3_url if la_branding_bs3_url.endswith('/bs5') else la_branding_bs3_url ~ '/bs5') }}"
+  tags:
+    - config
+    - branding
+    - docker-compose
+
+- name: "Branding: pick the build {{ bs5_service }} will be pointed at"
+  ansible.builtin.set_fact:
+    la_service_branding_baseurl: "{{ bs5_explicit if (bs5_explicit | default('', true) | length > 0) else (la_branding_bs5_url if (bs5_needed | default(false) | bool) else (header_and_footer_baseurl | default(''))) }}"
+  tags:
+    - config
+    - branding
+    - docker-compose
+
+- name: "Branding: show the base URL resolved for {{ bs5_service }}"
+  ansible.builtin.debug:
+    verbosity: 1
+    msg: "{{ bs5_service }} branding: {{ la_service_branding_baseurl }} (bootstrap5: {{ bs5_needed | default(false) }})"
+  tags:
+    - config
+    - branding
+    - docker-compose

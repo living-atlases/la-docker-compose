@@ -450,6 +450,14 @@
         "scripts/test-userdetails-authorize-ips.sh"
       ],
       "run": "VENV_MOLECULE=.venv-molecule bash scripts/test-logger-authorize-ips.sh && VENV_MOLECULE=.venv-molecule bash scripts/test-userdetails-authorize-ips.sh"
+    },
+    {
+      "match": [
+        "roles/la-compose/tasks/branding-bs5-url.yml",
+        "roles/la-compose/files/docker/branding/Dockerfile",
+        "scripts/test-branding-bs5-url.sh"
+      ],
+      "run": "VENV_MOLECULE=.venv-molecule bash scripts/test-branding-bs5-url.sh"
     }
   ],
   "ignore": [

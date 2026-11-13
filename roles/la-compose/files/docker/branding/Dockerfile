@@ -122,10 +122,36 @@ RUN echo "🔨 Building for production..." && \
     echo "📂 Build output:" && \
     ls -la public/ 2>/dev/null || ls -la dist/ 2>/dev/null || (echo "❌ No build output found!" && exit 1)
 
-# Normalize output directory to /build/public
+# Bootstrap 5 assets, when the branding source offers them.
+#
+# ala-bootstrap5 apps (alerts >= 5.2.5, logger >= 4.6.0, spatial-service 3.2+) fetch
+# {assets,banner,footer}.mustache from their branding; the Bootstrap 3 build only has the
+# .html ones. Without this the mustache answer 404, the app renders with no CSS at all and
+# its console shows "$ is not defined" -- and nothing fails, so the build stays green.
+#
+# base-branding's `build:bs5` writes dist/bs5/ and must run AFTER the main build: it reuses
+# the vite output and only adds the Bootstrap 5 directory. Optional on purpose -- a brunch
+# fork or an older branding has no such script, and those portals keep Bootstrap 3 apps.
+RUN if node -e "process.exit(require('./package.json').scripts?.['build:bs5'] ? 0 : 1)" 2>/dev/null; then \
+    echo "🔨 build:bs5 found -> building the Bootstrap 5 assets..."; \
+    npm run build:bs5; \
+    ls -la dist/bs5/ 2>/dev/null || (echo "❌ build:bs5 produced no dist/bs5!" && exit 1); \
+    else \
+    echo "ℹ️  no build:bs5 script: Bootstrap 5 assets not built"; \
+    fi
+
+# Normalize output directory to /build/public.
+# The second branch is for brunch: it leaves public/ in place, so dist/bs5 (written by
+# build:bs5 above) is not moved with it and the Bootstrap 5 assets would be dropped.
+# The comment stays out of the RUN: a # line inside a backslash continuation is a parser
+# hazard, not a shell comment.
 RUN if [ -d "dist" ] && [ ! -d "public" ]; then \
     echo "📝 Normalizing dist/ to public/"; \
     mv dist public; \
+    fi && \
+    if [ -d "dist/bs5" ] && [ ! -d "public/bs5" ]; then \
+    echo "📝 Moving dist/bs5 next to the brunch output"; \
+    mv dist/bs5 public/bs5; \
     fi && \
     ls -la public/
 
