@@ -10,7 +10,109 @@ edit by hand, write the notes in the annotated tag instead.
 
 ## Unreleased
 
-Nothing yet.
+#### Fixes
+
+- **db**: authorise new hosts in emmet.authorised_system on compose deploys ([ebc89e5](https://github.com/living-atlases/la-docker-compose/commit/ebc89e5cdc58f432327bae7a5cb43e64030eaf07))
+
+<a name="v1.14.0"></a>
+
+## v1.14.0 - 2026-11-13
+
+**replicas for a stateless service, and the CA distrust audit green again**
+
+Validated by build #531 (la-docker-compose-tests) on this exact commit
+(31efc6c), SUCCESS in 205 min, 2026-11-12 20:15 UTC. The first green build of
+this job since at least #517: the fourteen before it were eleven UNSTABLE and
+three FAILURE, and in #527, #528 and #529 the only red was the ca-distrust
+audit this tag closes.
+
+What #531 proved:
+  - ca-distrust: OK (9 exempt, each with its reason above). 0 trusting on all
+    three hosts (host-1 2 exempt / 25 ok / 1 unreadable, host-2 5 / 22 / 0,
+    host-3 2 / 23 / 2). The three unreadable each report "no CA bundle at any
+    known path": la_mysql (mysql:8.0-debian), la_cassandra (cassandra:5.0.6)
+    and the Airflow overlay's database (postgres:15). The first two were read
+    by hand as well: mysql ships an empty /etc/ssl/certs and postgres only the
+    snakeoil certificate, so there is no store to distrust a root in.
+  - Replica failover bench, its first run in CI: CHECK OK. One stuck replica
+    fails almost everything (A = 100.0000%), without the drop-in it eats part
+    of the traffic (B = 32.7767%), with the http-level drop-in practically
+    nothing fails (D = 0.0000%), and D < B. autoheal sees the two replicas
+    without container_name by their compose label and leaves another compose
+    project on the same host alone.
+  - Gatus Deep checks: GATE-PASSED (10/10)
+  - Gatus Deep + Data checks: GATE-PASSED (15/15)
+  - Gatus all endpoints: GATE-PASSED (140/140)
+  - Airflow ingest E2E: PASS (dr0)
+  - Cypress: all specs passed (104 tests, 96 passing, 8 pending)
+  - Trivy: no known-exploited CVEs in the running images
+Nothing set the build result: not one "Setting overall build result" line.
+
+Replicas of a stateless service: availability, not throughput (TASK-112).
+  - namematching-service takes optional replicas, off by default. It refuses a
+    multi-host placement, requires a full deploy, and the CI check gates it.
+  - The nginx drop-in retries the next backend address when one answers 5xx,
+    opt-in, at the http level, and it also needs a single compose host.
+  - The failover bench is now a CI check, measuring the shape that ships.
+  - autoheal also selects this stack's containers by their compose label, so
+    replicas without a container_name are seen; cadvisor is named as a checked
+    example of another project it leaves alone.
+
+CA distrust (TASK-91), after the eMudhra roots were distrusted on 2026-10-17:
+  - What is ours is fixed: the Airflow image gets current ca-certificates and
+    certifi, so its DAGs verify TLS against a bundle without the revoked roots.
+  - The server images we only consume are exempt, each with its reason and its
+    build date, up to a review date of 2027-05-12. A server image that only
+    accepts TLS never consults its trust store.
+  - The collector reads the stores it was missing: a shell-less image's bundle
+    through docker cp, and Python's certifi, which is a separate store from
+    /etc/ssl/certs.
+  - gatus is pinned to v5.38.0, the version `stable` now points at and the
+    first without the revoked roots. No storage migration between v5.36.0 and
+    v5.38.0 in its source, and #531 ran it against a rendered portal config.
+
+Also since v1.13.2:
+  - doi-service binds its file store, so minted DOIs survive a recreate, and CI
+    runs the DOI file store check.
+  - la_db-backup copies every mongo database, one file each, and the retention
+    check now says when it ran out of time instead of only that it failed.
+
+Operator notes: replicas are off by default and the nginx retry is opt-in, so
+nothing changes for a portal that does not ask for them. The gatus bump is not
+proven as an in-place upgrade: #531 ran with CLEAN_MACHINE=true, its default,
+which wipes /data, so gatus started from a new data.db. Upgrading over an
+existing one is unmeasured.
+
+### Commits (17 since v1.13.2)
+
+#### Features
+
+- banco para medir el fallo de una replica detras del nginx de hoy ([1caa4fa](https://github.com/living-atlases/la-docker-compose/commit/1caa4fad6b64d7cff9fef82466d27471b9c2686f))
+
+#### Tests and CI
+
+- the retention check says when it ran out of time ([f5448c2](https://github.com/living-atlases/la-docker-compose/commit/f5448c23f718b1c08b8701a863e349faabae7947))
+- run the doi file store check too ([274f1af](https://github.com/living-atlases/la-docker-compose/commit/274f1af7e500b707d761df0f255959b117398ccf))
+
+#### Documentation
+
+- **changelog**: v1.13.1 and v1.13.2 ([2447b01](https://github.com/living-atlases/la-docker-compose/commit/2447b01a565586b9b70c5eb6424694ce5959066d))
+
+#### Other changes
+
+- v5.38.0, the one `stable` now points at and the one without the revoked roots ([31efc6c](https://github.com/living-atlases/la-docker-compose/commit/31efc6c5b17d590238ec4f156087139140afda50))
+- ca-distrust: fix what is ours, exempt the server images, read the stores we were missing ([66d0c1c](https://github.com/living-atlases/la-docker-compose/commit/66d0c1c3b6f7a9f58f7e25e9cb49b5bbc87db499))
+- the rendering is not byte-identical, the definition is ([29cd312](https://github.com/living-atlases/la-docker-compose/commit/29cd31241b2f4ef6e907bf6ac323d2ae29cbde0d))
+- the failover bench becomes a CI check ([e3d5671](https://github.com/living-atlases/la-docker-compose/commit/e3d5671aaab42e6d11a86ca4864f52487b951a46))
+- the nginx drop-in also needs a single compose host ([c068f40](https://github.com/living-atlases/la-docker-compose/commit/c068f4044ff345e5d5c3a94439d7a75e40fdfba6))
+- name cadvisor as a checked example of a project left alone ([20e4e61](https://github.com/living-atlases/la-docker-compose/commit/20e4e61f19e0c6aa905676281b96a6b3e62df0a9))
+- refuse multi-host, require a full deploy, and gate the CI check ([fceeff2](https://github.com/living-atlases/la-docker-compose/commit/fceeff2d82c293bfdd310a931511e9ffe2343512))
+- measure the shape that ships, and autoheal against real replicas ([12556e6](https://github.com/living-atlases/la-docker-compose/commit/12556e67f8ec90cca15cb829afdb7605914b69a0))
+- namematching-service: optional replicas, off by default ([7d6a151](https://github.com/living-atlases/la-docker-compose/commit/7d6a151b76d0afccb722470809ad5009a30e5a8d))
+- retry the next backend address when one answers 5xx (opt-in) ([11bd851](https://github.com/living-atlases/la-docker-compose/commit/11bd8514452ed53ea23c60fbf147f33bbbd23806))
+- also select this stack's containers by their compose label ([15ec109](https://github.com/living-atlases/la-docker-compose/commit/15ec109a3dab75c9d64e37a09db59242eae84587))
+- doi-service: bind the file store so minted DOIs survive a recreate ([23a6246](https://github.com/living-atlases/la-docker-compose/commit/23a62463697eef54743b3b7f953f907bc5a55bca))
+- la_db-backup copies every mongo database, one file each ([a78facd](https://github.com/living-atlases/la-docker-compose/commit/a78facd5410c8f054246c0304b90977054df8782))
 
 <a name="v1.13.2"></a>
 
