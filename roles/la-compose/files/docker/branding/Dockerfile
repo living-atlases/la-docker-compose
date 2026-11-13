@@ -124,7 +124,7 @@ RUN echo "🔨 Building for production..." && \
 
 # Bootstrap 5 assets, when the branding source offers them.
 #
-# ala-bootstrap5 apps (alerts >= 5.2.5, logger >= 4.6.0, spatial-service 3.2+) fetch
+# ala-bootstrap5 apps (alerts > 5.2.4, logger > 4.5.0, collectory > 6.2.2) fetch
 # {assets,banner,footer}.mustache from their branding; the Bootstrap 3 build only has the
 # .html ones. Without this the mustache answer 404, the app renders with no CSS at all and
 # its console shows "$ is not defined" -- and nothing fails, so the build stays green.
@@ -132,10 +132,25 @@ RUN echo "🔨 Building for production..." && \
 # base-branding's `build:bs5` writes dist/bs5/ and must run AFTER the main build: it reuses
 # the vite output and only adds the Bootstrap 5 directory. Optional on purpose -- a brunch
 # fork or an older branding has no such script, and those portals keep Bootstrap 3 apps.
+#
+# NOT fatal, on purpose. build:bs5 needs commonui-bs5-2019/build to exist already: ALA
+# stopped committing it, Bootstrap 5 does not commit its own dist/ either, and the gulp
+# build that would produce both cannot run from the sources this image copies (no .git,
+# no vendor dist). base-branding says so in scripts/build-commonui.mjs, where the no-git
+# path reuses "the build made on that checkout when there is one". So this image ships
+# /bs5 only when whoever prepared the checkout built it first, and a portal that publishes
+# its Bootstrap 5 build elsewhere (header_and_footer_baseurl_bs5) never needs it here.
+# Failing the image over an optional directory takes the whole portal down: build #534 did
+# exactly that and left host 1 with no services at all.
 RUN if node -e "process.exit(require('./package.json').scripts?.['build:bs5'] ? 0 : 1)" 2>/dev/null; then \
     echo "🔨 build:bs5 found -> building the Bootstrap 5 assets..."; \
-    npm run build:bs5; \
-    ls -la dist/bs5/ 2>/dev/null || (echo "❌ build:bs5 produced no dist/bs5!" && exit 1); \
+    if npm run build:bs5 && [ -d dist/bs5 ]; then \
+    echo "✅ Bootstrap 5 assets built:"; \
+    ls -la dist/bs5/; \
+    else \
+    echo "⚠️  build:bs5 produced no dist/bs5: this branding ships WITHOUT /bs5, so an"; \
+    echo "⚠️  ala-bootstrap5 app pointed at it renders unstyled (404 on the .mustache)."; \
+    fi; \
     else \
     echo "ℹ️  no build:bs5 script: Bootstrap 5 assets not built"; \
     fi

@@ -126,4 +126,13 @@ grep -q "npm run build:bs5" "$d" \
   && pass "the branding image builds the Bootstrap 5 assets" \
   || bad "$d no longer runs build:bs5: /bs5 would be a 404"
 
+# ...and must not take the portal down when it cannot. build:bs5 needs a commonui-bs5-2019
+# build that this image has no way to produce on its own, so it fails on sources that never
+# had one. In #534 that was a hard error: the branding image did not build, and host 1 came
+# up with nothing at all. An unstyled app is a bad day; a portal with no services is a worse
+# one, so the step warns and carries on.
+awk '/^RUN .*build:bs5/{f=1} f{print; if (!/\\$/) exit}' "$d" | grep -q "exit 1" \
+  && bad "$d fails the image when build:bs5 does not produce dist/bs5 (see #534)" \
+  || pass "a missing Bootstrap 5 build does not fail the branding image"
+
 exit "$fail"
