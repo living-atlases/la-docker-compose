@@ -943,6 +943,12 @@ EOF
                     # Pure text, runs in ~1s.
                     bash scripts/test-compose-includes.sh
 
+                    # Sibling failure class: the include EXISTS but its guard leaves it out
+                    # on a host whose services depend on it. A cas-only host (auth without
+                    # collectory or bie-hub) got 'cas depends on undefined service
+                    # "wait-for-branding"' and no compose command worked there any more.
+                    bash scripts/test-compose-branding-gate.sh
+
                     # The CI calls ansible-playbook itself (not ansiblew), so it has to hand
                     # over the data-hub inventories: the portal inventory declares each
                     # hub's groups empty, and with only that one la-compose finds no alias

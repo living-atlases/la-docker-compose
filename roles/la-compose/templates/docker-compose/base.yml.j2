@@ -18,7 +18,7 @@ include:
 {% if 'branding' in all_groups %}
   - ./infrastructure/branding.yml
 {% endif %}
-{% if 'collectory' in services_enabled or 'ala_bie' in services_enabled or ('spatial' in services_enabled and (spatial_skin_active | default(false) | bool)) or (hub_instances | default([]) | rejectattr('is_portal') | rejectattr('has_branding') | list | length) > 0 %}
+{% if 'collectory' in services_enabled or 'ala_bie' in services_enabled or 'cas' in services_enabled or ('spatial' in services_enabled and (spatial_skin_active | default(false) | bool)) or (hub_instances | default([]) | rejectattr('is_portal') | rejectattr('has_branding') | list | length) > 0 %}
   # Order-independent branding readiness gate for commonui hubs (collectory, bie-hub) and, when the
   # Spatial skin is active, for la_spatial-skin-init (which fetches spatial-layout.gsp once branding
   # actually serves). Included on the spatial host only when the skin is on, so a branding-less
@@ -28,6 +28,15 @@ include:
   # brand_gate default in the service templates), so a host that carries only such a
   # hub needs it too -- otherwise every compose command on that host dies at parse
   # time on an undefined service, the #284/#285 failure class.
+  #
+  # `cas` is in the list for the same reason: cas.yml.j2 emits the dependency
+  # unconditionally (it caches the commonui header/footer at boot, so it must not start
+  # before branding serves), and a host that runs auth without collectory or bie-hub
+  # used to get a project referencing a service nobody defined. gbif.es hit it moving
+  # auth to a node that only carried alerts and doi: the deploy died at "List the
+  # services whose image tag is mutable" with `service "cas" depends on undefined
+  # service "wait-for-branding": invalid compose project`, leaving the host's project
+  # unusable by every compose command.
   - ./infrastructure/wait-for-branding.yml
 {% endif %}
 {% if docker_mail_development_mode | default(false) %}
