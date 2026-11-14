@@ -2040,6 +2040,23 @@ EOF
                             if (!hasBie) { echo "No la_bie-index on ${targetHost}; skipping."; continue }
                             ran = true
                             echo "bie taxonomy import e2e on ${targetHost}..."
+                            // The manifest is read from the host here rather than assumed to
+                            // be in the workspace. The smoke stage below fetches it the same way,
+                            // but it runs AFTER this one, so this stage only ever worked on a
+                            // workspace where an earlier build had left the file behind: on a
+                            // clean one (Jenkins picking ...-tests@2, say) it aborted with
+                            // "e2e-targets.json not found", the bie index stayed empty, and the
+                            // only sign was the species-ws taxon count data check failing the
+                            // gate three hours later, as in build 537.
+                            sh """
+                                set -eu
+                                mkdir -p "${WORKSPACE}/e2e"
+                                if [ "${targetHost}" = "localhost" ] || [ "${targetHost}" = "127.0.0.1" ]; then
+                                    cp /data/docker-compose/e2e-targets.json "${WORKSPACE}/e2e/e2e-targets.json"
+                                else
+                                    ssh -o BatchMode=yes -o StrictHostKeyChecking=no ${targetHost} "cat /data/docker-compose/e2e-targets.json" > "${WORKSPACE}/e2e/e2e-targets.json"
+                                fi
+                            """
                             // Credentials come from the inventory's local-passwords.ini, the same
                             // source the Cypress login smoke uses: the OIDC client of bie-index plus
                             // the CAS admin account (whose plaintext password the generator leaves in
