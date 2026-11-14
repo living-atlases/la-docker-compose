@@ -962,6 +962,10 @@ EOF
                     # no CSS and nothing fails, so this is the only thing that would catch it.
                     # Static, ~5s.
                     bash scripts/test-branding-bs5-url.sh
+                    # The /trove check measures the National Library of Australia's API,
+                    # not this stack: it only exists for a portal that configured Trove.
+                    # Renders the real gatus template, ~10s.
+                    bash scripts/test-gatus-trove-exclude.sh
                     # Bundle spike: capture/apply against a shimmed docker, ~2s.
                     bash scripts/test-bundle-spike.sh
                     # Bundle applier: host-apply/la-bundle-apply against shims, ~3s.

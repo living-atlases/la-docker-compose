@@ -102,9 +102,14 @@
     bie_hub_appname: "{{ inst.bie_hub }}"
     nginx_vhost_fast_mode: "{{ bie_hub_hostname not in (nginx_shared_vhost_hostnames | default([])) }}"
     vhost_with_appname_conf: false
-    nginx_paths_gatus_exclude:
-      - "{{ bie_hub_context_path }}/species"
-      - "{{ bie_hub_context_path }}/externalSite"
+    # Same list as the portal's bie-hub, /trove included while Trove is not configured:
+    # a hub carries that path too, so hub.l-a.site/species/trove was a second check
+    # measuring the National Library of Australia's API rather than this deployment.
+    nginx_paths_gatus_exclude: >-
+      {{ [bie_hub_context_path ~ '/species', bie_hub_context_path ~ '/externalSite']
+         + ([bie_hub_context_path ~ '/trove']
+            if ((trove_api_key | default('') | string | trim) in ['', 'get-an-api-key'])
+            else []) }}
   when:
     - inst.use_species
     - inst.render_config

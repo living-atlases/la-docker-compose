@@ -1191,9 +1191,19 @@
     # /externalSite require a taxon guid; on the bare path bie-hub returns 500
     # (IllegalArgumentException "Invalid action name: index"), not 404. Hub liveness stays
     # covered by / and /search. Templated so the string matches entry.path in gatus http.j2.
-    nginx_paths_gatus_exclude:
-      - "{{ bie_hub_context_path }}/species"
-      - "{{ bie_hub_context_path }}/externalSite"
+    #
+    # /trove joins them unless the portal actually configured Trove. That location is not
+    # served by this stack at all: it is an nginx rewrite to https://api.trove.nla.gov.au,
+    # the National Library of Australia's API, which only an ALA deployment uses. With no
+    # api key the integration is dead and the check measures a third party: when that API
+    # stopped answering it hung for 25 s, gatus timed out and the total-green gate failed
+    # the build (539) over a portal that was entirely healthy. A portal that sets the key
+    # keeps the check, since it then has a reason to care.
+    nginx_paths_gatus_exclude: >-
+      {{ [bie_hub_context_path ~ '/species', bie_hub_context_path ~ '/externalSite']
+         + ([bie_hub_context_path ~ '/trove']
+            if ((trove_api_key | default('') | string | trim) in ['', 'get-an-api-key'])
+            else []) }}
   when:
     - "'ala_bie' in services_enabled"
     - "service_aliases.get('bie-hub') is defined"
