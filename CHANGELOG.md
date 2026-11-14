@@ -10,9 +10,106 @@ edit by hand, write the notes in the annotated tag instead.
 
 ## Unreleased
 
+#### Documentation
+
+- **changelog**: v1.14.1 ([7ab8d27](https://github.com/living-atlases/la-docker-compose/commit/7ab8d27b1891c741b7e8e3e34884c3578e7f5e9c))
+
+<a name="v1.14.1"></a>
+
+## v1.14.1 - 2026-11-14
+
+**the Bootstrap 5 branding really builds, and the CI stops hiding it**
+
+Validated by build #540 (la-docker-compose-tests) on this exact commit
+(8de7dab), SUCCESS in 171 min, 2026-11-14 12:10 UTC. CLEAN_MACHINE and
+FORCE_REDEPLOY on the three hosts of the default topology, with only
+sds-static-home in SKIP_SERVICES.
+
+What #540 proved:
+  - Gatus Deep checks: GATE-PASSED (10/10)
+  - Gatus Deep + Data checks: GATE-PASSED (15/15)
+  - Gatus all endpoints: GATE-PASSED (138/138). Two fewer than #531's 140, and
+    those two are the /trove checks this tag stops making.
+  - Airflow ingest E2E: PASS (dr0), medium dataset.
+  - BIE taxonomy import E2E: OK, 53 documents live, /search?q=Acacia returns 3.
+    The first green in which the stage fetched its own manifest instead of
+    reading whatever an earlier build had left in the workspace.
+  - Cypress: all specs passed (104 tests, 96 passing, 8 pending), and the
+    spatial Playwright suite 6 passed. 102 passing, 0 failing in JUnit.
+  - Trivy: no known-exploited CVEs in the running images.
+  - ca-distrust: OK (0 trusting on all three hosts, 9 exempt). Still green a
+    tag later.
+  - Replica failover bench: CHECK OK.
+Nothing set the build result: not one "Setting overall build result" line.
+
+The Bootstrap 5 branding (TASK-116). alerts, logger and collectory render
+through ala-bootstrap5 and were going out unstyled, with "$ is not defined",
+because the image shipped no /bs5 at all.
+  - The branding image vendors bootstrap.bundle.js from npm, at the version the
+    commonui-bs5-2019 submodule pins, before the production build. The
+    gulpfile reads it from source/vendor/bootstrap/dist/js/, and Bootstrap's
+    own repository does not commit dist/, so the gulp build died in 30 ms and
+    took build:bs5 down with it.
+  - bootstrap5 is decided from data, one bs5 URL per portal, instead of per
+    service: /bs5 is appended once, never doubled, and a portal that publishes
+    its own build elsewhere keeps it.
+  - A missing /bs5 warns loudly and the image still ships: #534 died in the
+    branding image and host 1 came up with no services at all. An unstyled app
+    is a bad day; a host with no services is a worse one.
+  - The reason nobody saw it is fixed too. The build script's exit code hung
+    off the same chain as the output listing, so `npm run build && echo ok ||
+    ls dist/` turned a failure green and the log said "Build completed".
+
+The CI stops hiding what it broke. Three bugs that each cost a build and whose
+only symptom appeared three hours later, in the species-ws data check, because
+/search on an empty index answers 200 with totalRecords 0.
+  - The BIE taxonomy import fetches the e2e manifest itself, from the host that
+    runs la_bie-index, instead of reading whatever an earlier build left in the
+    workspace. In a second workspace the file was simply not there (#537).
+  - cas_url is resolved through groups[], so every compose host's
+    e2e-targets.json carries auth. It is set in [cas-servers:vars], so it
+    resolved only on whichever host happened to carry CAS, and the import
+    aborted everywhere else (#538). The same scoping trap that already cost the
+    gatus key, and the same cure.
+  - /trove is checked only on a portal that sets trove_api_key to something
+    other than the generator's placeholder. It is an nginx rewrite to the
+    National Library of Australia's API, which only an ALA deployment uses:
+    when that API stopped answering, the location hung for 25 s and the
+    total-green gate failed #539 over a portal whose other 139 endpoints were
+    green and whose deploy, taxonomy import and e2e had all passed.
+
+Also since v1.14.0:
+  - emmet.authorised_system authorises new hosts on compose deploys.
+  - A committed one-host topology that does deploy namematching-service.
+
+Known at tagging: sds-static-home is still skipped, and the e2e stages remain
+non-blocking (E2E_BLOCKING=false) even though nothing failed in them. The
+branding image can only ship /bs5 while it can fetch the bundle; when it
+cannot, it warns and the portal goes out unstyled rather than not at all.
+
+### Commits (10 since v1.14.0)
+
 #### Fixes
 
+- **gatus**: check /trove only on a portal that configured Trove ([8de7dab](https://github.com/living-atlases/la-docker-compose/commit/8de7dab45f39d66b6b457d006662895f098139ae))
+- **branding**: vendor the bootstrap bundle so the bs5 build can run ([2fb0017](https://github.com/living-atlases/la-docker-compose/commit/2fb001753db41896646c72757630d43d0a679262))
+- **e2e**: resolve the auth URL from the host that runs CAS ([f8c991c](https://github.com/living-atlases/la-docker-compose/commit/f8c991c146f18d39ddf30529bd7f18d773f843d8))
+- **ci**: fetch the e2e manifest before the bie taxonomy import ([3d3716e](https://github.com/living-atlases/la-docker-compose/commit/3d3716eba0827690f40e04b261a88c3f3b303fa5))
+- **branding**: a missing Bootstrap 5 build must not fail the image ([25b294e](https://github.com/living-atlases/la-docker-compose/commit/25b294e46ae0035cbc6721e4df6f3da9fe91e5f5))
+- **branding**: build the Bootstrap 5 assets and point the bs5 apps at them ([8ec731b](https://github.com/living-atlases/la-docker-compose/commit/8ec731bcb110d3d06eca29eddfde4f9761b0a058))
 - **db**: authorise new hosts in emmet.authorised_system on compose deploys ([ebc89e5](https://github.com/living-atlases/la-docker-compose/commit/ebc89e5cdc58f432327bae7a5cb43e64030eaf07))
+
+#### Tests and CI
+
+- una topologia de un host que si despliega namematching-service ([cc5a2f2](https://github.com/living-atlases/la-docker-compose/commit/cc5a2f29fdeb4c0544a301f0d8389586cf85f4c4))
+
+#### Documentation
+
+- **changelog**: v1.14.0 ([13a988d](https://github.com/living-atlases/la-docker-compose/commit/13a988dd24f58ea9d56a24e7e43c8c89e7996bef))
+
+#### Maintenance
+
+- **branding**: decide bootstrap5 from data, one bs5 URL per portal ([e34c999](https://github.com/living-atlases/la-docker-compose/commit/e34c999b7d8f6cf24cfed216776c50d665bb30a2))
 
 <a name="v1.14.0"></a>
 
