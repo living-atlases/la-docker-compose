@@ -8,7 +8,12 @@
 # Nothing here is hardcoded; a portal that routes by path just yields path URLs.
 #
 # Regenerable and idempotent (rendered content copy). Runs per host in the docker_compose
-# group; the public URLs are the same on every host, so any host's file is authoritative.
+# group. The portal-wide URLs below are meant to come out the same on every host, so that
+# any host's file is authoritative; the keys that read a var scoped to the host running
+# that service are resolved through groups[] for exactly that reason. What is still NOT
+# cluster-wide are the per-service keys of services deployed on one host only
+# (userdetails appears solely in host 1's file, spatialService solely in host 2's), so a
+# consumer that fetches the "wrong" host's manifest sees those as absent.
 
 # groups[] is global, so this sees the gatus host's vars from any host in the play. Falls
 # back to play scope for a single-host inventory that sets gatus_url in [all:vars].
@@ -17,6 +22,22 @@
     _gatus_url_any: "{{ (hostvars[(groups['gatus'] | first)].gatus_url | default(gatus_url | default('')))
                         if ((groups['gatus'] | default([]) | length) > 0)
                         else (gatus_url | default('')) }}"
+  tags:
+    - docker-compose
+    - e2e-targets
+
+# Same scoping trap as gatus, and the same cure: cas_url is set in [cas-servers:vars], so
+# it belongs to `<host>.cas` while this play runs as `<host>.docker_compose`. It therefore
+# resolved only on whichever compose host happens to carry it (host 1 in the CI topology),
+# and `auth` came out empty in every other host's manifest. The BIE taxonomy import reads
+# the manifest of the host that runs la_bie-index (host 3 there) and aborted on "auth
+# absent from the manifest", which left the bie index empty and showed up only as the
+# species-ws taxon count data check failing the gate three hours later (builds 537, 538).
+- name: "e2e-targets: Resolve the CAS URL from the host that runs CAS"
+  ansible.builtin.set_fact:
+    _cas_url_any: "{{ (hostvars[(groups['cas-servers'] | first)].cas_url | default(cas_url | default('')))
+                      if ((groups['cas-servers'] | default([]) | length) > 0)
+                      else (cas_url | default('')) }}"
   tags:
     - docker-compose
     - e2e-targets
@@ -104,7 +125,7 @@
     e2e_targets_manifest:
       env: "{{ e2e_env_name | default('deployment') }}"
       root: "{{ (ala_base_url | default(default_logout_redirect_url | default(''))) | regex_replace('/+$', '') }}"
-      auth: "{{ (cas_url | default('')) | regex_replace('/+$', '') }}"
+      auth: "{{ (_cas_url_any | default('')) | regex_replace('/+$', '') }}"
       services: "{{ e2e_targets_services }}"
       # Data hubs, each with its own public URLs, branding base and data_hub_uid query
       # context. Collected in the hub loop (generate-hub-instance.yml) while each hub's

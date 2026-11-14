@@ -472,6 +472,47 @@ EOF
             printf '%s\n' "$out" | grep -E 'fail_msg|assertion|fatal' | head -3 | sed 's/^/      /'
         fi
     done
+
+    # --- 8b. ...and the auth URL, from EVERY compose host -------------------------------
+    # cas_url has the same scoping problem: it is set in [cas-servers:vars], so it belongs
+    # to `<host>.cas` and resolved only on whichever compose host happened to carry it.
+    # The BIE taxonomy import reads the manifest of the host that runs la_bie-index, found
+    # `auth` empty there and aborted, which left the bie index empty: the gate then failed
+    # on the species-ws taxon count data check, three hours in. Asserted per host, because
+    # the one host that does resolve it hides the bug for every other.
+    info "8b. the e2e-targets manifest resolves the auth URL from every docker_compose host"
+    CAS_EXPR="{{ (hostvars[(groups['cas-servers'] | first)].cas_url | default(cas_url | default('')))
+                 if ((groups['cas-servers'] | default([]) | length) > 0)
+                 else (cas_url | default('')) }}"
+    if grep -q "hostvars\[(groups\['cas-servers'\] | first)\].cas_url" "$TASKS"; then
+        pass "generate-e2e-targets.yml resolves cas_url through groups['cas-servers']"
+    else
+        fail "generate-e2e-targets.yml reads cas_url from play scope -- undefined in the docker_compose play"
+    fi
+
+    cat > "$TMP/cas-scope.yml" <<EOF
+- hosts: docker_compose
+  gather_facts: false
+  connection: local
+  tasks:
+    - set_fact:
+        _cas_url_any: "$CAS_EXPR"
+    - assert:
+        that:
+          - _cas_url_any | length > 0
+        fail_msg: "no auth URL resolvable from {{ inventory_hostname }} -- the manifest would carry an empty auth key and the bie taxonomy import could not reach the token endpoint"
+        success_msg: "{{ inventory_hostname }} -> {{ _cas_url_any }}"
+EOF
+    for inv in "$REPO_DIR"/inventories/testing/topologies/*/lademo-inventories/lademo-inventory.ini                "$REPO_DIR"/inventories/testing/lademo-multihost/lademo-inventories/lademo-inventory.ini; do
+        [[ -f "$inv" ]] || continue
+        name="$(basename "$(dirname "$(dirname "$inv")")")"
+        if out="$("$ANSIBLE_PLAYBOOK" -i "$inv" "$TMP/cas-scope.yml" 2>&1)"; then
+            pass "$name: every docker_compose host resolves an auth URL"
+        else
+            fail "$name: a docker_compose host cannot resolve an auth URL"
+            printf '%s\n' "$out" | grep -E 'fail_msg|assertion|fatal' | head -3 | sed 's/^/      /'
+        fi
+    done
 fi
 
 echo
