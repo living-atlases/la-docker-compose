@@ -135,4 +135,33 @@ awk '/^RUN .*build:bs5/{f=1} f{print; if (!/\\$/) exit}' "$d" | grep -q "exit 1"
   && bad "$d fails the image when build:bs5 does not produce dist/bs5 (see #534)" \
   || pass "a missing Bootstrap 5 build does not fail the branding image"
 
+# ...and it has to be ABLE to build them. commonui-bs5-2019's gulpfile reads
+# source/vendor/bootstrap/dist/js/bootstrap.bundle.js, and that vendor directory is
+# Bootstrap's own repository, which does not commit dist/. Without the bundle the gulp
+# build dies in 30 ms, build:bs5 dies with it and the image ships with no /bs5: that is
+# builds 534 to 538 on the CI portal, green all the way. The step has to come BEFORE the
+# build, since base-branding's `build` script already chains build:bs5 at the end.
+if grep -q 'bootstrap.bundle.js' "$d"; then
+  pass "the branding image vendors the bootstrap bundle commonui-bs5-2019 needs"
+else
+  bad "$d does not provide source/vendor/bootstrap/dist/js/bootstrap.bundle.js: the gulp build of commonui-bs5-2019 cannot run and /bs5 is never produced"
+fi
+if [ "$(grep -n 'bootstrap.bundle.js' "$d" | head -1 | cut -d: -f1)" -lt \
+     "$(grep -n 'Building for production' "$d" | head -1 | cut -d: -f1)" ]; then
+  pass "it is vendored before the production build, which is what runs build:bs5"
+else
+  bad "$d vendors the bootstrap bundle after the build: build:bs5 has already failed by then"
+fi
+
+# A failed build script must not be reported as a success. `npm run build && echo ok ||
+# ls dist/` swallows it whenever an earlier step left dist/ behind, which is exactly how
+# a build:bs5 that died went out as "Build completed".
+if awk '/Building for production/{f=1} f && /No build output found/{print; exit}' "$d" | grep -q '||'; then
+  if grep -q 'the build script exited' "$d"; then
+    pass "a failing build script is reported instead of being masked by the output listing"
+  else
+    bad "$d chains the build to the output listing with ||: a failing build script is reported as success"
+  fi
+fi
+
 exit "$fail"
