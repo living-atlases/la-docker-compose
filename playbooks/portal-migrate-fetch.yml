@@ -86,6 +86,8 @@
     migration_ts: "{{ hostvars['localhost']['migration_ts'] }}"
     migration_set_dir: "{{ hostvars['localhost']['migration_set_dir'] }}"
     migration_tmp: "/tmp/la-migration-{{ hostvars['localhost']['migration_ts'] }}"
+    # Written by the postgres OS user, emptied into migration_tmp right after.
+    migration_pg_tmp: "/tmp/la-migration-{{ hostvars['localhost']['migration_ts'] }}-pg"
   tasks:
     # The whole point of naming source hosts explicitly is to never touch the
     # Docker stack. Check it anyway: a typo here dumps the target over itself.
@@ -160,14 +162,27 @@
     # ------------------------------------------------------------------
     # -Fc (custom format) is already compressed — do NOT pipe it through gzip.
     # ala-install's db-backup role does exactly that and gains nothing but CPU.
+    # pg_dump runs as the postgres OS user (peer auth on the unix socket), while
+    # every other task of this play runs as the ssh user. {{ migration_tmp }} is
+    # 0700 and owned by the ssh user, so writing the dump straight into it fails
+    # with `pg_dump: error: could not open output file ...: Permission denied`
+    # (gbif.es, 2026-11-16, moving doi off its VM). Widening that directory is not
+    # the fix: the same set can carry a CAS user store with password hashes. So
+    # postgres dumps into a directory of its own and root moves the files in.
     - name: "Migration fetch: PostgreSQL"
       when: inventory_hostname == (migration_src_postgres_host | default(''))
       become: true
       become_user: "{{ migration_src_postgres_os_user }}"
       block:
+        - name: "Migration fetch: create the PostgreSQL staging directory"
+          ansible.builtin.file:
+            path: "{{ migration_pg_tmp }}"
+            state: directory
+            mode: "0700"
+
         - name: "Migration fetch: dump each PostgreSQL database"
           ansible.builtin.command: >
-            pg_dump -Fc -d {{ item }} -f {{ migration_tmp }}/postgres-{{ item }}.dump
+            pg_dump -Fc -d {{ item }} -f {{ migration_pg_tmp }}/postgres-{{ item }}.dump
           loop: "{{ migration_postgres_databases }}"
           changed_when: false
 
@@ -191,11 +206,37 @@
         - name: "Migration fetch: stage the PostgreSQL counts"
           ansible.builtin.copy:
             content: "{{ item.stdout }}\n"
-            dest: "{{ migration_tmp }}/counts-postgres-{{ item.item }}.tsv"
+            dest: "{{ migration_pg_tmp }}/counts-postgres-{{ item.item }}.tsv"
             mode: "0600"
           loop: "{{ migration_postgres_counts.results }}"
           loop_control:
             label: "{{ item.item }}"
+
+    - name: "Migration fetch: move the PostgreSQL dumps next to the others"
+      when: inventory_hostname == (migration_src_postgres_host | default(''))
+      become: true
+      block:
+        - name: "Migration fetch: list the staged PostgreSQL files"
+          ansible.builtin.find:
+            paths: "{{ migration_pg_tmp }}"
+            file_type: file
+          register: migration_pg_staged
+
+        - name: "Migration fetch: hand the PostgreSQL files to the ssh user"
+          ansible.builtin.copy:
+            src: "{{ item.path }}"
+            dest: "{{ migration_tmp }}/{{ item.path | basename }}"
+            remote_src: true
+            owner: "{{ ansible_user_id }}"
+            mode: "0600"
+          loop: "{{ migration_pg_staged.files }}"
+          loop_control:
+            label: "{{ item.path | basename }}"
+
+        - name: "Migration fetch: drop the PostgreSQL staging directory"
+          ansible.builtin.file:
+            path: "{{ migration_pg_tmp }}"
+            state: absent
 
     # ------------------------------------------------------------------
     # MongoDB

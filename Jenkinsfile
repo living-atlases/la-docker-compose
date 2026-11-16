@@ -949,6 +949,11 @@ EOF
                     # "wait-for-branding"' and no compose command worked there any more.
                     bash scripts/test-compose-branding-gate.sh
 
+                    # The migration fetch runs as the ssh user except the PostgreSQL block,
+                    # which runs as postgres: pg_dump died with "Permission denied" on the
+                    # 0700 dump directory and the set came back with the MySQL half only.
+                    bash scripts/test-migration-fetch-pg-dir.sh
+
                     # The CI calls ansible-playbook itself (not ansiblew), so it has to hand
                     # over the data-hub inventories: the portal inventory declares each
                     # hub's groups empty, and with only that one la-compose finds no alias
