@@ -26,6 +26,13 @@
   connection: local
   gather_facts: true
   become: false
+  vars:
+    # The toolkit inventories set ansible_become=yes for every host, localhost
+    # included, and an inventory variable beats the `become: false` keyword above.
+    # The controller directories were then created as root while `fetch` writes as
+    # the process user, which died with "Unable to create local directories
+    # (...): [Errno 13] Permission denied" (gbif.es, 2026-11-16). A play var wins.
+    ansible_become: false
   vars_files:
     - vars/portal-migration.yml
   tasks:
@@ -104,6 +111,16 @@
         path: "{{ migration_tmp }}"
         state: directory
         mode: "0700"
+
+    # Who owns that directory, and therefore who must own the files handed back by
+    # the PostgreSQL block below. Asked instead of derived: this play runs as the
+    # ssh user, or as root when the inventory sets ansible_become, and `fetch` later
+    # reads the files in that same context. ansible_user_id is not available here
+    # (the play gathers no facts).
+    - name: "Migration fetch: who the rest of the play runs as"
+      ansible.builtin.command: id -un
+      register: migration_fetch_user
+      changed_when: false
 
     # ------------------------------------------------------------------
     # MySQL
@@ -227,7 +244,7 @@
             src: "{{ item.path }}"
             dest: "{{ migration_tmp }}/{{ item.path | basename }}"
             remote_src: true
-            owner: "{{ ansible_user_id }}"
+            owner: "{{ migration_fetch_user.stdout }}"
             mode: "0600"
           loop: "{{ migration_pg_staged.files }}"
           loop_control:
@@ -324,6 +341,10 @@
   connection: local
   gather_facts: false
   become: false
+  vars:
+    # Same reason as the first play: ansible_become=yes from the inventory would
+    # write the manifest as root into a directory the fetch owns.
+    ansible_become: false
   vars_files:
     - vars/portal-migration.yml
   tasks:
