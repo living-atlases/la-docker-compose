@@ -86,9 +86,8 @@ What changes per step, and why:
 - **`aws s3 …` housekeeping becomes a no-op.** No S3, no `aws` CLI on the master — and
   "Clear S3 outlier" is `ActionOnFailure=TERMINATE_CLUSTER`, so left alone it kills an
   otherwise good reindex.
-- **`python3` steps run on the master**, not in `la_airflow`: the master has python3 and
-  reaches Solr, while the Airflow host may well not (opening port 22 to the master can be
-  all it is allowed). Both CLIs use only the standard library.
+- **`python3` steps run on the master**, not in `la_airflow`: the master has python3 and is
+  the node configured to talk to the cluster's Solr. Both CLIs use only the standard library.
 - **The archive fetch fails loudly.** `download-datasets.sh` pulls the DwCA out of S3. On
   this kind of deployment the download is `la-pipelines copy` from the collectory, and no
   DAG step does that yet, so the step raises with that reason instead of no-op'ing: a
@@ -109,10 +108,19 @@ volumes:
 - The public key in the pipelines user's `authorized_keys` **on the master**, with no
   `sudo` in the picture: the overlay runs `ssh <user>@<master> bash -lc '<step>'`.
 - The `dags/` tree deployed on the master (that is where the staged CLIs run from).
-- TCP 22 open from the Airflow host to the master. Nothing else: this design deliberately
-  keeps Solr, ZooKeeper and HDFS unreachable from the Airflow host.
+- TCP 22 open from the Airflow host to the master. That is all this mode needs: nothing on
+  the Airflow side connects to Solr, ZooKeeper or HDFS itself. Whether those happen to be
+  reachable from there too is a property of the network, not of this overlay -- and note
+  that a container's egress commonly bypasses the host firewall, so a host-level rule is
+  not what would confine it.
 - `solr_url` (and the other service Variables) resolvable **from the master**, not from the
   Airflow container — the steps run there now.
+
+Known limitation: the shim runs the whole step list inside one `execute()` and the step sensor
+is a no-op, so an hours-long stage holds an ssh session open inside a single Airflow task.
+Restarting the Airflow containers therefore kills a run in flight — which the CI job this
+replaces did not, since it ran on the master itself. Launching the step detached on the master
+and polling it from the sensor is the fix; it is not done yet.
 
 ## Usage
 

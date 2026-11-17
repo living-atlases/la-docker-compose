@@ -316,9 +316,10 @@ def translate_step(step: dict) -> dict:
         action = {"name": name, "kind": "exec", "cmd": cmd, "on_failure": on_failure}
         # `ala_helper.emr_python_step` is the only producer of python3 steps, and
         # la_pipelines has no python3 at all. la_airflow does, and reaches Solr on the
-        # same network, so run those there instead. Not in ssh mode: there the master has
-        # python3 and is the one that reaches Solr, while the Airflow host deliberately
-        # does not -- its only way into the cluster is port 22.
+        # same network, so run those there instead. Not in ssh mode: there the whole step
+        # list belongs on the master, which has python3 and is the node configured to talk
+        # to the cluster's Solr. The Airflow side needs nothing but port 22 to the master,
+        # and whether it can reach Solr at all must not decide whether a run works.
         if re.search(r"\bpython3\b", cmd):
             action["container"] = os.environ.get("AIRFLOW_CONTAINER", "la_airflow")
         return action
@@ -501,10 +502,19 @@ def run_local_step(action: dict):
         # itself killed.
         proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         tail = collections.deque(maxlen=max(LOG_TAIL_LINES, 1))
-        with proc.stdout:
-            for raw in proc.stdout:
-                tail.append(raw.decode("utf-8", "replace").rstrip("\n"))
-        rc = proc.wait()
+        try:
+            with proc.stdout:
+                for raw in proc.stdout:
+                    tail.append(raw.decode("utf-8", "replace").rstrip("\n"))
+            rc = proc.wait()
+        except BaseException:
+            # subprocess.run() used to do this for us. Marking the task failed in the UI
+            # raises in here, and that is the only stop button the people who launch a
+            # reindex have: without the kill the ssh client is left to die whenever a
+            # SIGPIPE happens to reach it.
+            proc.kill()
+            proc.wait()
+            raise
         if rc != 0:
             print(f"{LOG_PREFIX} step failed (rc={rc}); last {LOG_TAIL_LINES} lines:")
             for line in tail:
