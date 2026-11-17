@@ -409,6 +409,32 @@ a different machine. See the auto-detect logic in
 `ala-install/.../generate-compose.yml`. To force the layout explicitly, set
 `spatial_hub_skin_layout` in `*-local-extras.ini` / inventory.
 
+### Dashboard (legacy stats war, and what replaces it)
+
+`dashboard` runs the **legacy** ALA dashboard: a Grails war (`livingatlases/dashboard`,
+published tags 2.3 … 2.6) that reads every figure over HTTP from the portal's own services
+and keeps no datastore of its own. Enable it like any other service (`use_dashboard` in the
+generator, which puts the host in the `dashboard` inventory group); it needs its own vhost
+(`dashboard.<domain>`) and gets a gatus check from it, like every other front-end.
+
+Two things are specific to it:
+
+- **`{{ data_dir }}/dashboard/data.json` is portal data, not config.** It holds the static
+  counts the app shows next to the live ones, so the role seeds it once and never overwrites
+  it (`force=false`). A redeploy will not put the sample figures back, and nothing will
+  update them either: that file is maintained by hand.
+- **Panels fail one by one.** Each panel is a separate web-service call cached for a day
+  (`CacheService`, `maxAgeInDays=1`), so one unreachable service costs one panel, not the
+  page. A panel stuck on stale or missing data is usually a cache entry, not a deploy: hit
+  `/clearCache/<key>` (no login) and reload.
+
+The replacement is **atlas-index's `dashboard-ui`** (with `search-service` behind it, which
+reimplements the logger endpoints this war calls). It has no published image yet, so there is
+no modern image to select here — the pair will work like `sds` / `sensitive-data-service`:
+the legacy key keeps the war, the modern one gets its own service and image. Until then this
+is the only dashboard, and the Java version comes from the toolkit's dependency matrix
+(2.3 and later need Java 11; the published 2.6 image ships Temurin 11).
+
 ---
 
 ## Production redeploys (non-destructive contract)

@@ -58,6 +58,7 @@ SERVICES=(
   "bie-hub|bie-hub|templates/bie-hub-config.yml.j2|bie-hub-config.yml||bie-hub|ala-bie-hub"
   "regions|regions|templates/regions-config.properties|regions-config.properties||regions"
   "logger|logger-service|templates/logger-config.properties|logger-config.properties||logger-service|logger"
+  "dashboard|dashboard|templates/dashboard-config.properties|dashboard-config.properties||dashboard"
   "alerts|alerts|templates/alerts-config.properties|alerts-config.properties||alerts-service|alerts"
   "spatial-service|spatial-service|templates/spatial-service-config.yml|spatial-service-config.yml||spatial-service|spatial"
   "data-quality|data_quality_filter_service|templates/config/config.properties|data-quality-config.properties||data_quality_filter_service"
