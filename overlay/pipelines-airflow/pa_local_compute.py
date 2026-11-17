@@ -3,6 +3,7 @@ Pure, Airflow-free core of the NO-AWS overlay: translate the EMR step dicts the
 DAGs build into local actions, and run them. Kept separate from sitecustomize.py
 so it can be unit-tested without an Airflow runtime (see tests/).
 """
+import collections
 import os
 import re
 import shlex
@@ -37,6 +38,60 @@ _SUDO_RE = re.compile(r"\bsudo\s+(?:-u\s+\S+\s+)?")
 # which we mount — so rewrite /tmp/<name> to point at the mounted copy.
 _TMP_REF_RE = re.compile(r"/tmp/([A-Za-z0-9._-]+)")
 
+# `aws s3 ...` steps are S3 housekeeping (clearing the outlier scratch prefix and the
+# like). With a permanent cluster there is no S3 in the picture and no aws CLI on the
+# master, and they are worse than useless: "Clear S3 outlier" is ActionOnFailure
+# TERMINATE_CLUSTER, so it would kill an otherwise good reindex.
+_AWS_CLI_RE = re.compile(r"\baws\s+s3\b")
+
+
+# --- where the steps actually run ----------------------------------------------
+# Two deployments, one overlay.
+#
+#  * docker (the default): the compute is a la_pipelines container on this host, a
+#    single node with an in-process Spark, and every step is `docker exec`ed into it.
+#  * ssh-cluster: the compute is a permanent standalone Spark cluster on its own
+#    machines, with its own HDFS -- what la-pipelines was built for and what a portal
+#    that already reindexes this way has. The steps run by ssh on the cluster's master;
+#    Airflow only orchestrates and never speaks Spark, HDFS or Solr itself. It replaces
+#    the CI job that used to hold the ssh command.
+#
+# The mode is chosen by the presence of PIPELINES_SSH_HOST rather than by a mode name,
+# so a deployment cannot end up in ssh mode with nowhere to ssh to. PIPELINES_COMPUTE_BACKEND
+# stays what sitecustomize reads to decide whether to swap the EMR classes at all.
+def ssh_target():
+    """-> 'user@host' when steps run on a remote cluster master, else None."""
+    host = os.environ.get("PIPELINES_SSH_HOST", "").strip()
+    if not host:
+        if os.environ.get("PIPELINES_COMPUTE_BACKEND", "").lower() == "ssh-cluster":
+            raise RuntimeError(
+                f"{LOG_PREFIX} PIPELINES_COMPUTE_BACKEND=ssh-cluster needs PIPELINES_SSH_HOST"
+                " (the cluster's Spark master); nothing else tells the overlay where to run")
+        return None
+    return f"{os.environ.get('PIPELINES_SSH_USER', 'spark')}@{host}"
+
+
+def ssh_argv_prefix():
+    """The ssh invocation minus the remote command. Fails closed on host keys."""
+    key = os.environ.get("PIPELINES_SSH_KEY", "/opt/airflow-ssh/id_ed25519").strip()
+    known = os.environ.get("PIPELINES_SSH_KNOWN_HOSTS", "/opt/airflow-ssh/known_hosts")
+    argv = ["ssh", "-T",
+            "-o", "BatchMode=yes",
+            # Fail closed. A container's home directory is ephemeral, so `accept-new`
+            # would re-trust whatever answers on port 22 after every restart; the
+            # known_hosts file is deployed next to the key.
+            "-o", "StrictHostKeyChecking=yes",
+            "-o", f"UserKnownHostsFile={known}",
+            "-o", "ConnectTimeout=30",
+            # A reindex step runs for hours. Without keepalives an idle firewall or NAT
+            # drops the session and the remote job gets a SIGHUP mid-run.
+            "-o", "ServerAliveInterval=60",
+            "-o", "ServerAliveCountMax=10"]
+    if key:
+        argv += ["-i", key]
+    argv += shlex.split(os.environ.get("PIPELINES_SSH_OPTS", ""))
+    return argv
+
 
 def _staged_path(name: str):
     """Return the mounted path for a bootstrap-staged file, or None if we don't have it."""
@@ -58,6 +113,24 @@ def rewrite_staged_paths(cmd: str) -> str:
     """
     def sub(m):
         return _staged_path(m.group(1)) or m.group(0)
+    return _TMP_REF_RE.sub(sub, cmd)
+
+
+def rewrite_staged_paths_remote(cmd: str, remote_root: str) -> str:
+    """rewrite_staged_paths for a dags/ tree that lives on the remote master.
+
+    The remote file cannot be stat'ed from here, so the locally mounted tree decides
+    WHETHER a /tmp reference is one of the staged files, and whether it sits in dags/ or
+    dags/sh/; only the root is swapped. A /tmp path we do not ship is still left alone.
+    """
+    def sub(m):
+        local = _staged_path(m.group(1))
+        if not local:
+            return m.group(0)
+        parts = local.split(os.sep)
+        rel = (os.path.join("sh", m.group(1))
+               if len(parts) > 1 and parts[-2] == "sh" else m.group(1))
+        return os.path.join(remote_root, rel)
     return _TMP_REF_RE.sub(sub, cmd)
 
 
@@ -157,9 +230,17 @@ def translate_step(step: dict) -> dict:
     # CONTINUE (copying outliers that may not exist, deleting s3-dist-cp scratch dirs);
     # ignoring that turned every one of them into a hard stop.
     on_failure = step.get("ActionOnFailure", "TERMINATE_CLUSTER")
+    remote = ssh_target()
 
     if jar.endswith("s3-dist-cp.jar"):
         src, dest = parse_copy_args(args)
+        # On a permanent cluster these copies are an artefact of EMR's ephemeral one:
+        # the data is staged out of S3 into a brand-new HDFS at the start and back at
+        # the end. Here HDFS survives between runs and holds the data already, which is
+        # why the portal that reindexes this way has no S3 anywhere in the picture.
+        if remote:
+            return {"name": name, "kind": "noop-copy", "args": args, "on_failure": on_failure,
+                    "why": "persistent HDFS: nothing to stage in from S3 or back out to it"}
         # Escape hatch: PIPELINES_LOCAL_NOOP_COPIES restores the old blanket no-op.
         if os.environ.get("PIPELINES_LOCAL_NOOP_COPIES") or not (src and dest):
             return {"name": name, "kind": "noop-copy", "args": args, "on_failure": on_failure}
@@ -183,7 +264,19 @@ def translate_step(step: dict) -> dict:
             "PIPELINES_LOCAL_NOOP_SCRIPTS",
             "download-datasets.sh,upload-datasets.sh,upload-export.sh,frictionless.sh",
         ).split(",") if m.strip()]
+        if remote and _AWS_CLI_RE.search(cmd):
+            return {"name": name, "kind": "noop-script", "cmd": cmd, "on_failure": on_failure,
+                    "why": "no S3 in this deployment, and no aws CLI on the cluster master"}
         fetch = plan_dataset_download(cmd)
+        if remote and fetch:
+            # Loudly, not as a no-op: a silent skip here is what made an ingest upload the
+            # archive and then index nothing, a failure that only surfaced stages later.
+            # Getting the archive onto the cluster is the harvest step, and on this kind of
+            # deployment it is la-pipelines `copy` (from the collectory), not an S3 fetch.
+            return {"name": name, "kind": "unsupported", "cmd": cmd, "on_failure": on_failure,
+                    "why": ("this step brings the DwCA in from S3, which a permanent cluster"
+                            " does not have: there the download is `la-pipelines copy` from"
+                            " the collectory, and the ingest DAG has no step for it yet")}
         if fetch and not os.environ.get("PIPELINES_LOCAL_NOOP_COPIES"):
             return {"name": name, "kind": "fetch-datasets", "cmd": cmd,
                     "on_failure": on_failure, "fetch": fetch}
@@ -203,12 +296,29 @@ def translate_step(step: dict) -> dict:
         # --embedded, NOT --local: every la-pipelines stage accepts --embedded,
         # but uuid/image-sync/image-load/sample/solr/dwca-export reject --local
         # (only interpret/sds/index/do-all accept it). Verified against the CLI.
+        if remote:
+            # The cluster the DAG was written for is the one that is actually there, so
+            # --cluster stays as it is. This is the same spark-submit the CI job runs.
+            root = os.environ.get("PIPELINES_SSH_DAGS_DIR", "").strip()
+            if root:
+                cmd = rewrite_staged_paths_remote(cmd, root)
+            elif rewrite_staged_paths(cmd) != cmd:
+                # The step needs a file the bootstrap used to stage. It has to be on the
+                # master, and nothing says where: fail at translation instead of running a
+                # command that will die with "No such file or directory" on the far end.
+                raise RuntimeError(
+                    f"{LOG_PREFIX} step {name!r} refers to a bootstrap-staged file under"
+                    " /tmp and PIPELINES_SSH_DAGS_DIR is unset: deploy the dags/ tree on"
+                    " the cluster master and point that variable at it")
+            return {"name": name, "kind": "exec", "cmd": cmd, "on_failure": on_failure}
         cmd = cmd.replace("--cluster", "--embedded")
         cmd = rewrite_staged_paths(cmd)
         action = {"name": name, "kind": "exec", "cmd": cmd, "on_failure": on_failure}
         # `ala_helper.emr_python_step` is the only producer of python3 steps, and
         # la_pipelines has no python3 at all. la_airflow does, and reaches Solr on the
-        # same network, so run those there instead.
+        # same network, so run those there instead. Not in ssh mode: there the master has
+        # python3 and is the one that reaches Solr, while the Airflow host deliberately
+        # does not -- its only way into the cluster is port 22.
         if re.search(r"\bpython3\b", cmd):
             action["container"] = os.environ.get("AIRFLOW_CONTAINER", "la_airflow")
         return action
@@ -219,6 +329,12 @@ def translate_step(step: dict) -> dict:
 
 def build_argv(action: dict):
     """Return the argv to run for an 'exec' action (no side effects)."""
+    remote = ssh_target()
+    if remote:
+        # ONE quoted remote string: ssh joins its argv with spaces and the remote shell
+        # parses the result again, so passing `bash -lc <cmd>` as separate words mangles
+        # every step that carries quotes, an `&` or a `\$folder\$`.
+        return ssh_argv_prefix() + [remote, "bash -lc " + shlex.quote(action["cmd"])]
     if os.environ.get("PIPELINES_LOCAL_BIN"):
         return ["bash", "-lc", action["cmd"]]
     container = action.get("container") or os.environ.get("PIPELINES_CONTAINER", "la_pipelines")
@@ -237,7 +353,9 @@ def _hand_over_to_pipelines(path: str):
     container as root. A failure here is logged, not fatal -- on a single-uid deployment
     there is nothing to fix.
     """
-    if os.environ.get("PIPELINES_SKIP_CHOWN"):
+    if os.environ.get("PIPELINES_SKIP_CHOWN") or ssh_target():
+        # In ssh mode nothing was written on this host and there is no local container to
+        # do it from: the files belong to the cluster's own user on the far end.
         return
     uid = os.environ.get("PIPELINES_UID", "1000")
     container = os.environ.get("PIPELINES_CONTAINER", "la_pipelines")
@@ -359,8 +477,16 @@ def run_local_step(action: dict):
                 print(f"{LOG_PREFIX} continuing: {action['name']} is ActionOnFailure=CONTINUE")
                 return f"failed-continue:{action['name']}"
             raise
+    if action["kind"] == "unsupported":
+        why = action.get("why", "no translation for this step in this deployment")
+        print(f"{LOG_PREFIX} cannot run {action['name']}: {why}")
+        if action.get("on_failure") == "CONTINUE":
+            return f"failed-continue:{action['name']}"
+        raise RuntimeError(f"{LOG_PREFIX} {action['name']}: {why}")
     if action["kind"] in ("noop-copy", "noop-script", "noop-stage"):
-        print(f"{LOG_PREFIX} skip {action['kind']}: {action['name']}")
+        why = action.get("why")
+        print(f"{LOG_PREFIX} skip {action['kind']}: {action['name']}"
+              + (f" ({why})" if why else ""))
         return f"noop:{action['name']}"
     if action["kind"] == "exec":
         argv = build_argv(action)
@@ -370,17 +496,24 @@ def run_local_step(action: dict):
         # log. Without this, a failing step shows only CalledProcessError and the real
         # cause (stacktrace, missing input, OOM) is invisible. Echo a bounded tail on
         # failure, then let check_returncode() raise exactly as before.
-        proc = subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        if proc.returncode != 0:
-            out = (proc.stdout or b"").decode("utf-8", "replace").splitlines()
-            print(f"{LOG_PREFIX} step failed (rc={proc.returncode}); last {LOG_TAIL_LINES} lines:")
-            for line in out[-LOG_TAIL_LINES:]:
+        # Read as it comes and keep only the tail: a cluster step logs for hours, and
+        # holding all of it in memory to print the last few lines is how a worker gets
+        # itself killed.
+        proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        tail = collections.deque(maxlen=max(LOG_TAIL_LINES, 1))
+        with proc.stdout:
+            for raw in proc.stdout:
+                tail.append(raw.decode("utf-8", "replace").rstrip("\n"))
+        rc = proc.wait()
+        if rc != 0:
+            print(f"{LOG_PREFIX} step failed (rc={rc}); last {LOG_TAIL_LINES} lines:")
+            for line in tail:
                 print(f"{LOG_PREFIX} | {line}")
             if action.get("on_failure") == "CONTINUE":
                 # The DAG itself says this step is allowed to fail; respect that rather
                 # than turning an optional copy/cleanup into a dead run.
                 print(f"{LOG_PREFIX} continuing: {action['name']} is ActionOnFailure=CONTINUE")
                 return f"failed-continue:{action['name']}"
-        proc.check_returncode()
+            raise subprocess.CalledProcessError(rc, argv)
         return f"ran:{action['name']}"
     raise RuntimeError(f"{LOG_PREFIX} unhandled EMR step (overlay out of date?): {action}")

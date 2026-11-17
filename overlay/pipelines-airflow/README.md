@@ -51,6 +51,69 @@ with **zero changes to the pipelines-airflow repo** (least impact on ALA).
    ~40 Variables at import. [`variables/airflow-variables.local.json`](variables/airflow-variables.local.json)
    provides real LA service URLs + harmless EMR/EC2/S3 dummies (the shims ignore the dummies).
 
+## Two deployments: `docker-exec` and `ssh-cluster`
+
+Everything above describes the default: the compute is a `la_pipelines` container on this
+host, one node, in-process Spark, every step `docker exec`ed into it.
+
+A portal that already ingests at scale usually has the other thing: a **permanent
+standalone Spark cluster with its own HDFS**, on its own machines, which is what
+`la-pipelines` was written for. There, Airflow is not the compute — it replaces the CI job
+that used to hold the `ssh <master> la-pipelines <stage> --cluster` command, and gives the
+people who launch a reindex a web button instead of an account on the cluster's network.
+
+Set `PIPELINES_SSH_HOST` and the overlay runs every step by ssh on that master. The mode is
+chosen by the presence of the host, not by a mode name, so a deployment cannot end up in ssh
+mode with nowhere to ssh to.
+
+| Variable | Default | What it is |
+|---|---|---|
+| `PIPELINES_SSH_HOST` | *(unset)* | The cluster's Spark master. Unset means docker-exec. |
+| `PIPELINES_SSH_USER` | `spark` | The user that owns the pipelines data on the master. |
+| `PIPELINES_SSH_KEY` | `/opt/airflow-ssh/id_ed25519` | Private key, mounted into the Airflow containers. |
+| `PIPELINES_SSH_KNOWN_HOSTS` | `/opt/airflow-ssh/known_hosts` | Host key. ssh runs with `StrictHostKeyChecking=yes`. |
+| `PIPELINES_SSH_DAGS_DIR` | *(unset)* | Where the `dags/` tree lives **on the master**. |
+| `PIPELINES_SSH_OPTS` | *(empty)* | Extra `ssh` options, appended verbatim. |
+| `PIPELINES_COMPUTE_BACKEND` | `local` | `ssh-cluster` is accepted as a synonym: both mean "not EMR". |
+
+What changes per step, and why:
+
+- **`--cluster` is left alone.** The cluster the DAG was written for is the one that is
+  there. This is the same `spark-submit` the CI job runs today.
+- **`s3-dist-cp` steps become no-ops.** They exist because EMR's HDFS is born empty with
+  each ephemeral cluster: data is staged in from S3 at the start and back out at the end.
+  A persistent HDFS already holds it, which is why such a portal has no S3 in the picture.
+- **`aws s3 …` housekeeping becomes a no-op.** No S3, no `aws` CLI on the master — and
+  "Clear S3 outlier" is `ActionOnFailure=TERMINATE_CLUSTER`, so left alone it kills an
+  otherwise good reindex.
+- **`python3` steps run on the master**, not in `la_airflow`: the master has python3 and
+  reaches Solr, while the Airflow host may well not (opening port 22 to the master can be
+  all it is allowed). Both CLIs use only the standard library.
+- **The archive fetch fails loudly.** `download-datasets.sh` pulls the DwCA out of S3. On
+  this kind of deployment the download is `la-pipelines copy` from the collectory, and no
+  DAG step does that yet, so the step raises with that reason instead of no-op'ing: a
+  silent skip there is what makes an ingest index nothing and surface stages later.
+- **`/tmp/<cli>` is repointed at `PIPELINES_SSH_DAGS_DIR`.** The locally mounted `dags/`
+  tree still decides *which* `/tmp` names are staged files; only the root is swapped. With
+  the variable unset, a step that needs one fails at translation rather than on the far end.
+
+What a deployment has to provide:
+
+```yaml
+# docker-compose: the key and the host key, read-only. Mode 600, owned by uid 50000
+# (the Airflow user), or ssh refuses to use the key.
+volumes:
+  - /data/airflow-ssh:/opt/airflow-ssh:ro
+```
+
+- The public key in the pipelines user's `authorized_keys` **on the master**, with no
+  `sudo` in the picture: the overlay runs `ssh <user>@<master> bash -lc '<step>'`.
+- The `dags/` tree deployed on the master (that is where the staged CLIs run from).
+- TCP 22 open from the Airflow host to the master. Nothing else: this design deliberately
+  keeps Solr, ZooKeeper and HDFS unreachable from the Airflow host.
+- `solr_url` (and the other service Variables) resolvable **from the master**, not from the
+  Airflow container — the steps run there now.
+
 ## Usage
 
 ```bash

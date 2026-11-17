@@ -37,6 +37,16 @@ x-airflow-common: &airflow-common
     # the CLIs the DAGs invoke (create_solr_collection_cli.py, update_collection_alias_cli.py)
     # only need Solr, which this container reaches on the same network.
     AIRFLOW_CONTAINER: la_airflow
+    # --- ssh-cluster: run the steps on a permanent Spark cluster's master ---------
+    # Unset by default, which keeps the docker-exec behaviour above. Setting the host is
+    # what switches the overlay over; see "Two deployments" in README.md, including the
+    # key mount and what the master has to provide.
+    PIPELINES_SSH_HOST: ${PIPELINES_SSH_HOST:-}
+    PIPELINES_SSH_USER: ${PIPELINES_SSH_USER:-spark}
+    PIPELINES_SSH_KEY: ${PIPELINES_SSH_KEY:-/opt/airflow-ssh/id_ed25519}
+    PIPELINES_SSH_KNOWN_HOSTS: ${PIPELINES_SSH_KNOWN_HOSTS:-/opt/airflow-ssh/known_hosts}
+    PIPELINES_SSH_DAGS_DIR: ${PIPELINES_SSH_DAGS_DIR:-}
+    PIPELINES_SSH_OPTS: ${PIPELINES_SSH_OPTS:-}
     # --- generic notifications (airflow_local_settings cluster policy) ---
     # Provider auto-detected from creds; drop them in .env-custom (never commit).
     # Unset NOTIFICATIONS_ENABLED + no creds => no-op. Telegram wins over Slack.

@@ -239,6 +239,120 @@ try:
 finally:
     del os.environ["DWCA_IMPORT_DIR"]
 
+# ---- E. ssh-cluster backend: steps run on a permanent cluster's master -------
+# The other deployment: the compute is a standalone Spark cluster with its own HDFS on
+# its own machines, and Airflow only orchestrates. Everything that exists because EMR's
+# cluster was ephemeral (staging data in and out of S3) has to stop, and everything the
+# DAG says about the cluster (--cluster, HDFS paths) has to be left alone.
+from pa_local_compute import ssh_target, ssh_argv_prefix, rewrite_staged_paths_remote  # noqa: E402
+
+import subprocess as _sp  # noqa: E402
+
+os.environ["PIPELINES_SSH_HOST"] = "pipelines-master.invalid"
+# The dags/ tree is mounted here too (that is how the overlay knows WHICH /tmp names are
+# staged files); only the root it rewrites them to lives on the master.
+os.environ["PA_DAGS_DIR"] = os.path.join(REPO, "dags")
+try:
+    check("E. ssh target built from host and user", ssh_target() == "spark@pipelines-master.invalid",
+          ssh_target())
+    os.environ["PIPELINES_SSH_USER"] = "someone"
+    check("E. ssh user overridable", ssh_target() == "someone@pipelines-master.invalid")
+    del os.environ["PIPELINES_SSH_USER"]
+
+    # --cluster is the whole point here: the cluster the DAG was written for is the one
+    # that is actually there. Rewriting it to --embedded would run a reindex in one JVM.
+    t_ssh = translate_step(cmd_step)
+    check("E. --cluster kept as-is", t_ssh.get("cmd") == "la-pipelines sample all --cluster", t_ssh)
+
+    argv = build_argv(t_ssh)
+    check("E. argv is an ssh invocation", argv[0] == "ssh" and "spark@pipelines-master.invalid" in argv, argv)
+    check("E. remote command is ONE argument", argv[-1].startswith("bash -lc ") and len(argv) >= 3, argv)
+    # Host keys fail closed: a container's home dir is ephemeral, so accept-new would
+    # re-trust whatever answers on port 22 after each restart.
+    opts = " ".join(ssh_argv_prefix())
+    check("E. host keys fail closed", "StrictHostKeyChecking=yes" in opts
+          and "accept-new" not in opts and "StrictHostKeyChecking=no" not in opts, opts)
+    check("E. keepalives set for hours-long steps", "ServerAliveInterval=60" in opts, opts)
+    check("E. batch mode (never prompts)", "BatchMode=yes" in opts, opts)
+
+    # Quoting round-trip, run for real. ssh joins its argv with spaces and the remote
+    # shell re-parses the result, so a step carrying quotes, an `&` or a `\$folder\$`
+    # gets mangled unless the whole remote command is one quoted argument. Compared by
+    # running it, not by eyeballing the escaping.
+    nasty = 'echo "a&b" \'$x\' \\$folder\\$'
+    direct = _sp.run(["bash", "-lc", nasty], stdout=_sp.PIPE, stderr=_sp.DEVNULL).stdout
+    through = _sp.run(["sh", "-c", build_argv({"cmd": nasty})[-1]],
+                      stdout=_sp.PIPE, stderr=_sp.DEVNULL).stdout
+    check("E. quoting survives the ssh round trip", direct == through and direct.strip() != b"",
+          (direct, through))
+
+    # python3 steps run on the master too: it has python3 and reaches Solr, while the
+    # Airflow host deliberately does not (its only way in is port 22).
+    os.environ["PIPELINES_SSH_DAGS_DIR"] = "/data/pipelines-airflow/dags"
+    t_py_ssh = translate_step(py_step)
+    check("E. python3 step NOT rerouted to a container", "container" not in t_py_ssh, t_py_ssh)
+    check("E. staged CLI points at the remote dags tree",
+          "/data/pipelines-airflow/dags/create_solr_collection_cli.py" in t_py_ssh["cmd"], t_py_ssh)
+    check("E. a dags/sh helper keeps its sh/ subdir",
+          rewrite_staged_paths_remote("bash /tmp/download-datasets-for-indexing.sh", "/r")
+          == "bash /r/sh/download-datasets-for-indexing.sh")
+    check("E. unknown /tmp path still left alone",
+          rewrite_staged_paths_remote("cat /tmp/scratch-file.txt", "/r") == "cat /tmp/scratch-file.txt")
+    del os.environ["PIPELINES_SSH_DAGS_DIR"]
+
+    # Without the remote tree, a step that needs a staged file must fail at translation
+    # rather than die on the far end with "No such file or directory".
+    raised = False
+    try:
+        translate_step(py_step)
+    except RuntimeError:
+        raised = True
+    check("E. staged file with no remote dags dir -> loud failure at translation", raised)
+
+    # s3-dist-cp exists because EMR's HDFS was born empty. Here it is not.
+    t_cp_ssh = translate_step(s3_step)
+    check("E. s3-dist-cp -> no-op on persistent HDFS", t_cp_ssh["kind"] == "noop-copy", t_cp_ssh)
+    check("E. and it says why", "HDFS" in t_cp_ssh.get("why", ""), t_cp_ssh)
+
+    # `aws s3 rm` housekeeping would otherwise kill the run: no aws CLI on the master and
+    # the step is ActionOnFailure=TERMINATE_CLUSTER.
+    aws_step = {"Name": "l. Clear S3 outlier", "HadoopJarStep":
+                {"Jar": "command-runner.jar",
+                 "Args": ["bash", "-c", " sudo -u hadoop aws s3 rm s3://avro/pipelines-outlier/all --recursive"]}}
+    check("E. aws s3 housekeeping -> no-op", translate_step(aws_step)["kind"] == "noop-script",
+          translate_step(aws_step))
+
+    # The archive fetch must NOT be a silent no-op: that is what made an ingest upload the
+    # DwCA and then index nothing.
+    t_dl_ssh = translate_step(dl_step)
+    check("E. dataset fetch from S3 -> unsupported, not a silent no-op",
+          t_dl_ssh["kind"] == "unsupported", t_dl_ssh)
+    raised = False
+    try:
+        run_local_step(t_dl_ssh)
+    except RuntimeError:
+        raised = True
+    check("E. and running it raises with the reason", raised)
+finally:
+    del os.environ["PIPELINES_SSH_HOST"]
+    del os.environ["PA_DAGS_DIR"]
+
+# Naming the mode without saying where to ssh is a deployment mistake, not a default.
+os.environ["PIPELINES_COMPUTE_BACKEND"] = "ssh-cluster"
+raised = False
+try:
+    ssh_target()
+except RuntimeError:
+    raised = True
+check("E. backend=ssh-cluster without a host -> loud failure", raised)
+del os.environ["PIPELINES_COMPUTE_BACKEND"]
+
+# And docker mode is untouched by all of the above.
+check("E. docker mode still rewrites --cluster to --embedded",
+      translate_step(cmd_step)["cmd"] == "la-pipelines sample all --embedded")
+check("E. docker mode still routes python3 to the Airflow container",
+      translate_step(py_step).get("container") == "la_airflow")
+
 # ---- C. sitecustomize swaps the 4 EMR classes -------------------------------
 def _mod(name):
     m = types.ModuleType(name); sys.modules[name] = m; return m
@@ -269,6 +383,19 @@ check("C. EmrCreateJobFlowOperator swapped", ops.EmrCreateJobFlowOperator.__name
 check("C. EmrAddStepsOperator swapped", ops.EmrAddStepsOperator.__name__ == "LocalAddStepsOperator")
 check("C. EmrStepSensor swapped", sen.EmrStepSensor.__name__ == "LocalStepSensor")
 check("C. EmrJobFlowSensor swapped", sen.EmrJobFlowSensor.__name__ == "LocalJobFlowSensor")
+
+# The ssh-cluster deployment is just as much "not EMR": if the swap only fired for
+# backend=local, naming the mode would silently leave the real EMR operators in place
+# and every DAG would try to create a cluster in AWS.
+ops.EmrAddStepsOperator = type("EmrAddStepsOperator", (), {})
+os.environ["PIPELINES_COMPUTE_BACKEND"] = "ssh-cluster"
+_spec2 = importlib.util.spec_from_file_location("overlay_sitecustomize_ssh",
+                                                os.path.join(OVERLAY, "sitecustomize.py"))
+_sc2 = importlib.util.module_from_spec(_spec2)
+_spec2.loader.exec_module(_sc2)
+check("C. swap also fires for backend=ssh-cluster",
+      ops.EmrAddStepsOperator.__name__ == "LocalAddStepsOperator", ops.EmrAddStepsOperator)
+os.environ["PIPELINES_COMPUTE_BACKEND"] = "local"
 
 # These three assert the SHIM wiring (class swap + how `steps` is parsed), not what a
 # step does. Force copies back to no-op so the subject stays the wiring and the check

@@ -3,16 +3,19 @@ pipelines-airflow NO-AWS overlay — bootstrap  (drop-in, zero DAG edits)
 ======================================================================
 
 CPython auto-runs this at interpreter startup if it is on PYTHONPATH. When
-PIPELINES_COMPUTE_BACKEND=local it swaps the four AWS EMR operator/sensor classes
-for local shims BEFORE Airflow parses any DAG, so the DAGs' `from ...emr import X`
-transparently binds the shims. Translation logic lives in pa_local_compute.py
-(Airflow-free, unit-tested). See README.md / SPIKE_RESULTS.md.
+PIPELINES_COMPUTE_BACKEND is local (or ssh-cluster) it swaps the four AWS EMR
+operator/sensor classes for local shims BEFORE Airflow parses any DAG, so the DAGs'
+`from ...emr import X` transparently binds the shims. Translation logic lives in
+pa_local_compute.py (Airflow-free, unit-tested). See README.md / SPIKE_RESULTS.md.
 """
 import json
 import os
 import sys
 
-if os.environ.get("PIPELINES_COMPUTE_BACKEND", "").lower() == "local":
+# "local" and "ssh-cluster" both mean "not EMR", which is all this swap cares about.
+# WHERE the steps then run is pa_local_compute's business: a la_pipelines container on
+# this host, or by ssh on a permanent cluster's master (PIPELINES_SSH_HOST).
+if os.environ.get("PIPELINES_COMPUTE_BACKEND", "").lower() in ("local", "ssh-cluster"):
     try:
         import inspect
         from airflow.models.baseoperator import BaseOperator
