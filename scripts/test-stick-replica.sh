@@ -188,5 +188,30 @@ for _ in $(seq 1 15); do h=$(docker inspect -f '{{.State.Health.Status}}' "$vict
 [ "$h" = "healthy" ] && pass "y vuelve a healthy sola" || bad "se queda en '$h' despues de clear"
 
 echo
+echo "== 7. recuperacion: un restart (lo que hace autoheal) borra las reglas con el auxiliar puesto =="
+# La otra mitad del AC#4, y el caso raro del diseno: la-autoheal hace `docker restart`
+# (la-autoheal:134) de un contenedor cuyo netns tiene cogido el auxiliar. El netns se
+# recrea, asi que las reglas se van solas -- pero el auxiliar se queda en el netns viejo y
+# hay que comprobar que ni impide el restart ni deja el servicio roto.
+out=$(bash "$SCRIPT" inject 2>&1); echo "$out" | sed 's/^/    /'
+rules_before=$(docker exec la_sick_nm iptables -t nat -S PREROUTING 2>/dev/null | grep -c REDIRECT)
+[ "${rules_before:-0}" -ge 2 ] && pass "reglas puestas otra vez ($rules_before)" || bad "no veo las reglas antes del restart"
+docker restart "$victim" >/dev/null 2>&1 || bad "docker restart fallo con el auxiliar en el netns"
+h=""
+for _ in $(seq 1 30); do h=$(docker inspect -f '{{.State.Health.Status}}' "$victim"); [ "$h" = "healthy" ] && break; sleep 2; done
+[ "$h" = "healthy" ] && pass "la victima vuelve a healthy tras el restart" || bad "despues del restart sigue '$h'"
+code=""
+for _ in $(seq 1 15); do
+  ip=$(docker inspect -f '{{(index .NetworkSettings.Networks "'"${P}"'_default").IPAddress}}' "$victim")
+  code=$(docker run --rm --network "${P}_default" $IMG curl -s -o /dev/null -m 5 -w '%{http_code}' "http://${ip}:9179/" 2>/dev/null)
+  [ "$code" = "200" ] && break; sleep 2
+done
+[ "$code" = "200" ] && pass "y contesta 200: el restart se llevo las reglas, no hubo que deshacerlas" \
+  || bad "despues del restart sigue sin contestar bien (HTTP '$code')"
+out=$(bash "$SCRIPT" clear 2>&1); echo "$out" | sed 's/^/    /'
+docker ps -a --format '{{.Names}}' | grep -qx la_sick_nm && bad "el auxiliar huerfano sigue ahi" \
+  || pass "clear borra el auxiliar aunque su netns ya no exista"
+
+echo
 if [ "$fail" -eq 0 ]; then echo "Todo en verde."; else echo "HAY FALLOS."; fi
 exit "$fail"

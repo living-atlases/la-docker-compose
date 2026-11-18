@@ -130,7 +130,9 @@ cmd_status() {
     local health code
     health=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$cid")
     code=$(probe "$cid")
-    info "$name  id=${cid:0:12}  health=$health  restarts=$(docker inspect -f '{{.RestartCount}}' "$cid")  HTTP ${PORT}=${code:-sin respuesta}"
+    # RestartCount no cuenta un `docker restart` (solo los de la politica), y autoheal
+    # reinicia asi: la senal de que lo reinicio es StartedAt, no el contador.
+    info "$name  id=${cid:0:12}  health=$health  desde=$(docker inspect -f '{{.State.StartedAt}}' "$cid" | cut -c1-19)  HTTP ${PORT}=${code:-sin respuesta}"
   done <<EOF
 $(replicas)
 EOF
@@ -251,7 +253,7 @@ cmd_clear() {
   if [ -n "$cid" ] && docker inspect "$cid" >/dev/null 2>&1; then
     local code=""
     for _ in $(seq 1 30); do code=$(probe "$cid"); [ "$code" = "200" ] && break; sleep 2; done
-    info "la victima contesta HTTP ${code:-nada} (restarts=$(docker inspect -f '{{.RestartCount}}' "$cid"))"
+    info "la victima contesta HTTP ${code:-nada} (arrancada desde $(docker inspect -f '{{.State.StartedAt}}' "$cid" | cut -c1-19))"
   fi
   cmd_status
 }
