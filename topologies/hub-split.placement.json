@@ -22,6 +22,7 @@
     "zookeeper": "host2",
     "ala_bie": "host3",
     "bie_index": "host3",
+    "dashboard": "host3",
     "regions": "host3",
     "sds": "host3",
     "namematching_service": "host3",

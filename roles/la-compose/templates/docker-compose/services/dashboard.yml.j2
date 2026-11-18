@@ -1,0 +1,47 @@
+# Dashboard - portal statistics (legacy ALA dashboard)
+#
+# The modern replacement is atlas-index's dashboard-ui, which has no published image yet
+# (see README.md, "Dashboard"): this is the legacy war, as sds is to sensitive-data-service.
+services:
+  dashboard:
+    image: {% set svc_reg = dashboard_registry | default(docker_registry | default('')) %}{{ svc_reg }}{% if svc_reg %}/{% endif %}dashboard:{{ dashboard_version | default('latest') }}
+    container_name: {{ dashboard_docker_host | default('la_dashboard') }}
+    profiles: [app-core, full]
+    extra_hosts: {{ docker_extra_hosts_dict | default({}) | to_json }}
+{# Same gate and same condition as regions: the commonui header/footer is fetched over HTTP
+   and CacheService keeps whatever came back for a day (maxAgeInDays=1), so a page rendered
+   before the branding is up would serve a broken header all day. The terms must stay in step
+   with base.yml.j2's unsuffixed wait-for-branding, or compose aborts on a missing service. #}
+{% if 'collectory' in services_enabled or 'ala_bie' in services_enabled %}
+    depends_on:
+      wait-for-branding:
+        condition: service_completed_successfully
+{% endif %}
+    volumes:
+      # The ala-install dashboard role writes config, data.json, csv/ and zip/ under
+      # {{ data_dir }}/dashboard; the app reads them all from /data/dashboard (grails.config
+      # .locations, statistics.file, download.csv.dir in its application.yml), so the whole
+      # directory is bound rather than config alone. csv/ and zip/ are written at runtime.
+      - {{ data_dir }}/dashboard:/data/dashboard
+      # The role's logback.xml sets LOG_DIR with a logback <variable>, which wins over the
+      # env var, so the only way to redirect the log file is to bind what it points at.
+      - {{ data_dir }}/dashboard/logs:/var/log/tomcat9
+    restart: unless-stopped
+    expose:
+      - {{ dashboard_port | default('8080') }}
+    environment:
+      TZ: {{ server_tz | default('UTC') }}
+      # The dashboard war takes its context path from the servlet container, not from its
+      # config: nginx proxies the full path, so a non-root context must be served there.
+      JAVA_OPTS: ${DASHBOARD_JAVA_OPTS}{{ (' -Dserver.servlet.context-path=' ~ dashboard_context_path) if (dashboard_context_path | default('')) not in ['', '/'] else '' }}
+    networks:
+      default: {}
+      {{ docker_network | default('internal') }}:
+    healthcheck:
+      # No datastore of its own: it only reads other services' web services, and renders with
+      # whatever it has (the panels fail one by one). Accept 2xx/3xx/4xx, fail on refused/5xx.
+      test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' http://localhost:{{ dashboard_port | default('8080') }}{{ dashboard_context_path | default('') | regex_replace('/+$', '') }}/ | grep -qvE '^(000|5)'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s

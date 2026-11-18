@@ -352,6 +352,12 @@
         - { svc: 'pdfgen',               path: "{{ data_dir }}/pdfgen/storage" }
         - { svc: 'pdfgen',               path: "{{ data_dir }}/pdfgen/logs" }
         - { svc: 'sds',                  path: "{{ data_dir }}/sds/config" }
+        # dashboard (legacy stats war): config, the hand-maintained data.json's directory,
+        # the csv/zip it writes on /downloadAsCsv, and the logs its logback.xml insists on.
+        - { svc: 'dashboard',            path: "{{ data_dir }}/dashboard/config" }
+        - { svc: 'dashboard',            path: "{{ data_dir }}/dashboard/csv" }
+        - { svc: 'dashboard',            path: "{{ data_dir }}/dashboard/zip" }
+        - { svc: 'dashboard',            path: "{{ data_dir }}/dashboard/logs" }
       when: item.svc in services_enabled
       loop_control:
         label: "{{ item.path }}"
