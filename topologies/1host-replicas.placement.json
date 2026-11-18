@@ -29,6 +29,7 @@
     "spark": "host1",
     "hadoop": "host1",
     "airflow": "host1",
+    "dashboard": "host1",
     "regions": "host1"
   },
   "skip_services": [
@@ -43,6 +44,7 @@
     "pipelines",
     "spark",
     "hadoop",
+    "dashboard",
     "regions"
   ],
   "extra_vars": {

@@ -149,9 +149,9 @@
       "LA_webapi_hostname": "",
       "LA_webapi_url": "webapi.l-a.site",
       "LA_webapi_path": "/",
-      "LA_use_dashboard": false,
+      "LA_use_dashboard": true,
       "LA_dashboard_uses_subdomain": true,
-      "LA_dashboard_hostname": "",
+      "LA_dashboard_hostname": "la-mh-2",
       "LA_dashboard_url": "dashboard.l-a.site",
       "LA_dashboard_path": "/",
       "LA_use_sds": true,
@@ -302,6 +302,7 @@
         ],
         "la-mh-2": [
           "airflow.l-a.site",
+          "dashboard.l-a.site",
           "data-quality.l-a.site",
           "doi.l-a.site",
           "images.l-a.site",
@@ -322,6 +323,7 @@
       "LA_docker_extra_hosts_by_host": {
         "la-mh-1": [
           "airflow.l-a.site:10.77.0.2",
+          "dashboard.l-a.site:10.77.0.2",
           "data-quality.l-a.site:10.77.0.2",
           "datos.gbif.es:193.146.75.109",
           "doi.l-a.site:10.77.0.2",
