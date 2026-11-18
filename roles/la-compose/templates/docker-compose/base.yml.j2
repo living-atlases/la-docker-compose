@@ -158,6 +158,10 @@ include:
 {% if 'regions' in services_enabled %}
   - ./services/regions.yml
 {% endif %}
+{% if 'dashboard' in services_enabled %}
+  # Legacy dashboard war; atlas-index's dashboard-ui replaces it once it has an image.
+  - ./services/dashboard.yml
+{% endif %}
 {% if 'doi' in services_enabled %}
   - ./services/doi-service.yml
 {% endif %}

@@ -503,6 +503,7 @@
     sensitive_data_service_docker_host: "{{ sensitive_data_service_docker_host | default('la_sensitive_data_service', true) }}"
     alerts_docker_host: "{{ alerts_docker_host | default('la_alerts', true) }}"
     regions_docker_host: "{{ regions_docker_host | default('la_regions', true) }}"
+    dashboard_docker_host: "{{ dashboard_docker_host | default('la_dashboard', true) }}"
     data_quality_filter_service_docker_host: "{{ data_quality_filter_service_docker_host | default('la_data-quality-filter-service', true) }}"
     spatial_docker_host: "{{ spatial_docker_host | default('la_spatial-hub', true) }}"
     spatial_service_docker_host: "{{ spatial_service_docker_host | default('la_spatial-service', true) }}"
@@ -1830,6 +1831,44 @@
     - "service_aliases.get('regions') is defined"
   tags:
     - regions
+    - config
+    - nginx_vhost
+    - docker-compose
+
+- name: Load dashboard variables from service alias context
+  ansible.builtin.include_tasks: bulk-load-service-vars.yml
+  vars:
+    bulk_service_key: dashboard
+    bulk_run_normalize: false
+  tags:
+    - dashboard
+    - config
+    - bulk-load
+    - docker-compose
+
+# The dashboard reads every figure over HTTP from the other services and keeps no datastore,
+# so its config needs no container rewriting: the generator already emits every
+# dashboard_*_base_url (checked against the running VM config). Only the vhost upstream and
+# the file ownership differ from a VM deploy.
+- name: Run dashboard configuration generation
+  ansible.builtin.include_role:
+    name: dashboard
+    apply:
+      become: true
+      tags:
+        - docker-compose
+  vars:
+    nginx_vhost_fast_mode: true
+    nginx_upstream_host: "dashboard"
+    dashboard_upstream_host: "dashboard"
+    # The role chowns its data dirs to tomcat_user on a VM; in the container the war runs as
+    # the image's own uid 1000 (user 'dashboard').
+    dashboard_user: "{{ docker_default_user }}"
+  when:
+    - "'dashboard' in services_enabled"
+    - "service_aliases.get('dashboard') is defined"
+  tags:
+    - dashboard
     - config
     - nginx_vhost
     - docker-compose
@@ -4053,6 +4092,18 @@
   tags:
     - pdfgen
     - biocollect
+    - docker-compose
+
+- name: Generate dashboard.yml
+  ansible.builtin.template:
+    src: docker-compose/services/dashboard.yml.j2
+    dest: "{{ docker_compose_data_dir }}/services/dashboard.yml"
+    mode: '0644'
+    owner: "{{ docker_compose_userid }}"
+    group: "{{ docker_compose_usergid }}"
+  when: "'dashboard' in services_enabled"
+  tags:
+    - dashboard
     - docker-compose
 
 - name: Generate clamav.yml
