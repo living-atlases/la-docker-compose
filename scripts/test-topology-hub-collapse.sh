@@ -60,6 +60,14 @@ for fe, path, host in (("ala_hub", "/records", "la-mh-1"),
     hub["LA_%s_hostname" % fe] = host
 hub["LA_pkg_name"] = "lademohub"
 
+# Settings that are comma- or newline-separated but name no host, with a
+# repetition in each: re-homing must not re-space or deduplicate them. The real
+# hub carries several (the SDS layer and flag lists), and SDS reads them as
+# written.
+hub["LA_variable_sds_spatial_layers"] = "cl932,cl927,cl23,cl927"
+hub["LA_variable_sds_flag_rules"] = "PBC7,PBC8,PBC7"
+hub["LA_variable_test_block"] = "  keep me \n  keep me \n  and me "
+
 json.dump(doc, open(sys.argv[1], "w"), indent=2)
 PY
 [ -s "$BASE" ] || { echo "ERROR: could not build the toolkit-shaped base" >&2; exit 1; }
@@ -108,6 +116,37 @@ PY
     pass "${variant}: toolkit-shaped hub applies and names no dropped host"
   else
     fail "${variant}: dropped host(s) survive in the variant: ${left}"
+  fi
+
+  # Re-homing must touch ONLY values that name a host. A hub also carries plain
+  # comma-separated settings (LA_variable_sds_spatial_layers, sds_flag_rules),
+  # and re-spacing or deduplicating those would hand SDS a different config.
+  touched="$(python3 - "$BASE" "$out" <<'PY'
+import json, sys
+
+
+def hub(path):
+    pv = json.load(open(path))["generator-living-atlas"]["promptValues"]
+    return pv["LA_hubs"][0], pv
+
+
+before, bpv = hub(sys.argv[1])
+after, _ = hub(sys.argv[2])
+tokens = [t.strip() for t in bpv["LA_hostnames"].split(",") if t.strip()]
+tokens += [t.strip() for t in bpv["LA_server_ips"].split(",") if t.strip()]
+bad = [
+    k
+    for k, v in before.items()
+    if json.dumps(v) != json.dumps(after.get(k))
+    and not any(t in json.dumps(v) for t in tokens)
+]
+print(" ".join(bad))
+PY
+)"
+  if [ -z "$touched" ]; then
+    pass "${variant}: only host-bearing values of the hub were rewritten"
+  else
+    fail "${variant}: rewrote hub values that name no host: ${touched}"
   fi
 done
 

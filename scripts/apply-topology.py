@@ -330,6 +330,8 @@ def collapse_hosts(obj, name_map, ip_map):
         return merged
     if isinstance(obj, list):
         items = [collapse_hosts(v, name_map, ip_map) for v in obj]
+        if items == obj:
+            return obj
         try:
             return list(OrderedDict.fromkeys(items))
         except TypeError:  # unhashable members: nothing to deduplicate
@@ -339,6 +341,12 @@ def collapse_hosts(obj, name_map, ip_map):
         for old, new in list(name_map.items()) + list(ip_map.items()):
             if old != new:
                 s = s.replace(old, new)
+        if s == obj:
+            # No host in it, so it is not a host list, whatever it looks like:
+            # leave it byte for byte (a hub also carries plain comma-separated
+            # values such as LA_variable_sds_spatial_layers, which the SDS
+            # config reads as written).
+            return obj
         if "\n" in s:
             # One host per line (LA_etc_hosts): keep each line verbatim,
             # indentation included, and drop the ones the collapse duplicated.
