@@ -460,6 +460,19 @@ gatus_root_up_condition: "[STATUS] < 400"
 # Certificate expiry checks: 336h = 14 days of warning. A long interval matters because
 # gatus does not retry within a probe, and firing every cert check at once caused
 # transient timeouts that read as [CERTIFICATE_EXPIRATION] (0s) -> spurious red.
+#
+# Which certificate these checks actually see, on a deployment with
+# use_la_site_certs=true: the INTERNAL one, the wildcard that certs-init unpacks from the
+# livingatlases/l-a-site-certs image into nginx — not the public certificate a browser
+# gets through the proxy in front. The two have different lifetimes, so this group can go
+# red while every site is served a perfectly valid certificate, and a public renewal does
+# nothing for it. That image is rebuilt by a job of its own, outside this repository, and
+# a deploy only picks up whatever the image currently holds: if the job stops renewing,
+# these checks are the first thing that notices, and the 14 days above are the whole
+# margin anyone gets. When they turn red, read the expiry out of the image before
+# touching this threshold -- the threshold is almost never the problem:
+#   docker run --rm --entrypoint cat livingatlases/l-a-site-certs:latest /certs/cert.pem \
+#     | openssl x509 -noout -enddate
 gatus_cert_interval: "15m"
 gatus_cert_expiry_threshold: "336h"
 
