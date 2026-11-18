@@ -34,6 +34,9 @@
     "airflow": "host3",
     "gatus": "host3"
   },
+  "shared_vhost_splits": [
+    "hub.l-a.site"
+  ],
   "skip_services": [],
   "shared_hostname": {
     "portal-shared.l-a.site": {

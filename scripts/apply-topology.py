@@ -303,6 +303,53 @@ def resolve_placement(pv, placement):
     return hosts, svc_slot
 
 
+def collapse_hosts(obj, name_map, ip_map):
+    """`obj` with every base host name and IP rewritten to the one that survives.
+
+    A data hub entry written by la-toolkit is a CLONE of the portal's settings:
+    besides its front-ends it carries a hostname for every service and its own
+    copies of the cluster-wide keys (LA_hostnames, LA_etc_hosts,
+    LA_nginx_docker_internal_aliases_by_host, LA_docker_extra_hosts_by_host...).
+    A variant with fewer hosts than the base must not leave a dropped host named
+    in any of them — cmd_apply's safety net refuses the whole variant if it does.
+    Mapping base host i to slot min(i, last) collapses them the same way the
+    portal's own services collapse, and is the identity on a full-size variant.
+
+    Collapsing makes duplicates (two hosts become one), so lists, dict keys and
+    the comma- and newline-separated strings the generator uses are deduplicated,
+    keeping the first occurrence so order stays stable.
+    """
+    if isinstance(obj, dict):
+        merged = OrderedDict()
+        for k, v in obj.items():
+            key = name_map.get(k, k)
+            new = collapse_hosts(v, name_map, ip_map)
+            if key in merged and isinstance(merged[key], list) and isinstance(new, list):
+                new = list(OrderedDict.fromkeys(merged[key] + new))
+            merged[key] = new
+        return merged
+    if isinstance(obj, list):
+        items = [collapse_hosts(v, name_map, ip_map) for v in obj]
+        try:
+            return list(OrderedDict.fromkeys(items))
+        except TypeError:  # unhashable members: nothing to deduplicate
+            return items
+    if isinstance(obj, str):
+        s = obj
+        for old, new in list(name_map.items()) + list(ip_map.items()):
+            if old != new:
+                s = s.replace(old, new)
+        if "\n" in s:
+            # One host per line (LA_etc_hosts): keep each line verbatim,
+            # indentation included, and drop the ones the collapse duplicated.
+            return "\n".join(OrderedDict.fromkeys(s.split("\n")))
+        if "," in s:
+            parts = [p.strip() for p in s.split(",") if p.strip()]
+            return ", ".join(OrderedDict.fromkeys(parts))
+        return s
+    return obj
+
+
 def compute_variant(pv, placement):
     """Return the dict of .yo-rc keys to overwrite for this placement."""
     enable_services(pv, placement)
@@ -432,9 +479,24 @@ def compute_variant(pv, placement):
     if "solrcloud" in svc_slot:
         out["LA_docker_solr_hosts"] = [names[svc_slot["solrcloud"]]]
     if hub_slots:
+        # A hub entry written by la-toolkit carries a hostname for EVERY service,
+        # not only its front-ends (the toolkit clones the portal's placement into
+        # it). On a variant with fewer hosts than the base those extra keys would
+        # keep naming hosts the variant dropped, and cmd_apply's safety net then
+        # refuses the whole variant ("dropped host ... still referenced by:
+        # LA_hubs"). So first collapse every hostname in the entry the same way
+        # the hosts themselves collapse (base host i -> slot min(i, last)), and
+        # only then place the front-ends on their resolved slots. On a
+        # full-size variant the collapse is the identity, so nothing moves.
+        bhosts_ordered = base_hosts(pv)
+        keep = lambda i: min(i, len(names) - 1)  # noqa: E731
+        name_map = {n: names[keep(i)] for i, (n, _) in enumerate(bhosts_ordered)}
+        ip_map = {
+            ip: ip_of[names[keep(i)]] for i, (_, ip) in enumerate(bhosts_ordered)
+        }
         rehomed = []
         for i, hub in enumerate(pv.get("LA_hubs") or []):
-            entry = OrderedDict(hub)
+            entry = collapse_hosts(hub, name_map, ip_map)
             for fe, slot in (hub_slots.get(i) or {}).items():
                 entry["LA_%s_hostname" % fe] = names[slot]
             rehomed.append(entry)

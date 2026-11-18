@@ -33,6 +33,9 @@
     "dashboard": "host2",
     "regions": "host2"
   },
+  "shared_vhost_splits": [
+    "hub.l-a.site"
+  ],
   "skip_services": [
     "spatial",
     "spatial-service",

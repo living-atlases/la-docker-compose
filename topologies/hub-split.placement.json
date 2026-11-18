@@ -45,5 +45,8 @@
       "ala_hub": "host2"
     }
   },
+  "shared_vhost_splits": [
+    "hub.l-a.site"
+  ],
   "skip_services": []
 }

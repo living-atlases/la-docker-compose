@@ -32,5 +32,8 @@
     "cassandra": "host3",
     "airflow": "host3"
   },
+  "shared_vhost_splits": [
+    "hub.l-a.site"
+  ],
   "skip_services": []
 }

@@ -1000,6 +1000,11 @@ EOF
                     # (an Integer replica count, a Boolean drop-in flag), and every other
                     # topology contributes none. Runs the real Jenkinsfile helper. ~5s.
                     bash scripts/test-topology-extra-vars.sh
+                    # A data hub shaped like la-toolkit writes one (the portal's placement
+                    # cloned in, four front-ends on one path-split vhost) applies on every
+                    # variant: the fixture hubs are minimal, so the topology matrix cannot
+                    # see this and a build only found out 35 minutes in. ~5s.
+                    bash scripts/test-topology-hub-collapse.sh
                     # docker_config_files from a real .ini: per-host placement, mode, idempotency,
                     # i18n overlay and nginx conf.d dests. ~15s.
                     VENV_MOLECULE="$VENV_MOL" bash scripts/test-config-files.sh
