@@ -28,6 +28,7 @@ services:
       # single-node discovery skips the production bootstrap checks this would otherwise trigger.
       network.host: "0.0.0.0"
       ES_JAVA_OPTS: "-Xms512m -Xmx{{ doi_elasticsearch_heap | default('1g') }}{{ (' ' ~ (java4shell_tool_options | default('-XX:-UseBASE64Intrinsics'))) if (java4shell_mitigation | default(true) | bool) else '' }}"
+      CLI_JAVA_OPTS: "{{ (java4shell_tool_options | default('-XX:-UseBASE64Intrinsics')) if (java4shell_mitigation | default(true) | bool) else '' }}"
     volumes:
       - la_doi-elasticsearch-data:/usr/share/elasticsearch/data
     networks:

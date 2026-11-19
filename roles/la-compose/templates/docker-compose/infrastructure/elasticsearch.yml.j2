@@ -17,6 +17,7 @@ services:
       discovery.type: "single-node"
       xpack.security.enabled: "false"
       ES_JAVA_OPTS: "-Xms512m -Xmx2g{{ (' ' ~ (java4shell_tool_options | default('-XX:-UseBASE64Intrinsics'))) if (java4shell_mitigation | default(true) | bool) else '' }}"
+      CLI_JAVA_OPTS: "{{ (java4shell_tool_options | default('-XX:-UseBASE64Intrinsics')) if (java4shell_mitigation | default(true) | bool) else '' }}"
       indices.memory.index_buffer_size: "30%"
     volumes:
       - la_elasticsearch-data:/usr/share/elasticsearch/data

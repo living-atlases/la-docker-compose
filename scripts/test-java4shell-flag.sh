@@ -157,12 +157,17 @@ ES_MUST_HAVE = {
     "infrastructure/elasticsearch.yml.j2": "elasticsearch",
     "infrastructure/ecodata-elasticsearch.yml.j2": "ecodata-elasticsearch",
 }
+# ES 8 starts the server from a small launcher JVM (bin/elasticsearch-cli, "-Dcli.name=server")
+# that stays alive as its parent and reads CLI_JAVA_OPTS, not ES_JAVA_OPTS: without it the
+# launcher runs the bundled JDK unmitigated and check_java4shell goes CRITICAL.
 ES_LINE = re.compile(r"^\s*ES_JAVA_OPTS:.*$", re.MULTILINE)
+CLI_LINE = re.compile(r"^\s*CLI_JAVA_OPTS:.*$", re.MULTILINE)
 for rel, name in ES_MUST_HAVE.items():
     text = render(rel, True)
-    lines = ES_LINE.findall(text)
-    if len(lines) != 1 or FLAG not in lines[0]:
-        failures.append(f"{name}: want one ES_JAVA_OPTS line with {FLAG}, got {lines}")
+    for var, rx in (("ES_JAVA_OPTS", ES_LINE), ("CLI_JAVA_OPTS", CLI_LINE)):
+        lines = rx.findall(text)
+        if len(lines) != 1 or FLAG not in lines[0]:
+            failures.append(f"{name}: want one {var} line with {FLAG}, got {lines}")
     if LINE.search(text):
         failures.append(f"{name}: JAVA_TOOL_OPTIONS is unset by elasticsearch-env, use ES_JAVA_OPTS")
     if FLAG in render(rel, False):
