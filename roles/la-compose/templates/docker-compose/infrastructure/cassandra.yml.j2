@@ -30,6 +30,9 @@ services:
       CASSANDRA_START_RPC: "true"
       HEAP_NEWSIZE: "{{ cassandra_heap_newsize | default('256m') }}"
       MAX_HEAP_SIZE: "{{ cassandra_max_heap | default('2g') }}"
+{% if java4shell_mitigation | default(true) | bool %}
+      JAVA_TOOL_OPTIONS: "{{ java4shell_tool_options | default('-XX:-UseBASE64Intrinsics') }}"
+{% endif %}
     volumes:
       - la_cassandra-data:/var/lib/cassandra
     networks:

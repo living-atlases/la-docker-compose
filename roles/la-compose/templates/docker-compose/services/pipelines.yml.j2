@@ -16,6 +16,9 @@ services:
     environment:
       - TZ=${TZ:-Europe/Brussels}
       - JAVA_OPTS=${PIPELINES_JAVA_OPTS:-}
+{% if java4shell_mitigation | default(true) | bool %}
+      - JAVA_TOOL_OPTIONS={{ java4shell_tool_options | default('-XX:-UseBASE64Intrinsics') }}
+{% endif %}
       - EXTRA_JVM_CLI_ARGS=${EXTRA_JVM_CLI_ARGS:-}
     volumes:
       - ${DATA_DIR:-/data}/la-pipelines:/data/la-pipelines

@@ -661,6 +661,15 @@ config_change_restart: true
 # drift warning stays and the operator recreates deliberately.
 docker_recreate_drifted: "{{ (la_env | default('ci')) != 'production' }}"
 
+# Java4Shell (CVE-2026-114938): RCE pre-auth in HotSpot of JDK 17.0.6..17.0.27 on CPUs with
+# AVX-512 VBMI. Until upstream Temurin images are corrected, the mitigation is to turn off the
+# Base64 intrinsic. It goes in JAVA_TOOL_OPTIONS because the JVM reads it whatever the image's
+# CMD does with JAVA_OPTS. Set only on the JVM 17+ services of the stack, never on JDK 8 (that
+# JVM aborts on the unknown -XX option). Set java4shell_mitigation: false in the inventory only
+# for an image that cannot take the flag. scripts/test-java4shell-flag.sh checks the list.
+java4shell_mitigation: true
+java4shell_tool_options: "-XX:-UseBASE64Intrinsics"
+
 # Dump MySQL/MongoDB/PostgreSQL (auth users, registry, metadata DBs) before the
 # deploy mutates anything — the container equivalent of ala-install's db-backup
 # role (mysqldump/pg_dump/mongodump invoked before each service role). Enabled

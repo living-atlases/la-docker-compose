@@ -11,6 +11,9 @@ services:
     environment:
       TZ: {{ server_tz | default('UTC') }}
       JAVA_OPTS: ${DOI_JAVA_OPTS}
+{% if java4shell_mitigation | default(true) | bool %}
+      JAVA_TOOL_OPTIONS: "{{ java4shell_tool_options | default('-XX:-UseBASE64Intrinsics') }}"
+{% endif %}
     volumes:
       - {{ data_dir }}/doi-service/config:/data/doi-service/config
       # logback.xml writes to /var/log/tomcat9/...; image has no /var/log/tomcat9 (not writable

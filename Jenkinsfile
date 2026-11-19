@@ -1067,6 +1067,11 @@ EOF
                     # overrides. Renders the template, ~1s.
                     bash scripts/test-java-opts-env.sh
 
+                    # Java4Shell (CVE-2026-114938): every JVM 17+ service carries
+                    # JAVA_TOOL_OPTIONS=-XX:-UseBASE64Intrinsics, and no JDK 8 one does (it aborts).
+                    # Renders the templates, ~1s.
+                    VENV_MOLECULE="$VENV_MOL" bash scripts/test-java4shell-flag.sh
+
                     # The per-host -Xmx budget: the template's arithmetic, and the tasks that
                     # render and parse it run through ansible-playbook -- on this venv's
                     # ansible-core, the deploy's, which is how #432 should have been caught

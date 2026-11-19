@@ -41,6 +41,9 @@ services:
 server.{{ s.id }}={{ host }}:{{ s.follower_port | default('2888') }}:{{ s.election_port | default('3888') }};2181{% if not loop.last %} {% endif %}
 {%- endfor %}"
       ZOO_4LW_COMMANDS_WHITELIST: "ruok,mntr,conf,stat,srvr"
+{% if java4shell_mitigation | default(true) | bool %}
+      JAVA_TOOL_OPTIONS: "{{ java4shell_tool_options | default('-XX:-UseBASE64Intrinsics') }}"
+{% endif %}
     volumes:
       - {{ docker_compose_data_dir }}/zookeeper/data:/data
       - {{ docker_compose_data_dir }}/zookeeper/datalog:/datalog

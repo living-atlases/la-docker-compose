@@ -11,6 +11,9 @@ services:
     environment:
       TZ: {{ server_tz | default('UTC') }}
       JAVA_OPTS: ${LOGGER_JAVA_OPTS}
+{% if java4shell_mitigation | default(true) | bool %}
+      JAVA_TOOL_OPTIONS: "{{ java4shell_tool_options | default('-XX:-UseBASE64Intrinsics') }}"
+{% endif %}
       SERVER_CONTEXT_PATH: {{ logger_context_path | default('/logger-service') }}
     volumes:
       # Role writes config to {data_dir}/logger/config; image CMD reads /data/logger-service/config.

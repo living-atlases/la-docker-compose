@@ -62,6 +62,9 @@ services:
     environment:
       TZ: {{ server_tz | default('UTC') }}
       JAVA_OPTS: ${BIOCACHE_SERVICE_JAVA_OPTS}
+{% if java4shell_mitigation | default(true) | bool %}
+      JAVA_TOOL_OPTIONS: "{{ java4shell_tool_options | default('-XX:-UseBASE64Intrinsics') }}"
+{% endif %}
     networks:
       default: {}
       {{ docker_network | default('internal') }}:

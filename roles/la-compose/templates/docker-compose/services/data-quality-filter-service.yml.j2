@@ -11,6 +11,9 @@ services:
     environment:
       TZ: {{ server_tz | default('UTC') }}
       JAVA_OPTS: ${DATAQUALITY_JAVA_OPTS}
+{% if java4shell_mitigation | default(true) | bool %}
+      JAVA_TOOL_OPTIONS: "{{ java4shell_tool_options | default('-XX:-UseBASE64Intrinsics') }}"
+{% endif %}
     volumes:
       # Role writes config to {{ data_dir }}/data-quality-filter-service/config; image reads
       # /data/data-quality-filter-service/config (artifact = data-quality-filter-service).

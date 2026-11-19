@@ -19,6 +19,9 @@ services:
     environment:
       TZ: {{ server_tz | default('UTC') }}
       JAVA_OPTS: ${SPATIAL_SERVICE_JAVA_OPTS}
+{% if java4shell_mitigation | default(true) | bool %}
+      JAVA_TOOL_OPTIONS: "{{ java4shell_tool_options | default('-XX:-UseBASE64Intrinsics') }}"
+{% endif %}
 {% if spatial_service_exploded | default(true) | bool %}
     # Run the war exploded, as ala-install's Tomcat does. spatial-service (<= 3.1.0) finds its
     # task specs by listing the classpath dir /processes/ with java.io.File, which is empty inside

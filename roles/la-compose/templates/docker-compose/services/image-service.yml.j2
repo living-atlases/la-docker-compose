@@ -11,6 +11,9 @@ services:
     environment:
       TZ: {{ server_tz | default('UTC') }}
       JAVA_OPTS: ${IMAGES_JAVA_OPTS}
+{% if java4shell_mitigation | default(true) | bool %}
+      JAVA_TOOL_OPTIONS: "{{ java4shell_tool_options | default('-XX:-UseBASE64Intrinsics') }}"
+{% endif %}
       # Spring Boot auto-configures an Elasticsearch RestClient used ONLY by
       # ElasticsearchRestClientHealthIndicator. Without spring.elasticsearch.uris it
       # defaults to localhost:9200 -> ConnectException in Docker (ES is a separate

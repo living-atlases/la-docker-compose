@@ -36,6 +36,9 @@ services:
     environment:
       TZ: {{ server_tz | default('UTC') }}
       JAVA_OPTS: ${ALERTS_JAVA_OPTS}
+{% if java4shell_mitigation | default(true) | bool %}
+      JAVA_TOOL_OPTIONS: "{{ java4shell_tool_options | default('-XX:-UseBASE64Intrinsics') }}"
+{% endif %}
       # The 5.x image's baked application.yml resolves the Grails dataSource AND spring.liquibase
       # connection from these env vars (${DB_URL}/${DB_USER}/${DB_PASSWORD}/${DB_DRIVER}). The
       # external alerts-config.properties only overrides dataSource.* (not spring.liquibase.*), so
