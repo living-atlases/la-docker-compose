@@ -30,7 +30,9 @@ services:
       CASSANDRA_START_RPC: "true"
       HEAP_NEWSIZE: "{{ cassandra_heap_newsize | default('256m') }}"
       MAX_HEAP_SIZE: "{{ cassandra_max_heap | default('2g') }}"
-{% if java4shell_mitigation | default(true) | bool %}
+{# Java4Shell: Cassandra 3.x runs on Java 8, where the "Picked up JAVA_TOOL_OPTIONS" line breaks the
+   Java version check of cassandra-env.sh and the node never starts (prod, 2026-11-19). #}
+{% if java4shell_mitigation | default(true) | bool and (cassandra_version | default('5.0.6') | string).split('.')[0] | int >= 4 %}
       JAVA_TOOL_OPTIONS: "{{ java4shell_tool_options | default('-XX:-UseBASE64Intrinsics') }}"
 {% endif %}
     volumes:

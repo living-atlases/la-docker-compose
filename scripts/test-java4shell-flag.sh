@@ -114,7 +114,7 @@ env.filters["regex_replace"] = lambda value, pattern, repl="": re.sub(pattern, r
 LINE = re.compile(r"^\s*(?:- )?JAVA_TOOL_OPTIONS[:=]", re.MULTILINE)
 
 
-def render(rel, mitigation):
+def render(rel, mitigation, **extra):
     rel = Path(rel).name
     ctx = {
         "java4shell_mitigation": mitigation,
@@ -126,6 +126,7 @@ def render(rel, mitigation):
         "hub_java_heaps": [],
         "server_tz": "UTC",
     }
+    ctx.update(extra)
     return env.get_template(rel).render(**ctx)
 
 
@@ -140,6 +141,14 @@ for rel, name in MUST_HAVE.items():
     off = render(rel, False)
     if LINE.search(off):
         failures.append(f"{name}: java4shell_mitigation=false still emits JAVA_TOOL_OPTIONS")
+
+# Cassandra 3.x runs on Java 8, and the "Picked up JAVA_TOOL_OPTIONS" line breaks the Java version
+# check of cassandra-env.sh ("Cassandra 3.0 and later require Java 8u40 or later"): la_cassandra of
+# prod (3.11.19) went into a restart loop on 2026-11-19. Only 4.x and later get the flag.
+for ver, want in (("3.11.19", False), ("4.1.7", True), ("5.0.6", True)):
+    text = render("infrastructure/cassandra.yml.j2", True, cassandra_version=ver)
+    if bool(LINE.search(text)) != want:
+        failures.append(f"cassandra {ver}: JAVA_TOOL_OPTIONS {'missing' if want else 'present, breaks Java 8'}")
 
 # Elasticsearch bundles its own JDK (la_doi-elasticsearch: 22.0.2, a line with no fix) and its
 # bin/elasticsearch-env unsets JAVA_TOOL_OPTIONS, so the flag has to go in ES_JAVA_OPTS.
