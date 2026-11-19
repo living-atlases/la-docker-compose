@@ -363,7 +363,10 @@ skip_hubs: []
 # pins apt to it, which serves the stable branch. Measured on ALA production 2026-08-21:
 # biocache-ws.ala.org.au = nginx/1.30.4, auth/collections/spatial = 1.31.4 (mainline). We follow
 # stable. Staying on 1.25 cost us build #361: cas5 emits add_header_inherit, which needs >= 1.29.3.
-docker_nginx_version: "1.30"
+# Exact tag, not "1.30": the nginx service uses the default pull policy (missing), so a floating
+# tag never brings a fix to a host that already has it. 1.30.7 fixes the HTTP/2 and HTTP/3 RCEs
+# CVE-2026-123633, CVE-2026-123007 and CVE-2026-121810 (2026-11-19); scripts/test-nginx-h2-cve.sh.
+docker_nginx_version: "1.30.7"
 
 # The ala-install default of 100 closes a client's HTTP/2 connection every 100 requests. Services
 # that call each other through nginx hit it under load: okhttp reports REFUSED_STREAM and

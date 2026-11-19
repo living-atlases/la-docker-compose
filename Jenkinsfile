@@ -1071,6 +1071,7 @@ EOF
                     # JAVA_TOOL_OPTIONS=-XX:-UseBASE64Intrinsics, and no JDK 8 one does (it aborts).
                     # Renders the templates, ~1s.
                     VENV_MOLECULE="$VENV_MOL" bash scripts/test-java4shell-flag.sh
+                    bash scripts/test-nginx-h2-cve.sh
 
                     # The per-host -Xmx budget: the template's arithmetic, and the tasks that
                     # render and parse it run through ansible-playbook -- on this venv's
