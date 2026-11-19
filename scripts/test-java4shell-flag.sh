@@ -141,6 +141,24 @@ for rel, name in MUST_HAVE.items():
     if LINE.search(off):
         failures.append(f"{name}: java4shell_mitigation=false still emits JAVA_TOOL_OPTIONS")
 
+# Elasticsearch bundles its own JDK (la_doi-elasticsearch: 22.0.2, a line with no fix) and its
+# bin/elasticsearch-env unsets JAVA_TOOL_OPTIONS, so the flag has to go in ES_JAVA_OPTS.
+ES_MUST_HAVE = {
+    "infrastructure/doi-elasticsearch.yml.j2": "doi-elasticsearch",
+    "infrastructure/elasticsearch.yml.j2": "elasticsearch",
+    "infrastructure/ecodata-elasticsearch.yml.j2": "ecodata-elasticsearch",
+}
+ES_LINE = re.compile(r"^\s*ES_JAVA_OPTS:.*$", re.MULTILINE)
+for rel, name in ES_MUST_HAVE.items():
+    text = render(rel, True)
+    lines = ES_LINE.findall(text)
+    if len(lines) != 1 or FLAG not in lines[0]:
+        failures.append(f"{name}: want one ES_JAVA_OPTS line with {FLAG}, got {lines}")
+    if LINE.search(text):
+        failures.append(f"{name}: JAVA_TOOL_OPTIONS is unset by elasticsearch-env, use ES_JAVA_OPTS")
+    if FLAG in render(rel, False):
+        failures.append(f"{name}: java4shell_mitigation=false still emits {FLAG}")
+
 # Source check, not a render: these templates need a dozen role variables to render, and the
 # only way the flag can reach them is an include of the partial or a literal JAVA_TOOL_OPTIONS.
 for rel, name in MUST_NOT_HAVE.items():
@@ -154,5 +172,5 @@ if failures:
         print("  - " + f)
     sys.exit(1)
 
-print(f"✅ Java4Shell flag on {len(MUST_HAVE)} JVM 17+ service(s), absent on {len(MUST_NOT_HAVE)} other(s).")
+print(f"✅ Java4Shell flag on {len(MUST_HAVE)} JVM 17+ service(s) and {len(ES_MUST_HAVE)} Elasticsearch, absent on {len(MUST_NOT_HAVE)} other(s).")
 PYTHON
